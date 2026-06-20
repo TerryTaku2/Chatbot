@@ -1,0 +1,7 @@
+Flask==3.0.3
+Werkzeug==3.0.3
+requests==2.32.3
+python-dotenv==1.0.1
+filetype==1.2.0
+gunicorn==21.2.0
+paynow==1.0.5
