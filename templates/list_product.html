@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>List Products & Services — T-Tech Connect</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;min-height:100vh;padding:20px 16px 40px}
+
+    .page-header{text-align:center;margin-bottom:24px}
+    .logo{font-size:22px;font-weight:800;color:#075e54}
+    .page-header p{font-size:14px;color:#6b7280;margin-top:4px}
+
+    /* ── Global error ── */
+    .global-error{background:#fef2f2;border:1px solid #fecaca;border-radius:10px;
+                  padding:14px 16px;margin-bottom:20px;color:#dc2626;font-size:14px;display:flex;gap:10px;align-items:flex-start}
+
+    /* ── Item card ── */
+    .item-card{background:#fff;border-radius:14px;box-shadow:0 2px 12px rgba(0,0,0,.08);
+               margin-bottom:16px;overflow:hidden;border:2px solid transparent;transition:border-color .2s}
+    .item-card.is-service{border-color:#e0f2fe}
+
+    .card-header{display:flex;align-items:center;justify-content:space-between;
+                 padding:14px 16px;background:#f9fafb;border-bottom:1px solid #f3f4f6}
+    .item-num{font-size:13px;font-weight:700;color:#374151}
+    .remove-btn{background:none;border:none;color:#9ca3af;cursor:pointer;font-size:18px;line-height:1;padding:2px 6px;border-radius:6px}
+    .remove-btn:hover{background:#fee2e2;color:#dc2626}
+
+    /* ── Type toggle ── */
+    .type-toggle{display:flex;gap:8px;padding:14px 16px 0}
+    .type-btn{flex:1;padding:9px;border:2px solid #e5e7eb;border-radius:10px;background:#fff;
+              font-size:13px;font-weight:600;cursor:pointer;transition:all .2s;color:#6b7280}
+    .type-btn.active-product{border-color:#075e54;background:#f0fdf4;color:#075e54}
+    .type-btn.active-service{border-color:#0369a1;background:#f0f9ff;color:#0369a1}
+
+    /* ── Fields ── */
+    .card-body{padding:14px 16px 16px}
+    label{display:block;font-size:12px;font-weight:700;color:#374151;margin-bottom:5px;margin-top:12px;text-transform:uppercase;letter-spacing:.04em}
+    label:first-child{margin-top:0}
+    input[type=text],input[type=number],select,textarea{
+      width:100%;padding:10px 13px;border:1.5px solid #d1d5db;border-radius:9px;
+      font-size:14px;color:#1a1a1a;background:#fff;transition:border-color .2s;-webkit-appearance:none}
+    input:focus,select:focus,textarea:focus{outline:none;border-color:#075e54;box-shadow:0 0 0 3px rgba(7,94,84,.08)}
+    textarea{resize:vertical;min-height:72px;font-family:inherit}
+    select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;background-size:16px;padding-right:36px}
+
+    .two-col{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .qty-wrap{transition:all .3s}
+    .qty-wrap.hidden{display:none}
+
+    /* ── Image upload ── */
+    .upload-area{border:2px dashed #d1d5db;border-radius:10px;padding:18px;text-align:center;
+                 cursor:pointer;transition:border-color .2s;margin-top:4px;position:relative}
+    .upload-area:hover{border-color:#075e54}
+    .upload-area input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+    .upload-label{font-size:13px;color:#6b7280;pointer-events:none}
+    .upload-label span{color:#075e54;font-weight:600}
+    .preview-img{max-width:100%;max-height:120px;border-radius:8px;margin-top:10px;display:none}
+
+    /* ── Commission badge ── */
+    .commission-badge{margin-top:12px;background:#fffbeb;border:1px solid #fcd34d;
+                      border-radius:9px;padding:10px 14px;font-size:13px}
+    .commission-badge .label{color:#92400e;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+    .commission-badge .amount{font-size:18px;font-weight:700;color:#b45309;margin-top:2px}
+
+    /* ── Add item button ── */
+    .add-item-btn{width:100%;padding:13px;border:2px dashed #d1d5db;border-radius:12px;
+                  background:#fff;font-size:14px;font-weight:600;color:#6b7280;cursor:pointer;
+                  transition:all .2s;display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:20px}
+    .add-item-btn:hover{border-color:#075e54;color:#075e54;background:#f0fdf4}
+
+    /* ── Order summary ── */
+    .summary{background:#fff;border-radius:14px;padding:18px;box-shadow:0 2px 12px rgba(0,0,0,.08);margin-bottom:20px}
+    .summary h3{font-size:14px;font-weight:700;color:#374151;margin-bottom:12px;text-transform:uppercase;letter-spacing:.04em}
+    .summary-row{display:flex;justify-content:space-between;font-size:14px;color:#374151;padding:4px 0}
+    .summary-row.total{border-top:1px solid #e5e7eb;margin-top:8px;padding-top:10px;font-weight:700;font-size:16px;color:#075e54}
+    .summary-row.commission{color:#b45309;font-weight:600}
+
+    /* ── Submit ── */
+    .submit-btn{width:100%;padding:15px;background:#075e54;color:#fff;border:none;
+                border-radius:12px;font-size:16px;font-weight:700;cursor:pointer;transition:background .2s}
+    .submit-btn:hover{background:#064e45}
+    .submit-btn:disabled{background:#9ca3af;cursor:not-allowed}
+    .note{text-align:center;font-size:12px;color:#9ca3af;margin-top:12px}
+
+    .field-error{color:#dc2626;font-size:12px;margin-top:4px}
+  </style>
+</head>
+<body>
+
+<div class="page-header">
+  <div class="logo">T-Tech Connect</div>
+  <p>List products &amp; services for sale</p>
+</div>
+
+{% if error %}
+<div class="global-error">⚠️ {{ error }}</div>
+{% endif %}
+
+<form id="listingForm" method="POST"
+      action="/list-product?token={{ token }}"
+      enctype="multipart/form-data">
+
+  <!-- Item cards injected here -->
+  <div id="items-container"></div>
+
+  <button type="button" class="add-item-btn" onclick="addItem()">
+    ＋ Add Another Item
+  </button>
+
+  <!-- Summary -->
+  <div class="summary">
+    <h3>Order Summary</h3>
+    <div id="summary-rows"><div style="color:#9ca3af;font-size:13px">Add items above to see summary.</div></div>
+    <div class="summary-row total" id="summary-total" style="display:none">
+      <span>Commission Due</span><span id="total-commission">$0.00</span>
+    </div>
+    <p style="font-size:11px;color:#9ca3af;margin-top:8px">
+      Commission is charged on the total selling price of each item at the applicable rate.
+    </p>
+  </div>
+
+  <button type="submit" class="submit-btn" id="submitBtn">Submit Listing</button>
+  <p class="note">This link expires in 30 minutes and can only be used once.</p>
+</form>
+
+<!-- ─── Item template (hidden) ──────────────────────────────────────────── -->
+<template id="item-template">
+  <div class="item-card" data-index="__IDX__">
+    <div class="card-header">
+      <span class="item-num">Item #__NUM__</span>
+      <button type="button" class="remove-btn" onclick="removeItem(this)" title="Remove item">✕</button>
+    </div>
+
+    <!-- Type toggle -->
+    <div class="type-toggle">
+      <button type="button" class="type-btn active-product"
+              onclick="setType(this,'product')">📦 Product</button>
+      <button type="button" class="type-btn"
+              onclick="setType(this,'service')">🔧 Service</button>
+    </div>
+    <input type="hidden" name="item_type" value="product">
+
+    <div class="card-body">
+      <label>Name *</label>
+      <input type="text" name="item_name" placeholder="e.g. HP Laptop 15s / Plumbing Repair" required>
+
+      <label>Category *</label>
+      <select name="item_category" required class="cat-select">
+        <option value="" disabled selected>Select a category</option>
+        <optgroup label="📦 Products" class="product-cats">
+          <option>Laptops &amp; Desktops</option>
+          <option>Networking Equipment</option>
+          <option>CCTV &amp; Security Systems</option>
+          <option>Printers &amp; Accessories</option>
+          <option>Software Licenses</option>
+          <option>IT Services</option>
+          <option>Other Product</option>
+        </optgroup>
+        <optgroup label="🔧 Services" class="service-cats" style="display:none">
+          <option>Home Services</option>
+          <option>Construction &amp; Building</option>
+          <option>IT &amp; Technology</option>
+          <option>Automotive</option>
+          <option>Education &amp; Tutoring</option>
+          <option>Catering &amp; Food</option>
+          <option>Beauty &amp; Personal Care</option>
+          <option>Delivery &amp; Moving</option>
+          <option>Other Service</option>
+        </optgroup>
+      </select>
+
+      <div class="two-col">
+        <div>
+          <label>Price (USD) *</label>
+          <input type="number" name="item_price" min="0.01" step="0.01"
+                 placeholder="0.00" required oninput="updateSummary()">
+        </div>
+        <div class="qty-wrap">
+          <label>Qty *</label>
+          <input type="number" name="item_qty" min="1" value="1" required>
+        </div>
+      </div>
+
+      <label>Description</label>
+      <textarea name="item_desc" placeholder="Specs, condition, availability, what's included..."></textarea>
+
+      <label>Image <span style="font-weight:400;color:#9ca3af">(optional)</span></label>
+      <div class="upload-area" onclick="this.querySelector('input').click()">
+        <div class="upload-label"><span>Click to upload</span> or drag &amp; drop<br>JPG, PNG or WEBP — max 5 MB</div>
+        <input type="file" name="item_image" accept="image/jpeg,image/png,image/webp"
+               onchange="previewImage(this)">
+        <img class="preview-img" alt="preview">
+      </div>
+
+      <div class="commission-badge">
+        <div class="label">💰 Estimated Commission</div>
+        <div class="amount comm-amount">—</div>
+        <div style="font-size:11px;color:#92400e;margin-top:2px" class="comm-note"></div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script>
+  const PRODUCT_RATE = {{ prod_rate }};
+  const SERVICE_RATE = {{ svc_rate  }};
+  let itemCount = 0;
+
+  function addItem() {
+    itemCount++;
+    const idx = itemCount;
+    const tpl = document.getElementById('item-template').innerHTML
+      .replace(/__IDX__/g, idx).replace(/__NUM__/g, idx);
+    const div = document.createElement('div');
+    div.innerHTML = tpl.trim();
+    const card = div.firstElementChild;
+    document.getElementById('items-container').appendChild(card);
+    updateSummary();
+    card.scrollIntoView({behavior:'smooth', block:'nearest'});
+  }
+
+  function removeItem(btn) {
+    const card = btn.closest('.item-card');
+    if (document.querySelectorAll('.item-card').length <= 1) return;
+    card.remove();
+    renumberItems();
+    updateSummary();
+  }
+
+  function renumberItems() {
+    document.querySelectorAll('.item-card').forEach((c, i) => {
+      c.querySelector('.item-num').textContent = `Item #${i + 1}`;
+    });
+  }
+
+  function setType(btn, type) {
+    const card = btn.closest('.item-card');
+    const btns = card.querySelectorAll('.type-btn');
+    btns.forEach(b => b.className = 'type-btn');
+    btn.classList.add(type === 'product' ? 'active-product' : 'active-service');
+    card.querySelector('input[name=item_type]').value = type;
+    card.classList.toggle('is-service', type === 'service');
+
+    // Show/hide quantity
+    card.querySelector('.qty-wrap').classList.toggle('hidden', type === 'service');
+    const qtyInput = card.querySelector('input[name=item_qty]');
+    qtyInput.required = type === 'product';
+    if (type === 'service') qtyInput.value = '1';
+
+    // Show relevant category group
+    card.querySelector('.product-cats').style.display = type === 'product' ? '' : 'none';
+    card.querySelector('.service-cats').style.display  = type === 'service' ? '' : 'none';
+    card.querySelector('select[name=item_category]').value = '';
+
+    updateSummary();
+  }
+
+  function previewImage(input) {
+    const img = input.closest('.upload-area').querySelector('.preview-img');
+    if (input.files && input.files[0]) {
+      img.src = URL.createObjectURL(input.files[0]);
+      img.style.display = 'block';
+      input.closest('.upload-label') && (input.closest('.upload-area').querySelector('.upload-label').style.display = 'none');
+    }
+  }
+
+  function updateSummary() {
+    const cards = document.querySelectorAll('.item-card');
+    let totalComm = 0;
+    const rows = [];
+
+    cards.forEach(card => {
+      const type  = card.querySelector('input[name=item_type]').value;
+      const price = parseFloat(card.querySelector('input[name=item_price]').value) || 0;
+      const qty   = type === 'service' ? 1 : (parseInt(card.querySelector('input[name=item_qty]').value) || 1);
+      const name  = card.querySelector('input[name=item_name]').value.trim() || 'Unnamed item';
+      const rate  = type === 'service' ? SERVICE_RATE : PRODUCT_RATE;
+      const subtotal = price * qty;
+      const comm  = subtotal * rate / 100;
+
+      // Update per-card badge
+      const badge = card.querySelector('.comm-amount');
+      const note  = card.querySelector('.comm-note');
+      if (price > 0) {
+        badge.textContent = `$${comm.toFixed(2)}`;
+        note.textContent  = `${rate}% of $${subtotal.toFixed(2)} ${type === 'product' ? `(${qty} × $${price.toFixed(2)})` : ''}`;
+      } else {
+        badge.textContent = '—';
+        note.textContent  = '';
+      }
+
+      if (price > 0) {
+        totalComm += comm;
+        rows.push(`<div class="summary-row"><span>${name}</span><span>$${comm.toFixed(2)}</span></div>`);
+      }
+    });
+
+    const container = document.getElementById('summary-rows');
+    const totalEl   = document.getElementById('summary-total');
+    if (rows.length) {
+      container.innerHTML = rows.join('');
+      totalEl.style.display = 'flex';
+      document.getElementById('total-commission').textContent = `$${totalComm.toFixed(2)}`;
+    } else {
+      container.innerHTML = '<div style="color:#9ca3af;font-size:13px">Add items above to see summary.</div>';
+      totalEl.style.display = 'none';
+    }
+  }
+
+  // Prevent submit with 0 items
+  document.getElementById('listingForm').addEventListener('submit', function(e) {
+    if (!document.querySelectorAll('.item-card').length) {
+      e.preventDefault();
+      alert('Please add at least one item before submitting.');
+    }
+  });
+
+  // Start with one item
+  addItem();
+</script>
+</body>
+</html>
