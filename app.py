@@ -3338,6 +3338,11 @@ def webhook():
     return jsonify({"status": "ok"}), 200
 
 
+@app.route("/")
+def index():
+    return redirect("/admin")
+
+
 @app.route("/uploads/<filename>")
 def uploaded_file(filename):
     return send_from_directory(UPLOAD_FOLDER, filename)
