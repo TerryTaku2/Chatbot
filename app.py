@@ -4,10 +4,11 @@ import json
 import hmac
 import hashlib
 import time
+import functools
 import filetype
 from collections import defaultdict
 import requests
-from flask import Flask, request, jsonify, render_template, send_from_directory
+from flask import Flask, request, jsonify, render_template, send_from_directory, session, redirect
 from dotenv import load_dotenv
 from werkzeug.utils import secure_filename
 from db import (
@@ -20,7 +21,7 @@ from db import (
     get_session, set_session, clear_session,
     log_message, add_to_waitlist,
     get_waitlist_for_product, clear_waitlist_for_product,
-    create_order, get_buyer_orders, get_seller_orders, update_order_status,
+    create_order, get_order, get_buyer_orders, get_seller_orders, update_order_status,
     log_property_enquiry, get_property_enquiries, update_enquiry_status,
     get_admin_stats, get_all_sellers_admin, get_all_products_admin,
     get_recent_orders_admin, get_all_user_phones, get_seller_phone_list,
@@ -159,13 +160,13 @@ BUYER_MENU = (
 SELLER_MENU = (
     "💼 *Sell / Offer Services*\n"
     "━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-    "1️⃣  — 📦 List a *product* (physical item)\n"
-    "2️⃣  — 🔧 Offer a *service*\n"
-    "3️⃣  — 📋 My listings & services\n"
-    "4️⃣  — 🛒 My orders & bookings\n\n"
-    "📌 Register once — sell products & offer services\n"
+    "1️⃣  — 📝 *Register* as a seller\n"
+    "2️⃣  — 📦 List a *product* (physical item)\n"
+    "3️⃣  — 🔧 Offer a *service*\n"
+    "4️⃣  — 📋 My listings & services\n"
+    "5️⃣  — 🛒 My orders & bookings\n\n"
     "💰 10% commission on approved listings\n\n"
-    "_Reply *1–4* | *0* for main menu_"
+    "_Reply *1–5* | *0* for main menu_"
 )
 
 FIND_SERVICE_MENU = (
@@ -255,6 +256,29 @@ def send_whatsapp_message(to, message):
     except Exception as e:
         log_send(to, message, status="error", error=str(e))
         print(f"[SEND ERROR] to={to} exception={e}")
+        return {}
+
+
+def send_whatsapp_image(to, image_url, caption=""):
+    url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "image",
+        "image": {"link": image_url, "caption": caption},
+    }
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=10)
+        data = response.json()
+        if response.status_code not in (200, 201) or "error" in data:
+            print(f"[IMG FAIL] to={to} err={data.get('error', {}).get('message', response.text)}")
+        return data
+    except Exception as e:
+        print(f"[IMG ERROR] to={to} exception={e}")
         return {}
 
 
@@ -376,9 +400,10 @@ def format_numbered_products(results, title="🔍 *Results:*"):
         status   = "✅ In Stock" if in_stock else "❌ Out of Stock"
         desc     = row.get("description") or ""
         short    = (desc[:60] + "…") if len(desc) > 60 else desc
+        photo    = "  📷 Photo" if row.get("image_path") else ""
         lines.append(
             f"{NUM_EMOJI[i]}  *{row['name']}*\n"
-            f"    💰 ${row['price']:.2f}  |  {status}\n"
+            f"    💰 ${row['price']:.2f}  |  {status}{photo}\n"
             + (f"    _{short}_\n" if short else "")
         )
     lines.append("\n_Reply with a number to select | *0* to go back_")
@@ -824,7 +849,7 @@ def handle_session(phone, msg_text, session):
         if state in ("ctx_dispute_type", "ctx_dispute_desc"):
             clear_session(phone)
             return WELCOME
-        if state in ("reg_kyc", "reg_location"):
+        if state in ("reg_kyc", "reg_location", "reg_name", "reg_business"):
             clear_session(phone)
             return WELCOME
         if state in ("del_reg_name", "del_reg_vehicle", "del_reg_area"):
@@ -845,6 +870,9 @@ def handle_session(phone, msg_text, session):
         if state.startswith("svc_enq") or state.startswith("svc_review") or state.startswith("svc_offer"):
             return go_find_service_menu(phone)
         # All admin sub-states → go back to admin dashboard
+        if state == "ctx_admin_seller_reject_reason":
+            clear_session(phone)
+            return build_admin_dashboard(phone)
         if state.startswith("ctx_admin"):
             return build_admin_dashboard(phone)
         clear_session(phone)
@@ -896,13 +924,15 @@ def handle_session(phone, msg_text, session):
     # ── Menu context: main seller menu ────────────────────────────────────────
     if state == "ctx_seller":
         if msg_text == "1":
-            return _handle_sell_product(phone)
+            return _handle_register(phone)
         if msg_text == "2":
-            return _handle_offer_service(phone)
+            return _handle_sell_product(phone)
         if msg_text == "3":
+            return _handle_offer_service(phone)
+        if msg_text == "4":
             seller = get_seller(phone)
             if not seller or seller["status"] != "approved":
-                return "You need an approved seller account first.\n\nReply *0* to go back to the menu."
+                return "You need an approved seller account first.\n\nReply *1* to register.\n\n_Reply *0* to go back to the menu."
             # Show both product listings and service listings
             products = get_seller_products(phone)
             services = get_provider_services(phone)
@@ -918,10 +948,10 @@ def handle_session(phone, msg_text, session):
                     icon = {"approved": "✅", "pending": "⏳", "rejected": "❌"}.get(s["status"], "•")
                     lines.append(f"{icon} {s['title']} — {_price_label(s)} ({s['status'].title()})")
             if not products and not services:
-                return "📭 You have no listings yet.\n\nReply *1* to list a product or *2* to offer a service.\n\n_Reply *0* for main menu._"
+                return "📭 You have no listings yet.\n\nReply *2* to list a product or *3* to offer a service.\n\n_Reply *0* for main menu._"
             lines.append("\n_Reply *0* for the main menu._")
             return "\n".join(lines)
-        if msg_text == "4":
+        if msg_text == "5":
             seller = get_seller(phone)
             if seller and seller["status"] == "approved":
                 return format_seller_orders(get_seller_orders(phone))
@@ -997,13 +1027,19 @@ def handle_session(phone, msg_text, session):
                 "back": data.get("back", "buyer"),
                 "products": products,
             })
+            # Send product photo over WhatsApp if available
+            if product.get("image_path"):
+                image_url = f"{BASE_URL}/uploads/{product['image_path']}"
+                send_whatsapp_image(phone, image_url, caption=product["name"])
+            web_link = f"{BASE_URL}/product/{product['id']}"
             return (
                 f"🛒 *{product['name']}*\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"📦 Category : {product['category']}\n"
                 f"💰 Price    : ${product['price']:.2f} each\n"
                 f"📦 In stock : {product['stock_qty']} unit(s)\n"
-                f"📝 {desc[:120]}\n\n"
+                f"📝 {desc[:120]}\n"
+                f"🔗 _View photos: {web_link}_\n\n"
                 "How many would you like?\n"
                 "_Type a number (e.g. 1, 2, 3...) or *0* to go back._"
             )
@@ -1575,14 +1611,39 @@ def handle_session(phone, msg_text, session):
             set_session(phone, "ctx_admin_seller_action", {
                 "seller": seller, "sellers": sellers, "mode": mode
             })
-            trust = get_seller_trust_score(seller["phone"])
+            trust     = get_seller_trust_score(seller["phone"])
             trust_bar = "🟢" if trust >= 70 else "🟡" if trust >= 40 else "🔴"
-            kyc_note  = f"\nKYC      : {seller.get('kyc_link','Not provided')}" if seller.get("kyc_link") else "\nKYC      : ⚠️ Not provided"
+            # KYC status — prefer new photo fields, fall back to legacy kyc_link
+            id_photo     = seller.get("id_photo", "")
+            selfie_photo = seller.get("selfie_photo", "")
+            kyc_link     = seller.get("kyc_link", "")
+            if id_photo and selfie_photo:
+                kyc_note = "\nKYC      : ✅ ID + Selfie uploaded (photos follow)"
+            elif id_photo or selfie_photo:
+                kyc_note = "\nKYC      : ⚠️ Partial — only one photo uploaded"
+            elif kyc_link:
+                kyc_note = f"\nKYC      : {kyc_link}"
+            else:
+                kyc_note = "\nKYC      : ❌ Not provided"
+            # Push KYC photos to admin WhatsApp so they can review inline
+            if id_photo:
+                send_whatsapp_image(
+                    phone,
+                    f"{BASE_URL}/uploads/{id_photo}",
+                    caption=f"🪪 ID — {seller['name']} ({seller['business_name']})",
+                )
+            if selfie_photo:
+                send_whatsapp_image(
+                    phone,
+                    f"{BASE_URL}/uploads/{selfie_photo}",
+                    caption=f"🤳 Selfie — {seller['name']} | {seller['phone']}",
+                )
             return (
                 f"👤 *{seller['name']}*\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"Business : {seller['business_name']}\n"
                 f"Phone    : {seller['phone']}\n"
+                f"Location : {seller.get('location') or 'N/A'}\n"
                 f"Status   : {seller.get('status','').title()}\n"
                 f"Trust    : {trust_bar} {trust}/100{kyc_note}\n\n"
                 f"1️⃣  — ✅ Approve seller\n"
@@ -1598,13 +1659,19 @@ def handle_session(phone, msg_text, session):
         sellers = data.get("sellers", [])
         mode    = data.get("mode", "pending")
         if msg_text == "1":
-            result = _approve_seller(seller["phone"]) if mode != "suspend" else _suspend_seller(seller["phone"])
+            result = _suspend_seller(seller["phone"]) if mode == "suspend" else _approve_seller(seller["phone"])
             clear_session(phone)
             return result + "\n\nSend *admin* to return to the panel."
         if msg_text == "2":
-            result = _reject_seller(seller["phone"])
-            clear_session(phone)
-            return result + "\n\nSend *admin* to return to the panel."
+            # Ask for rejection reason before rejecting
+            set_session(phone, "ctx_admin_seller_reject_reason", {
+                "seller": seller, "sellers": sellers
+            })
+            return (
+                f"❌ Rejecting *{seller['name']}*\n\n"
+                "Type the *reason for rejection* (or *skip* for no reason):\n\n"
+                "_Reply *0* to cancel._"
+            )
         if msg_text == "3":
             result = _suspend_seller(seller["phone"])
             clear_session(phone)
@@ -1613,6 +1680,14 @@ def handle_session(phone, msg_text, session):
             f"👤 *{seller.get('name')}*\n\n"
             f"1️⃣  — ✅ Approve\n2️⃣  — ❌ Reject\n3️⃣  — ⚠️ Suspend\n0️⃣  — Back"
         )
+
+    # ── Admin: seller rejection reason input ──────────────────────────────────
+    if state == "ctx_admin_seller_reject_reason":
+        seller = data.get("seller", {})
+        reason = "" if msg_text.lower() == "skip" else msg_text
+        result = _reject_seller(seller["phone"], reason)
+        clear_session(phone)
+        return result + "\n\nSend *admin* to return to the panel."
 
     # ── Admin: product management submenu ─────────────────────────────────────
     if state == "ctx_admin_product_mgmt":
@@ -2272,65 +2347,15 @@ def handle_session(phone, msg_text, session):
         )
 
     # ── Registration flow ─────────────────────────────────────────────────────
-    if state == "reg_name":
-        data["name"] = msg_text.title()
-        set_session(phone, "reg_business", data)
-        return f"Nice to meet you, *{data['name']}*! 👋\n\nWhat is your *business or trading name*?"
-
-    if state == "reg_business":
-        data["business_name"] = msg_text.title()
-        set_session(phone, "reg_location", data)
-        return (
-            "📍 *Business Location*\n\n"
-            "Where is your business located?\n\n"
-            "_e.g. Harare CBD, Bulawayo, Mutare_\n\n"
-            "_Reply *0* to cancel._"
-        )
-
-    if state == "reg_location":
-        data["location"] = msg_text.title()
-        set_session(phone, "reg_kyc", data)
-        return (
-            "🪪 *Identity Verification (KYC)*\n\n"
-            "To protect buyers, we verify all sellers.\n\n"
-            "Please share ONE of the following:\n"
-            "• A link to your National ID photo\n"
-            "• Your Business Registration number\n"
-            "• Your Facebook/LinkedIn business profile URL\n\n"
-            "_This information is only seen by T-Tech admin._\n\n"
-            "_Reply *skip* if you want to submit later, or *0* to cancel._"
-        )
-
-    if state == "reg_kyc":
-        kyc = "" if msg_text.lower() == "skip" else msg_text
+    # Old WhatsApp chat-based registration states — redirect to web form
+    if state in ("reg_name", "reg_business", "reg_location", "reg_kyc"):
         clear_session(phone)
-        conn = __import__("db").get_connection()
-        conn.execute("""
-            INSERT INTO sellers (phone, name, business_name, location, kyc_link, status)
-            VALUES (?, ?, ?, ?, ?, 'pending')
-            ON CONFLICT(phone) DO UPDATE SET
-                name          = excluded.name,
-                business_name = excluded.business_name,
-                location      = excluded.location,
-                kyc_link      = excluded.kyc_link,
-                status        = 'pending'
-        """, (phone, data["name"], data["business_name"], data.get("location", ""), kyc))
-        conn.commit()
-        conn.close()
-        kyc_note = f"\nKYC: {kyc}" if kyc else "\nKYC: Not provided"
-        notify_admin(
-            f"🆕 *New Seller Registration*\n\n"
-            f"Name    : {data['name']}\n"
-            f"Business: {data['business_name']}\n"
-            f"Location: {data.get('location', 'Not specified')}\n"
-            f"Phone   : {phone}{kyc_note}\n\n"
-            f"➡ *approve seller {phone}* or *reject seller {phone}*"
-        )
+        reg_link = f"{BASE_URL}/register"
         return (
-            f"✅ Thank you, *{data['name']}*!\n\n"
-            f"Registration for *{data['business_name']}* submitted.\n"
-            + (f"KYC: Submitted ✅\n\n" if kyc else "KYC: Not submitted ⚠️\n\n")
-            + "We'll notify you within *24 hours*. 🕐\n\n"
+            "📝 *Seller Registration*\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            "Registration now requires uploading your ID photo for verification.\n\n"
+            f"Please complete your registration at:\n🔗 {reg_link}\n\n"
             "_Reply *0* for the main menu._"
         )
 
@@ -2487,13 +2512,17 @@ def _handle_register(phone):
     if seller and seller["status"] == "approved":
         return "✅ You already have an active seller account.\n\nReply *2* to list a product.\n\n_Reply *0* to go back._"
     if seller and seller["status"] == "pending":
-        return "⏳ Your application is still under review. We'll notify you soon."
-    set_session(phone, "reg_name")
+        return "⏳ Your application is still under review. We'll notify you soon.\n\n_Reply *0* to go back._"
+    reg_link = f"{BASE_URL}/register"
     return (
-        "👋 *Seller Registration*\n"
+        "📝 *Seller Registration*\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        "What is your *full name*?\n\n"
-        "_Reply *0* to cancel._"
+        "To register as a seller, open the link below and fill in your details.\n"
+        "You will also need to upload a photo of your *ID* and a *selfie* for verification.\n\n"
+        f"🔗 {reg_link}\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "⏱️ Once submitted, we'll review your application and notify you here within *24 hours*.\n\n"
+        "_Reply *0* to go back._"
     )
 
 
@@ -2501,11 +2530,33 @@ def _check_seller_approved(phone):
     """Returns (seller, error_msg). error_msg is None if approved."""
     seller = get_seller(phone)
     if not seller:
-        return None, "You need a seller account first.\n\nReply *3* from the main menu, then *1* to register — it's free!\n\n_Reply *0* to go back._"
+        return None, (
+            "You need a seller account first.\n\n"
+            f"Register here (takes 2 minutes):\n🔗 {BASE_URL}/register\n\n"
+            "_Reply *0* to go back._"
+        )
     if seller["status"] == "pending":
-        return seller, "⏳ Your account is still under review. We'll notify you once approved."
+        return seller, (
+            "⏳ Your account is still under review.\n\n"
+            "We'll notify you on WhatsApp within 24 hours once approved.\n\n"
+            "_Reply *0* to go back._"
+        )
     if seller["status"] == "rejected":
-        return seller, "❌ Your application was not approved.\n\n📧 terrencemuromba@gmail.com\n📞 +263 77 412 8219"
+        return seller, (
+            "❌ Your application was not approved.\n\n"
+            f"You can re-apply at:\n🔗 {BASE_URL}/register\n\n"
+            f"📧 {get_setting('contact_email', 'terrencemuromba@gmail.com')}\n"
+            f"📞 {get_setting('contact_phone', '+263 77 412 8219')}\n\n"
+            "_Reply *0* to go back._"
+        )
+    if seller["status"] == "suspended":
+        return seller, (
+            "⚠️ Your seller account has been *suspended*.\n\n"
+            "Contact us to resolve this:\n"
+            f"📧 {get_setting('contact_email', 'terrencemuromba@gmail.com')}\n"
+            f"📞 {get_setting('contact_phone', '+263 77 412 8219')}\n\n"
+            "_Reply *0* to go back._"
+        )
     return seller, None
 
 
@@ -2610,29 +2661,39 @@ def _approve_seller(seller_phone):
     _log("approve_seller", "seller", seller_phone, seller.get("name", ""))
     send_whatsapp_message(
         seller_phone,
-        f"🎉 Welcome, *{seller['name']}*! Your seller account is *approved*. ✅\n\n"
-        "📌 *To list a product:*\n"
-        "1️⃣  Go to *Sell* menu (reply *2* from main)\n"
-        "2️⃣  Send *sell* to get your listing link\n"
-        "3️⃣  Fill the form & upload a photo\n"
-        "4️⃣  Go live after admin approval!\n\n"
+        f"🎉 *Congratulations, {seller['name']}!*\n\n"
+        f"Your seller account for *{seller['business_name']}* is now *approved*. ✅\n\n"
+        "📌 *Here's how to start selling:*\n\n"
+        "1️⃣  Message us on WhatsApp (this chat)\n"
+        "2️⃣  Reply *3* from the main menu → *Sell / Offer Services*\n"
+        "3️⃣  Reply *2* to list a product  —or—  *3* to offer a service\n"
+        "4️⃣  Fill in the form and your listing goes live after review!\n\n"
+        "💰 Commission: 10% on each approved listing.\n\n"
         "_Reply *0* for the main menu._"
     )
-    return f"✅ *{seller['name']}* ({seller['business_name']}) approved."
+    return f"✅ *{seller['name']}* ({seller['business_name']}) approved. Seller notified."
 
 
-def _reject_seller(seller_phone):
+def _reject_seller(seller_phone, reason=""):
     seller = get_seller(seller_phone)
     if not seller:
         return "❌ No seller found with that phone number."
     set_seller_status(seller_phone, "rejected")
-    _log("reject_seller", "seller", seller_phone, seller.get("name", ""))
+    _log("reject_seller", "seller", seller_phone,
+         f"{seller.get('name', '')} — {reason}" if reason else seller.get("name", ""))
+    reg_link = f"{BASE_URL}/register"
+    reason_line = f"Reason: _{reason}_\n\n" if reason else ""
     send_whatsapp_message(
         seller_phone,
-        "❌ Your seller application was not approved at this time.\n\n"
-        "For more information:\n"
-        "📧 terrencemuromba@gmail.com\n"
-        "📞 +263 77 412 8219"
+        f"❌ *{seller['name']}*, your seller application was not approved.\n\n"
+        f"{reason_line}"
+        "You may re-apply after correcting the issue:\n"
+        f"🔗 {reg_link}\n\n"
+        "Make sure your ID photo is clear and your selfie shows your face and ID together.\n\n"
+        "For help contact us:\n"
+        f"📧 {get_setting('contact_email', 'terrencemuromba@gmail.com')}\n"
+        f"📞 {get_setting('contact_phone', '+263 77 412 8219')}\n\n"
+        "_Reply *0* for the main menu._"
     )
     return f"❌ *{seller['name']}* rejected. Seller notified."
 
@@ -2641,15 +2702,18 @@ def _suspend_seller(seller_phone):
     seller = get_seller(seller_phone)
     if not seller:
         return "❌ No seller found."
-    set_seller_status(seller_phone, "rejected")
+    set_seller_status(seller_phone, "suspended")
+    _log("suspend_seller", "seller", seller_phone, seller.get("name", ""))
     send_whatsapp_message(
         seller_phone,
-        "⚠️ Your T-Tech Connect seller account has been *suspended*.\n\n"
+        f"⚠️ *{seller['name']}*, your T-Tech Connect seller account has been *suspended*.\n\n"
+        "You will not be able to list new products or services until your account is reinstated.\n\n"
         "Contact us for more information:\n"
-        "📧 terrencemuromba@gmail.com\n"
-        "📞 +263 77 412 8219"
+        f"📧 {get_setting('contact_email', 'terrencemuromba@gmail.com')}\n"
+        f"📞 {get_setting('contact_phone', '+263 77 412 8219')}\n\n"
+        "_Reply *0* for the main menu._"
     )
-    return f"⚠️ *{seller['name']}* suspended."
+    return f"⚠️ *{seller['name']}* suspended. Seller notified."
 
 
 def _approve_product(product_id):
@@ -2844,6 +2908,16 @@ def handle_admin(msg_text, phone):
             )
         lines.append("_*approve delivery <phone>* or *reject delivery <phone>*_")
         return "\n".join(lines)
+
+    if msg_text.startswith("approve seller "):
+        seller_phone = msg_text[15:].strip()
+        return _approve_seller(seller_phone)
+
+    if msg_text.startswith("reject seller "):
+        parts        = msg_text[14:].strip().split(maxsplit=1)
+        seller_phone = parts[0]
+        reason       = parts[1] if len(parts) > 1 else ""
+        return _reject_seller(seller_phone, reason)
 
     if msg_text.startswith("approve delivery "):
         dp_phone = msg_text[17:].strip()
@@ -3269,6 +3343,28 @@ def uploaded_file(filename):
     return send_from_directory(UPLOAD_FOLDER, filename)
 
 
+@app.route("/product/<int:product_id>")
+def product_detail_page(product_id):
+    product = get_product_by_id(product_id)
+    if not product or product["status"] != "approved":
+        return "<h2 style='font-family:sans-serif;text-align:center;margin-top:60px'>Product not found.</h2>", 404
+    product  = dict(product)
+    reviews  = get_product_reviews(product_id, limit=5)
+    avg, cnt = get_product_avg_rating(product_id)
+    image_url = f"/uploads/{product['image_path']}" if product.get("image_path") else None
+    wa_number = WA_BUSINESS_NUMBER or ADMIN_PHONE
+    wa_link   = f"https://wa.me/{wa_number}?text=I+want+to+buy+{product['name'].replace(' ', '+')}"
+    return render_template(
+        "product_detail.html",
+        product=product,
+        image_url=image_url,
+        reviews=reviews,
+        avg_rating=avg,
+        review_count=cnt,
+        wa_link=wa_link,
+    )
+
+
 @app.route("/list-product", methods=["GET", "POST"])
 def list_product():
     token = request.args.get("token", "")
@@ -3402,7 +3498,419 @@ def list_product():
     )
 
 
+@app.route("/register", methods=["GET", "POST"])
+def register_seller_web():
+    if request.method == "GET":
+        return render_template("register_seller.html",
+                               success=False, error=None,
+                               form={}, field_errors={})
+
+    name          = request.form.get("name", "").strip()
+    business_name = request.form.get("business_name", "").strip()
+    phone_local   = request.form.get("phone_local", "").strip()
+    country_code  = request.form.get("country_code", "263").strip()
+    location      = request.form.get("location", "").strip()
+    description   = request.form.get("description", "").strip()
+
+    form = {
+        "name": name, "business_name": business_name,
+        "phone_local": phone_local, "country_code": country_code,
+        "location": location, "description": description,
+    }
+    field_errors = {}
+
+    if not name:
+        field_errors["name"] = "Full name is required."
+    if not business_name:
+        field_errors["business_name"] = "Business name is required."
+    if not location:
+        field_errors["location"] = "Please select your city."
+
+    # Normalise phone → international format (e.g. 263771234567)
+    # Strip spaces, dashes, leading + so we work with digits only
+    cleaned = phone_local.strip().replace(" ", "").replace("-", "").lstrip("+")
+    # Remove country code if the user accidentally included it
+    if cleaned.startswith(country_code):
+        cleaned = cleaned[len(country_code):]
+    # Remove any remaining leading zero (local format)
+    cleaned = cleaned.lstrip("0")
+    phone   = country_code + cleaned
+    if not cleaned or not phone.isdigit() or len(phone) < 9:
+        field_errors["phone"] = "Please enter a valid WhatsApp number."
+
+    # Validate KYC uploads (both required)
+    id_file      = request.files.get("id_photo")
+    selfie_file  = request.files.get("selfie_photo")
+    if not id_file or not id_file.filename:
+        field_errors["id_photo"] = "Please upload a photo of your ID / passport."
+    if not selfie_file or not selfie_file.filename:
+        field_errors["selfie_photo"] = "Please upload a selfie holding your ID."
+
+    if field_errors:
+        return render_template("register_seller.html",
+                               success=False, error=None,
+                               form=form, field_errors=field_errors)
+
+    existing = get_seller(phone)
+    if existing and existing["status"] == "approved":
+        return render_template("register_seller.html",
+                               success=False,
+                               error="This number is already registered and approved. "
+                                     "Message us on WhatsApp to list your products.",
+                               form=form, field_errors={})
+
+    # Save KYC photos
+    id_photo_path     = save_image(id_file)
+    selfie_photo_path = save_image(selfie_file)
+
+    if not id_photo_path:
+        field_errors["id_photo"] = "Invalid file — use JPG, PNG or WEBP under 5 MB."
+    if not selfie_photo_path:
+        field_errors["selfie_photo"] = "Invalid file — use JPG, PNG or WEBP under 5 MB."
+    if field_errors:
+        return render_template("register_seller.html",
+                               success=False, error=None,
+                               form=form, field_errors=field_errors)
+
+    register_seller(phone, name, business_name, location,
+                    id_photo=id_photo_path, selfie_photo=selfie_photo_path)
+
+    # Notify admin with text + KYC photos via WhatsApp
+    notify_admin(
+        f"📋 *New Seller Registration (Web)*\n\n"
+        f"Name     : {name}\n"
+        f"Business : {business_name}\n"
+        f"Phone    : {phone}\n"
+        f"Location : {location}\n"
+        + (f"Sells    : {description[:200]}\n" if description else "")
+        + f"\n📎 KYC photos follow below.\n\n"
+        f"➡ *approve seller {phone}* or *reject seller {phone}*"
+    )
+    if ADMIN_PHONE:
+        if id_photo_path:
+            send_whatsapp_image(
+                ADMIN_PHONE,
+                f"{BASE_URL}/uploads/{id_photo_path}",
+                caption=f"🪪 ID / Passport — {name} ({business_name})",
+            )
+        if selfie_photo_path:
+            send_whatsapp_image(
+                ADMIN_PHONE,
+                f"{BASE_URL}/uploads/{selfie_photo_path}",
+                caption=f"🤳 Selfie with ID — {name} | Phone: {phone}",
+            )
+
+    return render_template("register_seller.html",
+                           success=True,
+                           submitted_name=name,
+                           submitted_business=business_name,
+                           form={}, field_errors={})
+
+
+# ── Web admin panel ───────────────────────────────────────────────────────────
+
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "ttech2024")
+
+def admin_required(f):
+    @functools.wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get("admin_logged_in"):
+            return redirect("/admin/login")
+        return f(*args, **kwargs)
+    return decorated
+
+
+@app.route("/admin/login", methods=["GET", "POST"])
+def admin_login():
+    if request.method == "POST":
+        if request.form.get("password") == ADMIN_PASSWORD:
+            session["admin_logged_in"] = True
+            return redirect("/admin")
+        return render_template("admin_login.html", error="Incorrect password.")
+    if session.get("admin_logged_in"):
+        return redirect("/admin")
+    return render_template("admin_login.html", error=None)
+
+
+@app.route("/admin/logout")
+def admin_logout():
+    session.pop("admin_logged_in", None)
+    return redirect("/admin/login")
+
+
+@app.route("/admin")
+@admin_required
+def admin_dashboard():
+    stats = get_admin_stats()
+    return render_template("admin_dashboard.html", stats=stats, base_url=BASE_URL)
+
+
+# ── Admin JSON API ─────────────────────────────────────────────────────────────
+
+@app.route("/admin/api/stats")
+@admin_required
+def api_admin_stats():
+    s = get_admin_stats()
+    s["pending_services"] = len(get_pending_services())
+    return jsonify(s)
+
+
+@app.route("/admin/api/sellers")
+@admin_required
+def api_sellers():
+    sellers = [dict(r) for r in get_all_sellers_admin()]
+    for s in sellers:
+        s["id_photo_url"]     = f"/uploads/{s['id_photo']}"     if s.get("id_photo")     else None
+        s["selfie_photo_url"] = f"/uploads/{s['selfie_photo']}" if s.get("selfie_photo") else None
+    return jsonify(sellers)
+
+
+@app.route("/admin/api/products")
+@admin_required
+def api_admin_products():
+    rows = [dict(r) for r in get_all_products_admin(limit=100)]
+    for r in rows:
+        r["image_url"] = f"/uploads/{r['image_path']}" if r.get("image_path") else None
+    return jsonify(rows)
+
+
+@app.route("/admin/api/services")
+@admin_required
+def api_admin_services():
+    from db import get_connection
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM services ORDER BY created_at DESC LIMIT 100"
+    ).fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/admin/api/orders")
+@admin_required
+def api_admin_orders():
+    rows = [dict(r) for r in get_recent_orders_admin(limit=100)]
+    return jsonify(rows)
+
+
+@app.route("/admin/api/enquiries")
+@admin_required
+def api_admin_enquiries():
+    prop = [dict(r) for r in get_property_enquiries(limit=50)]
+    svc  = [dict(r) for r in get_service_enquiries(limit=50)]
+    return jsonify({"property": prop, "service": svc})
+
+
+@app.route("/admin/api/delivery")
+@admin_required
+def api_admin_delivery():
+    from db import get_connection
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM delivery_personnel ORDER BY registered_at DESC"
+    ).fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/admin/api/audit")
+@admin_required
+def api_admin_audit():
+    return jsonify(get_audit_log(limit=100))
+
+
+@app.route("/admin/api/settings", methods=["GET"])
+@admin_required
+def api_get_settings():
+    keys = [
+        "commission_rate", "service_commission_rate", "accommodation_commission_rate",
+        "contact_phone", "contact_email", "contact_website", "contact_location",
+        "auto_post_facebook", "newsletter_enabled", "paynow_enabled",
+    ]
+    return jsonify({k: get_setting(k, "") for k in keys})
+
+
+@app.route("/admin/api/settings", methods=["POST"])
+@admin_required
+def api_save_settings():
+    data = request.json or {}
+    for key, value in data.items():
+        set_setting(key, str(value))
+    log_admin_action("web_admin", "update_settings", detail=", ".join(data.keys()))
+    return jsonify({"ok": True, "message": "Settings saved."})
+
+
+@app.route("/admin/api/seller/approve", methods=["POST"])
+@admin_required
+def api_approve_seller():
+    phone = (request.json or {}).get("phone", "")
+    msg   = _approve_seller(phone)
+    return jsonify({"ok": True, "message": msg})
+
+
+@app.route("/admin/api/seller/reject", methods=["POST"])
+@admin_required
+def api_reject_seller_route():
+    body   = request.json or {}
+    phone  = body.get("phone", "")
+    reason = body.get("reason", "")
+    msg    = _reject_seller(phone, reason)
+    return jsonify({"ok": True, "message": msg})
+
+
+@app.route("/admin/api/seller/suspend", methods=["POST"])
+@admin_required
+def api_suspend_seller_route():
+    phone = (request.json or {}).get("phone", "")
+    msg   = _suspend_seller(phone)
+    return jsonify({"ok": True, "message": msg})
+
+
+@app.route("/admin/api/product/approve", methods=["POST"])
+@admin_required
+def api_approve_product_route():
+    pid = (request.json or {}).get("id")
+    msg = _approve_product(pid)
+    return jsonify({"ok": True, "message": msg})
+
+
+@app.route("/admin/api/product/reject", methods=["POST"])
+@admin_required
+def api_reject_product_route():
+    body   = request.json or {}
+    pid    = body.get("id")
+    reason = body.get("reason", "Does not meet listing requirements.")
+    msg    = _reject_product(pid, reason)
+    return jsonify({"ok": True, "message": msg})
+
+
+@app.route("/admin/api/product/remove", methods=["POST"])
+@admin_required
+def api_remove_product_route():
+    pid = (request.json or {}).get("id")
+    msg = _remove_product(pid)
+    return jsonify({"ok": True, "message": msg})
+
+
+@app.route("/admin/api/service/approve", methods=["POST"])
+@admin_required
+def api_approve_service_route():
+    sid = (request.json or {}).get("id")
+    svc = get_service(int(sid)) if sid else None
+    if not svc:
+        return jsonify({"ok": False, "message": "Service not found."})
+    set_service_status(int(sid), "approved")
+    log_admin_action("web_admin", "approve_service", "service", sid, svc["title"])
+    if svc.get("provider_phone"):
+        send_whatsapp_message(
+            svc["provider_phone"],
+            f"🎉 Your service *{svc['title']}* is now *live* on T-Tech Connect!\n\n"
+            "Customers can now find and book your service. 🔧\n\n"
+            "_Reply *0* for the main menu._"
+        )
+    return jsonify({"ok": True, "message": f"'{svc['title']}' approved and live."})
+
+
+@app.route("/admin/api/service/reject", methods=["POST"])
+@admin_required
+def api_reject_service_route():
+    body   = request.json or {}
+    sid    = body.get("id")
+    reason = body.get("reason", "Does not meet listing requirements.")
+    svc    = get_service(int(sid)) if sid else None
+    if not svc:
+        return jsonify({"ok": False, "message": "Service not found."})
+    set_service_status(int(sid), "rejected", reason)
+    log_admin_action("web_admin", "reject_service", "service", sid, reason)
+    if svc.get("provider_phone"):
+        send_whatsapp_message(
+            svc["provider_phone"],
+            f"❌ Your service *{svc['title']}* was not approved.\n\n"
+            f"Reason: _{reason}_\n\n"
+            "Please update and try again from the Sell menu.\n\n"
+            "_Reply *0* for the main menu._"
+        )
+    return jsonify({"ok": True, "message": f"'{svc['title']}' rejected."})
+
+
+@app.route("/admin/api/order/status", methods=["POST"])
+@admin_required
+def api_update_order_status():
+    body     = request.json or {}
+    order_id = body.get("id")
+    status   = body.get("status", "")
+    if status not in ("confirmed", "fulfilled", "cancelled"):
+        return jsonify({"ok": False, "message": "Invalid status."})
+    update_order_status(order_id, status)
+    log_admin_action("web_admin", f"order_{status}", "order", order_id)
+    order = get_order(order_id)
+    if order and order["buyer_phone"]:
+        msgs = {
+            "confirmed":  "✅ Your order has been confirmed and is being processed.",
+            "fulfilled":  "📦 Your order has been fulfilled! Thank you for shopping with T-Tech Connect.",
+            "cancelled":  "❌ Your order has been cancelled. Contact us for more information.",
+        }
+        send_whatsapp_message(
+            order["buyer_phone"],
+            msgs[status] + "\n\n_Reply *0* for the main menu._"
+        )
+    return jsonify({"ok": True, "message": f"Order #{order_id} marked as {status}."})
+
+
+@app.route("/admin/api/delivery/approve", methods=["POST"])
+@admin_required
+def api_approve_delivery_route():
+    phone = (request.json or {}).get("phone", "")
+    dp    = get_delivery_person(phone)
+    if not dp:
+        return jsonify({"ok": False, "message": "Agent not found."})
+    set_delivery_person_status(phone, "approved")
+    log_admin_action("web_admin", "approve_delivery", "delivery_personnel", phone, dp["name"])
+    send_whatsapp_message(
+        phone,
+        f"🎉 *Congratulations, {dp['name']}!*\n\n"
+        "Your delivery agent application has been *approved*! 🚚\n\n"
+        "Reply *my deliveries* to see pending deliveries in your area.\n\n"
+        "_Reply *0* for the main menu._"
+    )
+    return jsonify({"ok": True, "message": f"{dp['name']} approved."})
+
+
+@app.route("/admin/api/delivery/reject", methods=["POST"])
+@admin_required
+def api_reject_delivery_route():
+    phone = (request.json or {}).get("phone", "")
+    dp    = get_delivery_person(phone)
+    if not dp:
+        return jsonify({"ok": False, "message": "Agent not found."})
+    set_delivery_person_status(phone, "rejected")
+    log_admin_action("web_admin", "reject_delivery", "delivery_personnel", phone, dp["name"])
+    send_whatsapp_message(
+        phone,
+        "❌ Your delivery agent application was not approved.\n\n"
+        f"📧 {get_setting('contact_email', '')}\n"
+        "_Reply *0* for the main menu._"
+    )
+    return jsonify({"ok": True, "message": f"{dp['name']} rejected."})
+
+
+@app.route("/admin/api/broadcast", methods=["POST"])
+@admin_required
+def api_broadcast_route():
+    body    = request.json or {}
+    target  = body.get("target", "sellers")
+    message = body.get("message", "").strip()
+    if not message:
+        return jsonify({"ok": False, "message": "Message cannot be empty."})
+    phones  = get_seller_phone_list() if target == "sellers" else get_all_user_phones()
+    full    = f"📢 *T-Tech Connect*\n\n{message}\n\n_Reply *0* for the main menu._"
+    sent    = sum(1 for p in phones if send_whatsapp_message(p, full))
+    log_admin_action("web_admin", "broadcast", detail=f"Sent to {sent} {target}")
+    return jsonify({"ok": True, "message": f"Broadcast sent to {sent} {target}."})
+
+
 @app.route("/admin/analytics")
+@admin_required
 def analytics_web():
     s    = get_analytics_summary(days=7)
     rows = s["revenue_by_day"]

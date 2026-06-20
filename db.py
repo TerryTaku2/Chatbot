@@ -225,11 +225,16 @@ def init_db():
         )
     """)
 
-    # Add KYC link column to sellers if missing
-    try:
-        cursor.execute("ALTER TABLE sellers ADD COLUMN kyc_link TEXT DEFAULT ''")
-    except Exception:
-        pass
+    # Add KYC columns to sellers if missing
+    for col in [
+        "kyc_link TEXT DEFAULT ''",
+        "id_photo TEXT DEFAULT ''",
+        "selfie_photo TEXT DEFAULT ''",
+    ]:
+        try:
+            cursor.execute(f"ALTER TABLE sellers ADD COLUMN {col}")
+        except Exception:
+            pass
 
     # Migrate sellers table if location column missing
     try:
@@ -383,17 +388,20 @@ def init_db():
 
 # ── Sellers ───────────────────────────────────────────────────────────────────
 
-def register_seller(phone, name, business_name, location=""):
+def register_seller(phone, name, business_name, location="",
+                    id_photo="", selfie_photo=""):
     conn = get_connection()
     conn.execute("""
-        INSERT INTO sellers (phone, name, business_name, location, status)
-        VALUES (?, ?, ?, ?, 'pending')
+        INSERT INTO sellers (phone, name, business_name, location, status, id_photo, selfie_photo)
+        VALUES (?, ?, ?, ?, 'pending', ?, ?)
         ON CONFLICT(phone) DO UPDATE SET
             name          = excluded.name,
             business_name = excluded.business_name,
             location      = excluded.location,
+            id_photo      = excluded.id_photo,
+            selfie_photo  = excluded.selfie_photo,
             status        = 'pending'
-    """, (phone, name, business_name, location))
+    """, (phone, name, business_name, location, id_photo, selfie_photo))
     conn.commit()
     conn.close()
 
@@ -453,7 +461,7 @@ def search_products(query):
     cursor = conn.cursor()
     try:
         cursor.execute("""
-            SELECT p.id, p.name, p.category, p.price, p.stock_qty, p.description
+            SELECT p.id, p.name, p.category, p.price, p.stock_qty, p.description, p.image_path
             FROM products p
             JOIN products_fts f ON p.id = f.rowid
             WHERE products_fts MATCH ?
@@ -526,7 +534,7 @@ def get_products_by_category(category):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT id, name, price, stock_qty, description
+        SELECT id, name, price, stock_qty, description, image_path
         FROM products
         WHERE LOWER(category) = LOWER(?) AND status = 'approved'
         ORDER BY name

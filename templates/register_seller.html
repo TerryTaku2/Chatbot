@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Seller Registration — T-Tech Connect</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;min-height:100vh;
+         display:flex;align-items:flex-start;justify-content:center;padding:28px 16px 48px}
+
+    .card{background:#fff;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.1);
+          width:100%;max-width:520px;overflow:hidden}
+
+    /* ── Header ── */
+    .card-header{background:#075e54;padding:28px 28px 24px;text-align:center;color:#fff}
+    .logo{font-size:24px;font-weight:800;letter-spacing:-.5px;margin-bottom:4px}
+    .tagline{font-size:13px;opacity:.8}
+
+    /* ── Body ── */
+    .card-body{padding:28px}
+
+    h2{font-size:18px;font-weight:700;color:#111827;margin-bottom:4px}
+    .intro{font-size:13px;color:#6b7280;margin-bottom:24px;line-height:1.5}
+
+    /* ── Alerts ── */
+    .alert{border-radius:10px;padding:14px 16px;margin-bottom:20px;font-size:13px;
+           display:flex;gap:10px;align-items:flex-start;line-height:1.5}
+    .alert-error{background:#fef2f2;border:1px solid #fecaca;color:#dc2626}
+
+    /* ── Form fields ── */
+    .field{margin-bottom:18px}
+    label{display:block;font-size:12px;font-weight:700;color:#374151;
+          margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em}
+    .required{color:#dc2626;margin-left:2px}
+    input[type=text],input[type=tel],select,textarea{
+      width:100%;padding:11px 14px;border:1.5px solid #d1d5db;border-radius:9px;
+      font-size:14px;color:#111827;background:#fff;transition:border-color .2s;
+      -webkit-appearance:none;font-family:inherit}
+    input:focus,select:focus,textarea:focus{
+      outline:none;border-color:#075e54;box-shadow:0 0 0 3px rgba(7,94,84,.08)}
+    input.error,select.error,textarea.error{border-color:#dc2626}
+    .field-hint{font-size:11px;color:#9ca3af;margin-top:5px}
+    .field-error{font-size:12px;color:#dc2626;margin-top:4px}
+    select{appearance:none;
+           background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+           background-repeat:no-repeat;background-position:right 12px center;
+           background-size:16px;padding-right:36px}
+    textarea{resize:vertical;min-height:80px}
+
+    /* ── Phone row ── */
+    .phone-wrap{display:flex;gap:8px}
+    .country-code{width:90px;flex-shrink:0}
+
+    /* ── Benefits bar ── */
+    .benefits{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;
+              padding:14px 16px;margin-bottom:22px}
+    .benefits-title{font-size:11px;font-weight:700;color:#166534;
+                    text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px}
+    .benefit{display:flex;gap:8px;align-items:flex-start;font-size:13px;
+             color:#374151;margin-bottom:5px;line-height:1.4}
+    .benefit:last-child{margin-bottom:0}
+    .benefit-icon{min-width:18px;color:#16a34a}
+
+    /* ── KYC section ── */
+    .kyc-section{background:#fffbeb;border:1px solid #fcd34d;border-radius:12px;
+                 padding:16px;margin-bottom:20px}
+    .kyc-title{font-size:12px;font-weight:700;color:#92400e;text-transform:uppercase;
+               letter-spacing:.05em;margin-bottom:6px}
+    .kyc-desc{font-size:12px;color:#78350f;line-height:1.5;margin-bottom:14px}
+
+    /* ── Upload areas ── */
+    .upload-pair{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    @media(max-width:420px){.upload-pair{grid-template-columns:1fr}}
+
+    .upload-box{border:2px dashed #d1d5db;border-radius:10px;padding:14px 10px;
+                text-align:center;cursor:pointer;transition:all .2s;position:relative;
+                background:#fff}
+    .upload-box:hover{border-color:#075e54;background:#f0fdf4}
+    .upload-box.has-file{border-color:#16a34a;border-style:solid;background:#f0fdf4}
+    .upload-box.has-error{border-color:#dc2626;border-style:solid;background:#fef2f2}
+    .upload-box input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+    .upload-icon{font-size:28px;margin-bottom:6px;display:block}
+    .upload-label-text{font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:2px}
+    .upload-hint{font-size:11px;color:#9ca3af}
+    .upload-preview{width:100%;height:90px;object-fit:cover;border-radius:7px;
+                    margin-top:8px;display:none}
+    .upload-check{font-size:18px;display:none;color:#16a34a;margin-top:4px}
+
+    /* ── Submit ── */
+    .submit-btn{width:100%;padding:14px;background:#075e54;color:#fff;border:none;
+                border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;
+                transition:background .2s;margin-top:4px}
+    .submit-btn:hover{background:#064e45}
+    .submit-btn:active{background:#053d36}
+    .submit-btn:disabled{background:#9ca3af;cursor:not-allowed}
+    .note{text-align:center;font-size:12px;color:#9ca3af;margin-top:14px;line-height:1.5}
+
+    /* ── Section divider ── */
+    .divider{display:flex;align-items:center;gap:10px;margin:22px 0 18px}
+    .divider-line{flex:1;height:1px;background:#e5e7eb}
+    .divider-text{font-size:11px;font-weight:700;color:#9ca3af;text-transform:uppercase;
+                  letter-spacing:.05em;white-space:nowrap}
+
+    /* ── Success state ── */
+    .success-wrap{padding:36px 28px;text-align:center}
+    .success-icon{font-size:56px;margin-bottom:12px}
+    .success-wrap h2{font-size:22px;color:#075e54;margin-bottom:8px}
+    .success-wrap p{font-size:14px;color:#6b7280;margin-bottom:6px;line-height:1.6}
+    .success-wrap .wa-link{display:inline-block;margin-top:18px;padding:12px 24px;
+                           background:#25d366;color:#fff;border-radius:10px;
+                           font-weight:700;font-size:14px;text-decoration:none}
+    .success-wrap .wa-link:hover{background:#1ebe5c}
+    .success-steps{text-align:left;margin:20px 0;background:#f9fafb;
+                   border-radius:10px;padding:14px 16px}
+    .success-step{display:flex;gap:10px;margin-bottom:10px;align-items:flex-start;
+                  font-size:13px;color:#374151;line-height:1.4}
+    .success-step:last-child{margin-bottom:0}
+    .step-dot{background:#075e54;color:#fff;border-radius:50%;width:20px;height:20px;
+              min-width:20px;font-size:11px;font-weight:700;display:flex;
+              align-items:center;justify-content:center;margin-top:1px}
+  </style>
+</head>
+<body>
+<div class="card">
+  <div class="card-header">
+    <div class="logo">T-Tech Connect</div>
+    <div class="tagline">Zimbabwe's Digital Marketplace</div>
+  </div>
+
+  {% if success %}
+  <!-- ── Success screen ── -->
+  <div class="success-wrap">
+    <div class="success-icon">🎉</div>
+    <h2>Application Submitted!</h2>
+    <p>Thank you, <strong>{{ submitted_name }}</strong>!</p>
+    <p>Your seller application for <strong>{{ submitted_business }}</strong> and your
+       ID documents have been received.</p>
+
+    <div class="success-steps">
+      <div class="success-step">
+        <div class="step-dot">1</div>
+        Our team will verify your identity using the photos you uploaded.
+      </div>
+      <div class="success-step">
+        <div class="step-dot">2</div>
+        You'll receive a WhatsApp message within <strong>24 hours</strong>
+        once your account is approved.
+      </div>
+      <div class="success-step">
+        <div class="step-dot">3</div>
+        Once approved, message us on WhatsApp to get your product listing link.
+      </div>
+    </div>
+
+    <a class="wa-link"
+       href="https://wa.me/263774128219?text=Hi%2C+I+just+registered+as+a+seller">
+      💬 Chat with us on WhatsApp
+    </a>
+    <p class="note" style="margin-top:20px">
+      Questions? WhatsApp us at +263 77 412 8219
+    </p>
+  </div>
+
+  {% else %}
+  <!-- ── Registration form ── -->
+  <div class="card-body">
+    <h2>Seller Registration</h2>
+    <p class="intro">Register once to sell products &amp; offer services on WhatsApp.</p>
+
+    {% if error %}
+    <div class="alert alert-error">⚠️ {{ error }}</div>
+    {% endif %}
+
+    <div class="benefits">
+      <div class="benefits-title">Why sell on T-Tech Connect?</div>
+      <div class="benefit"><span class="benefit-icon">✅</span>Reach thousands of buyers via WhatsApp</div>
+      <div class="benefit"><span class="benefit-icon">✅</span>List products &amp; services with one link</div>
+      <div class="benefit"><span class="benefit-icon">✅</span>Get orders &amp; notifications on your phone</div>
+      <div class="benefit"><span class="benefit-icon">✅</span>Only 10% commission on approved sales</div>
+    </div>
+
+    <form method="POST" action="/register" enctype="multipart/form-data" id="regForm">
+
+      <!-- ── Personal & business info ── -->
+      <div class="field">
+        <label>Full Name <span class="required">*</span></label>
+        <input type="text" name="name" placeholder="e.g. Tendai Moyo"
+               value="{{ form.name or '' }}" required
+               class="{{ 'error' if field_errors.name else '' }}">
+        {% if field_errors.name %}
+        <div class="field-error">{{ field_errors.name }}</div>
+        {% endif %}
+      </div>
+
+      <div class="field">
+        <label>Business / Trading Name <span class="required">*</span></label>
+        <input type="text" name="business_name" placeholder="e.g. Moyo Tech Solutions"
+               value="{{ form.business_name or '' }}" required
+               class="{{ 'error' if field_errors.business_name else '' }}">
+        <div class="field-hint">Your shop or trading name shown to buyers.</div>
+        {% if field_errors.business_name %}
+        <div class="field-error">{{ field_errors.business_name }}</div>
+        {% endif %}
+      </div>
+
+      <div class="field">
+        <label>WhatsApp Number <span class="required">*</span></label>
+        <div class="phone-wrap">
+          <select name="country_code" class="country-code">
+            <option value="263" {% if (form.country_code or '263') == '263' %}selected{% endif %}>🇿🇼 +263</option>
+            <option value="27"  {% if form.country_code == '27' %}selected{% endif %}>🇿🇦 +27</option>
+            <option value="260" {% if form.country_code == '260' %}selected{% endif %}>🇿🇲 +260</option>
+            <option value="267" {% if form.country_code == '267' %}selected{% endif %}>🇧🇼 +267</option>
+            <option value="44"  {% if form.country_code == '44' %}selected{% endif %}>🇬🇧 +44</option>
+            <option value="1"   {% if form.country_code == '1' %}selected{% endif %}>🇺🇸 +1</option>
+          </select>
+          <input type="tel" name="phone_local"
+                 placeholder="0771234567 or 771234567"
+                 value="{{ form.phone_local or '' }}" required
+                 class="{{ 'error' if field_errors.phone else '' }}">
+        </div>
+        <div class="field-hint">The number you use on WhatsApp — approvals sent here.</div>
+        {% if field_errors.phone %}
+        <div class="field-error">{{ field_errors.phone }}</div>
+        {% endif %}
+      </div>
+
+      <div class="field">
+        <label>City / Location <span class="required">*</span></label>
+        <select name="location" required class="{{ 'error' if field_errors.location else '' }}">
+          <option value="" disabled {% if not form.location %}selected{% endif %}>Select your city</option>
+          <option value="Harare"         {% if form.location == 'Harare' %}selected{% endif %}>Harare</option>
+          <option value="Bulawayo"       {% if form.location == 'Bulawayo' %}selected{% endif %}>Bulawayo</option>
+          <option value="Mutare"         {% if form.location == 'Mutare' %}selected{% endif %}>Mutare</option>
+          <option value="Gweru"          {% if form.location == 'Gweru' %}selected{% endif %}>Gweru</option>
+          <option value="Masvingo"       {% if form.location == 'Masvingo' %}selected{% endif %}>Masvingo</option>
+          <option value="Chinhoyi"       {% if form.location == 'Chinhoyi' %}selected{% endif %}>Chinhoyi</option>
+          <option value="Victoria Falls" {% if form.location == 'Victoria Falls' %}selected{% endif %}>Victoria Falls</option>
+          <option value="Other"          {% if form.location == 'Other' %}selected{% endif %}>Other</option>
+        </select>
+        {% if field_errors.location %}
+        <div class="field-error">{{ field_errors.location }}</div>
+        {% endif %}
+      </div>
+
+      <div class="field">
+        <label>What do you sell? <span style="font-weight:400;color:#9ca3af">(optional)</span></label>
+        <textarea name="description" placeholder="e.g. I sell laptops, networking equipment and offer IT support services...">{{ form.description or '' }}</textarea>
+        <div class="field-hint">Helps us match you with the right buyers faster.</div>
+      </div>
+
+      <!-- ── KYC identity verification ── -->
+      <div class="divider">
+        <div class="divider-line"></div>
+        <div class="divider-text">Identity Verification</div>
+        <div class="divider-line"></div>
+      </div>
+
+      <div class="kyc-section">
+        <div class="kyc-title">🪪 ID Verification Required</div>
+        <div class="kyc-desc">
+          To protect buyers and keep the marketplace trustworthy, we verify every seller's
+          identity. Upload a clear photo of your ID and a selfie holding it.
+          Your documents are kept private and only used for verification.
+        </div>
+
+        <div class="upload-pair">
+
+          <!-- ID / Passport / License -->
+          <div class="field" style="margin-bottom:0">
+            <label>
+              Government ID <span class="required">*</span>
+            </label>
+            <div class="upload-box {{ 'has-error' if field_errors.id_photo else '' }}"
+                 id="idBox" onclick="document.getElementById('idInput').click()">
+              <input type="file" id="idInput" name="id_photo"
+                     accept="image/jpeg,image/png,image/webp"
+                     onchange="previewFile(this,'idBox','idPreview','idCheck')">
+              <span class="upload-icon">🪪</span>
+              <span class="upload-label-text">ID / Passport<br>/ Licence</span>
+              <span class="upload-hint">JPG · PNG · WEBP<br>max 5 MB</span>
+              <img id="idPreview" class="upload-preview" alt="ID preview">
+              <div id="idCheck" class="upload-check">✅ Ready</div>
+            </div>
+            {% if field_errors.id_photo %}
+            <div class="field-error">{{ field_errors.id_photo }}</div>
+            {% endif %}
+          </div>
+
+          <!-- Selfie holding ID -->
+          <div class="field" style="margin-bottom:0">
+            <label>
+              Selfie with ID <span class="required">*</span>
+            </label>
+            <div class="upload-box {{ 'has-error' if field_errors.selfie_photo else '' }}"
+                 id="selfieBox" onclick="document.getElementById('selfieInput').click()">
+              <input type="file" id="selfieInput" name="selfie_photo"
+                     accept="image/jpeg,image/png,image/webp"
+                     onchange="previewFile(this,'selfieBox','selfiePreview','selfieCheck')">
+              <span class="upload-icon">🤳</span>
+              <span class="upload-label-text">Your photo<br>holding the ID</span>
+              <span class="upload-hint">JPG · PNG · WEBP<br>max 5 MB</span>
+              <img id="selfiePreview" class="upload-preview" alt="Selfie preview">
+              <div id="selfieCheck" class="upload-check">✅ Ready</div>
+            </div>
+            {% if field_errors.selfie_photo %}
+            <div class="field-error">{{ field_errors.selfie_photo }}</div>
+            {% endif %}
+          </div>
+
+        </div><!-- /upload-pair -->
+
+        <div style="margin-top:10px;font-size:11px;color:#92400e;line-height:1.5">
+          💡 <strong>Tips for a fast approval:</strong>
+          Make sure both photos are clear and well-lit.
+          Your face and the ID text must be fully visible in the selfie.
+        </div>
+      </div><!-- /kyc-section -->
+
+      <button type="submit" class="submit-btn" id="submitBtn">
+        Submit Application →
+      </button>
+      <p class="note">
+        Your ID is used only for identity verification and is never shared publicly.<br>
+        Already registered? Message us on WhatsApp to check your status.
+      </p>
+    </form>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+  function previewFile(input, boxId, previewId, checkId) {
+    const box     = document.getElementById(boxId);
+    const preview = document.getElementById(previewId);
+    const check   = document.getElementById(checkId);
+    if (input.files && input.files[0]) {
+      const file = input.files[0];
+      // 5 MB guard
+      if (file.size > 5 * 1024 * 1024) {
+        alert('File too large — please choose a photo under 5 MB.');
+        input.value = '';
+        return;
+      }
+      preview.src = URL.createObjectURL(file);
+      preview.style.display  = 'block';
+      check.style.display    = 'block';
+      box.classList.add('has-file');
+      box.classList.remove('has-error');
+      // hide icon & label text
+      box.querySelector('.upload-icon').style.display      = 'none';
+      box.querySelector('.upload-label-text').style.display = 'none';
+      box.querySelector('.upload-hint').style.display      = 'none';
+    }
+  }
+
+  // Show loading state on submit
+  document.getElementById('regForm').addEventListener('submit', function() {
+    const btn = document.getElementById('submitBtn');
+    btn.disabled    = true;
+    btn.textContent = 'Submitting…';
+  });
+</script>
+</body>
+</html>

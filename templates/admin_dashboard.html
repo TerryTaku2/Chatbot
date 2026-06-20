@@ -1,0 +1,976 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Admin — T-Tech Connect</title>
+  <style>
+    /* ── Reset & base ── */
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;color:#111827;min-height:100vh}
+    a{text-decoration:none;color:inherit}
+
+    /* ── Layout ── */
+    .shell{display:flex;min-height:100vh}
+    .sidebar{width:220px;background:#075e54;color:#fff;flex-shrink:0;
+             display:flex;flex-direction:column;position:fixed;top:0;left:0;height:100vh;z-index:100}
+    .main{margin-left:220px;flex:1;display:flex;flex-direction:column}
+
+    /* ── Sidebar ── */
+    .sb-logo{padding:22px 20px 18px;border-bottom:1px solid rgba(255,255,255,.12)}
+    .sb-logo .name{font-size:17px;font-weight:800;letter-spacing:-.3px}
+    .sb-logo .role{font-size:11px;opacity:.65;margin-top:2px}
+    .sb-nav{flex:1;padding:12px 0;overflow-y:auto}
+    .sb-section{font-size:10px;font-weight:700;opacity:.5;text-transform:uppercase;
+                letter-spacing:.08em;padding:14px 20px 4px}
+    .sb-link{display:flex;align-items:center;gap:10px;padding:10px 20px;
+             font-size:13px;font-weight:500;cursor:pointer;transition:background .15s;
+             border-left:3px solid transparent}
+    .sb-link:hover{background:rgba(255,255,255,.1)}
+    .sb-link.active{background:rgba(255,255,255,.15);border-left-color:#fff;font-weight:700}
+    .sb-link .icon{font-size:16px;width:22px;text-align:center}
+    .sb-badge{background:rgba(255,255,255,.25);border-radius:20px;font-size:10px;
+              font-weight:700;padding:1px 7px;margin-left:auto}
+    .sb-bottom{padding:14px 20px;border-top:1px solid rgba(255,255,255,.12);font-size:12px}
+    .logout-btn{display:flex;align-items:center;gap:8px;color:rgba(255,255,255,.7);
+                cursor:pointer;padding:6px 0}
+    .logout-btn:hover{color:#fff}
+
+    /* ── Top bar ── */
+    .topbar{background:#fff;padding:14px 28px;display:flex;align-items:center;
+            gap:16px;box-shadow:0 1px 4px rgba(0,0,0,.06);position:sticky;top:0;z-index:50}
+    .topbar-title{font-size:16px;font-weight:700;flex:1}
+    .topbar-refresh{background:#f3f4f6;border:none;padding:7px 14px;border-radius:7px;
+                    font-size:12px;font-weight:600;cursor:pointer;color:#374151}
+    .topbar-refresh:hover{background:#e5e7eb}
+
+    /* ── Content ── */
+    .content{padding:24px 28px;flex:1}
+    .section-page{display:none}
+    .section-page.active{display:block}
+
+    /* ── Stat cards ── */
+    .stat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px;margin-bottom:24px}
+    .stat-card{background:#fff;border-radius:12px;padding:18px;box-shadow:0 2px 8px rgba(0,0,0,.06)}
+    .stat-label{font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;font-weight:600}
+    .stat-value{font-size:28px;font-weight:800;color:#075e54;margin-top:6px;line-height:1}
+    .stat-sub{font-size:11px;color:#9ca3af;margin-top:4px}
+
+    /* ── Section header ── */
+    .sec-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+    .sec-head h2{font-size:15px;font-weight:700;color:#374151}
+    .sec-head .count{font-size:12px;color:#9ca3af;margin-left:8px}
+
+    /* ── Tables ── */
+    .table-wrap{background:#fff;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.06);overflow:hidden;margin-bottom:24px}
+    table{width:100%;border-collapse:collapse;font-size:13px}
+    thead th{background:#f9fafb;padding:10px 14px;text-align:left;font-size:11px;
+             font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.04em;
+             white-space:nowrap}
+    tbody td{padding:11px 14px;border-top:1px solid #f3f4f6;vertical-align:middle}
+    tbody tr:hover{background:#fafafa}
+    .td-name{font-weight:600;color:#111827}
+    .td-sub{font-size:11px;color:#9ca3af;margin-top:2px}
+    .empty-row td{text-align:center;color:#9ca3af;padding:28px;font-style:italic}
+
+    /* ── Badges ── */
+    .badge{display:inline-block;font-size:10px;font-weight:700;padding:3px 8px;
+           border-radius:20px;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap}
+    .badge-pending{background:#fffbeb;color:#92400e;border:1px solid #fcd34d}
+    .badge-approved{background:#f0fdf4;color:#166534;border:1px solid #bbf7d0}
+    .badge-rejected{background:#fef2f2;color:#991b1b;border:1px solid #fecaca}
+    .badge-suspended{background:#fff7ed;color:#9a3412;border:1px solid #fed7aa}
+    .badge-fulfilled{background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe}
+    .badge-cancelled{background:#fef2f2;color:#991b1b;border:1px solid #fecaca}
+    .badge-confirmed{background:#f0fdf4;color:#166534;border:1px solid #bbf7d0}
+
+    /* ── Action buttons ── */
+    .actions{display:flex;gap:6px;flex-wrap:wrap}
+    .btn{padding:5px 11px;border:none;border-radius:6px;font-size:11px;font-weight:700;
+         cursor:pointer;transition:all .15s;white-space:nowrap}
+    .btn-approve{background:#f0fdf4;color:#166534;border:1px solid #bbf7d0}
+    .btn-approve:hover{background:#dcfce7}
+    .btn-reject{background:#fef2f2;color:#991b1b;border:1px solid #fecaca}
+    .btn-reject:hover{background:#fee2e2}
+    .btn-suspend{background:#fff7ed;color:#9a3412;border:1px solid #fed7aa}
+    .btn-suspend:hover{background:#ffedd5}
+    .btn-remove{background:#fef2f2;color:#7f1d1d;border:1px solid #fca5a5}
+    .btn-remove:hover{background:#fee2e2}
+    .btn-view{background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe}
+    .btn-view:hover{background:#dbeafe}
+    .btn-primary{background:#075e54;color:#fff;padding:9px 18px;border-radius:8px;
+                 font-size:13px;font-weight:700;border:none;cursor:pointer}
+    .btn-primary:hover{background:#064e45}
+    .btn-secondary{background:#f3f4f6;color:#374151;padding:9px 18px;border-radius:8px;
+                   font-size:13px;font-weight:700;border:none;cursor:pointer}
+    .btn-secondary:hover{background:#e5e7eb}
+    .btn-danger{background:#dc2626;color:#fff;padding:9px 18px;border-radius:8px;
+                font-size:13px;font-weight:700;border:none;cursor:pointer}
+    .btn-danger:hover{background:#b91c1c}
+
+    /* ── KYC photo thumbnail ── */
+    .kyc-thumb{width:36px;height:36px;object-fit:cover;border-radius:5px;cursor:pointer;
+               border:1px solid #e5e7eb;transition:opacity .15s}
+    .kyc-thumb:hover{opacity:.8}
+    .kyc-missing{font-size:11px;color:#9ca3af;font-style:italic}
+
+    /* ── Image modal ── */
+    .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);
+                   z-index:1000;align-items:center;justify-content:center}
+    .modal-overlay.open{display:flex}
+    .modal-box{background:#fff;border-radius:14px;padding:20px;max-width:520px;width:90%;
+               max-height:90vh;overflow-y:auto;position:relative}
+    .modal-close{position:absolute;top:14px;right:16px;font-size:22px;cursor:pointer;
+                 color:#6b7280;background:none;border:none}
+    .modal-close:hover{color:#111}
+    .modal-title{font-size:16px;font-weight:700;margin-bottom:14px;padding-right:30px}
+    .modal-img{width:100%;border-radius:9px;margin-bottom:10px;display:block}
+    .modal-img-label{font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;
+                     letter-spacing:.05em;margin-bottom:6px}
+    .modal-actions{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+    .modal-reason{width:100%;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:8px;
+                  font-size:13px;margin-top:8px;font-family:inherit;resize:vertical;min-height:60px}
+    .modal-reason:focus{outline:none;border-color:#075e54}
+
+    /* ── Settings form ── */
+    .settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+    @media(max-width:640px){.settings-grid{grid-template-columns:1fr}}
+    .field{margin-bottom:0}
+    .field label{display:block;font-size:12px;font-weight:700;color:#374151;
+                 text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
+    .field input,.field select{width:100%;padding:9px 13px;border:1.5px solid #d1d5db;
+                                border-radius:8px;font-size:13px;font-family:inherit}
+    .field input:focus,.field select:focus{outline:none;border-color:#075e54}
+    .settings-section{background:#fff;border-radius:12px;padding:20px;
+                      box-shadow:0 2px 8px rgba(0,0,0,.06);margin-bottom:20px}
+    .settings-section h3{font-size:13px;font-weight:700;color:#374151;margin-bottom:16px;
+                         text-transform:uppercase;letter-spacing:.04em}
+    .toggle-row{display:flex;align-items:center;justify-content:space-between;padding:8px 0;
+                border-bottom:1px solid #f3f4f6}
+    .toggle-row:last-child{border-bottom:none}
+    .toggle-label{font-size:13px;color:#374151}
+    .toggle{width:40px;height:22px;background:#d1d5db;border-radius:11px;cursor:pointer;
+            position:relative;transition:background .2s;border:none;flex-shrink:0}
+    .toggle.on{background:#075e54}
+    .toggle::after{content:'';position:absolute;top:3px;left:3px;width:16px;height:16px;
+                   background:#fff;border-radius:50%;transition:left .2s}
+    .toggle.on::after{left:21px}
+
+    /* ── Broadcast ── */
+    .broadcast-box{background:#fff;border-radius:12px;padding:24px;
+                   box-shadow:0 2px 8px rgba(0,0,0,.06);max-width:600px}
+    .broadcast-box textarea{width:100%;padding:12px;border:1.5px solid #d1d5db;
+                             border-radius:9px;font-size:14px;font-family:inherit;
+                             resize:vertical;min-height:100px;margin:10px 0}
+    .broadcast-box textarea:focus{outline:none;border-color:#075e54}
+    .radio-row{display:flex;gap:14px;margin-bottom:12px}
+    .radio-row label{display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer}
+
+    /* ── Toast ── */
+    #toast{position:fixed;bottom:24px;right:24px;background:#111827;color:#fff;
+           padding:12px 20px;border-radius:10px;font-size:13px;font-weight:500;
+           opacity:0;transition:opacity .3s;z-index:2000;max-width:340px;line-height:1.4}
+    #toast.show{opacity:1}
+    #toast.ok{background:#166534}
+    #toast.err{background:#991b1b}
+
+    /* ── Filter bar ── */
+    .filter-bar{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center}
+    .filter-btn{padding:5px 13px;border:1.5px solid #d1d5db;border-radius:20px;background:#fff;
+                font-size:12px;font-weight:600;cursor:pointer;color:#374151;transition:all .15s}
+    .filter-btn.active,.filter-btn:hover{border-color:#075e54;color:#075e54;background:#f0fdf4}
+    .search-input{padding:7px 13px;border:1.5px solid #d1d5db;border-radius:8px;
+                  font-size:13px;flex:1;max-width:240px;font-family:inherit}
+    .search-input:focus{outline:none;border-color:#075e54}
+
+    /* ── Loading spinner ── */
+    .spinner{display:inline-block;width:18px;height:18px;border:2px solid #e5e7eb;
+             border-top-color:#075e54;border-radius:50%;animation:spin .7s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .loading-row td{text-align:center;padding:28px}
+
+    /* ── Responsive ── */
+    @media(max-width:768px){
+      .sidebar{width:0;overflow:hidden}
+      .main{margin-left:0}
+      .content{padding:16px}
+    }
+  </style>
+</head>
+<body>
+<div class="shell">
+
+<!-- ── Sidebar ── -->
+<nav class="sidebar">
+  <div class="sb-logo">
+    <div class="name">T-Tech Connect</div>
+    <div class="role">Admin Dashboard</div>
+  </div>
+
+  <div class="sb-nav">
+    <div class="sb-section">Overview</div>
+    <div class="sb-link active" onclick="showSection('overview')">
+      <span class="icon">📊</span> Dashboard
+    </div>
+
+    <div class="sb-section">Management</div>
+    <div class="sb-link" onclick="showSection('sellers')">
+      <span class="icon">👤</span> Sellers
+      <span class="sb-badge" id="badge-sellers">{{ stats.pending_sellers }}</span>
+    </div>
+    <div class="sb-link" onclick="showSection('products')">
+      <span class="icon">📦</span> Products
+      <span class="sb-badge" id="badge-products">{{ stats.pending_products }}</span>
+    </div>
+    <div class="sb-link" onclick="showSection('services')">
+      <span class="icon">🔧</span> Services
+    </div>
+    <div class="sb-link" onclick="showSection('orders')">
+      <span class="icon">🛒</span> Orders
+    </div>
+    <div class="sb-link" onclick="showSection('enquiries')">
+      <span class="icon">📩</span> Enquiries
+    </div>
+    <div class="sb-link" onclick="showSection('delivery')">
+      <span class="icon">🚚</span> Delivery Agents
+    </div>
+
+    <div class="sb-section">Tools</div>
+    <div class="sb-link" onclick="showSection('broadcast')">
+      <span class="icon">📢</span> Broadcast
+    </div>
+    <div class="sb-link" onclick="showSection('settings')">
+      <span class="icon">⚙️</span> Settings
+    </div>
+    <div class="sb-link" onclick="showSection('audit')">
+      <span class="icon">📋</span> Audit Log
+    </div>
+  </div>
+
+  <div class="sb-bottom">
+    <a href="/admin/logout" class="logout-btn">
+      <span>🚪</span> Sign Out
+    </a>
+  </div>
+</nav>
+
+<!-- ── Main ── -->
+<div class="main">
+  <div class="topbar">
+    <div class="topbar-title" id="topbar-title">Dashboard Overview</div>
+    <button class="topbar-refresh" onclick="refreshCurrent()">↻ Refresh</button>
+  </div>
+
+  <div class="content">
+
+    <!-- ── Overview ── -->
+    <div class="section-page active" id="page-overview">
+      <div class="stat-grid" id="stat-grid">
+        <div class="stat-card"><div class="stat-label">Pending Sellers</div><div class="stat-value">{{ stats.pending_sellers }}</div></div>
+        <div class="stat-card"><div class="stat-label">Active Sellers</div><div class="stat-value">{{ stats.approved_sellers }}</div></div>
+        <div class="stat-card"><div class="stat-label">Pending Products</div><div class="stat-value">{{ stats.pending_products }}</div></div>
+        <div class="stat-card"><div class="stat-label">Live Products</div><div class="stat-value">{{ stats.approved_products }}</div></div>
+        <div class="stat-card"><div class="stat-label">Total Orders</div><div class="stat-value">{{ stats.total_orders }}</div></div>
+        <div class="stat-card"><div class="stat-label">Total Revenue</div><div class="stat-value">${{ "%.2f"|format(stats.total_revenue) }}</div></div>
+        <div class="stat-card"><div class="stat-label">New Enquiries</div><div class="stat-value">{{ stats.new_enquiries }}</div></div>
+        <div class="stat-card"><div class="stat-label">Unique Users</div><div class="stat-value">{{ stats.unique_users }}</div></div>
+      </div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap">
+        <div style="flex:1;min-width:240px">
+          <div class="sec-head"><h2>Quick Actions</h2></div>
+          <div class="table-wrap" style="padding:16px;display:flex;flex-direction:column;gap:10px">
+            <button class="btn-primary" onclick="showSection('sellers')">Review Pending Sellers</button>
+            <button class="btn-primary" onclick="showSection('products')">Review Pending Products</button>
+            <button class="btn-primary" onclick="showSection('services')">Review Pending Services</button>
+            <button class="btn-secondary" onclick="showSection('orders')">View Recent Orders</button>
+            <button class="btn-secondary" onclick="window.open('/admin/analytics','_blank')">Full Analytics →</button>
+          </div>
+        </div>
+        <div style="flex:2;min-width:300px">
+          <div class="sec-head"><h2>Recent Activity</h2></div>
+          <div class="table-wrap" id="overview-audit">
+            <table><thead><tr><th>Time</th><th>Action</th><th>Detail</th></tr></thead>
+            <tbody id="overview-audit-body"><tr class="loading-row"><td colspan="3"><div class="spinner"></div></td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Sellers ── -->
+    <div class="section-page" id="page-sellers">
+      <div class="filter-bar">
+        <button class="filter-btn active" onclick="filterTable('sellers','all',this)">All</button>
+        <button class="filter-btn" onclick="filterTable('sellers','pending',this)">Pending</button>
+        <button class="filter-btn" onclick="filterTable('sellers','approved',this)">Approved</button>
+        <button class="filter-btn" onclick="filterTable('sellers','rejected',this)">Rejected</button>
+        <button class="filter-btn" onclick="filterTable('sellers','suspended',this)">Suspended</button>
+        <input class="search-input" placeholder="Search name / phone…" oninput="searchTable('sellers',this.value)">
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Name</th><th>Business</th><th>Phone</th><th>Location</th><th>Status</th><th>KYC</th><th>Actions</th></tr></thead>
+          <tbody id="sellers-body"><tr class="loading-row"><td colspan="7"><div class="spinner"></div></td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── Products ── -->
+    <div class="section-page" id="page-products">
+      <div class="filter-bar">
+        <button class="filter-btn active" onclick="filterTable('products','all',this)">All</button>
+        <button class="filter-btn" onclick="filterTable('products','pending',this)">Pending</button>
+        <button class="filter-btn" onclick="filterTable('products','approved',this)">Approved</button>
+        <button class="filter-btn" onclick="filterTable('products','rejected',this)">Rejected</button>
+        <input class="search-input" placeholder="Search product / seller…" oninput="searchTable('products',this.value)">
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Photo</th><th>Product</th><th>Category</th><th>Price</th><th>Stock</th><th>Seller</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody id="products-body"><tr class="loading-row"><td colspan="8"><div class="spinner"></div></td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── Services ── -->
+    <div class="section-page" id="page-services">
+      <div class="filter-bar">
+        <button class="filter-btn active" onclick="filterTable('services','all',this)">All</button>
+        <button class="filter-btn" onclick="filterTable('services','pending',this)">Pending</button>
+        <button class="filter-btn" onclick="filterTable('services','approved',this)">Approved</button>
+        <button class="filter-btn" onclick="filterTable('services','rejected',this)">Rejected</button>
+        <input class="search-input" placeholder="Search title / provider…" oninput="searchTable('services',this.value)">
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Title</th><th>Category</th><th>Pricing</th><th>Area</th><th>Provider</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody id="services-body"><tr class="loading-row"><td colspan="7"><div class="spinner"></div></td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── Orders ── -->
+    <div class="section-page" id="page-orders">
+      <div class="filter-bar">
+        <button class="filter-btn active" onclick="filterTable('orders','all',this)">All</button>
+        <button class="filter-btn" onclick="filterTable('orders','pending',this)">Pending</button>
+        <button class="filter-btn" onclick="filterTable('orders','confirmed',this)">Confirmed</button>
+        <button class="filter-btn" onclick="filterTable('orders','fulfilled',this)">Fulfilled</button>
+        <button class="filter-btn" onclick="filterTable('orders','cancelled',this)">Cancelled</button>
+        <input class="search-input" placeholder="Search ref / buyer…" oninput="searchTable('orders',this.value)">
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Ref</th><th>Product</th><th>Buyer</th><th>Qty</th><th>Total</th><th>Delivery</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody id="orders-body"><tr class="loading-row"><td colspan="8"><div class="spinner"></div></td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── Enquiries ── -->
+    <div class="section-page" id="page-enquiries">
+      <div class="sec-head"><h2>Property Enquiries</h2></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Name</th><th>Phone</th><th>Property</th><th>City</th><th>Price/mo</th><th>Status</th><th>Date</th></tr></thead>
+          <tbody id="prop-enq-body"><tr class="loading-row"><td colspan="7"><div class="spinner"></div></td></tr></tbody>
+        </table>
+      </div>
+      <div class="sec-head"><h2>Service Enquiries</h2></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Customer</th><th>Phone</th><th>Service</th><th>Details</th><th>Status</th><th>Date</th></tr></thead>
+          <tbody id="svc-enq-body"><tr class="loading-row"><td colspan="6"><div class="spinner"></div></td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── Delivery agents ── -->
+    <div class="section-page" id="page-delivery">
+      <div class="filter-bar">
+        <button class="filter-btn active" onclick="filterTable('delivery','all',this)">All</button>
+        <button class="filter-btn" onclick="filterTable('delivery','pending',this)">Pending</button>
+        <button class="filter-btn" onclick="filterTable('delivery','approved',this)">Approved</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Name</th><th>Phone</th><th>Vehicle</th><th>Area</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody id="delivery-body"><tr class="loading-row"><td colspan="6"><div class="spinner"></div></td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── Broadcast ── -->
+    <div class="section-page" id="page-broadcast">
+      <div class="broadcast-box">
+        <h2 style="font-size:15px;font-weight:700;margin-bottom:14px">Send Broadcast Message</h2>
+        <div class="radio-row">
+          <label><input type="radio" name="btarget" value="sellers" checked> Sellers only</label>
+          <label><input type="radio" name="btarget" value="all"> Everyone</label>
+        </div>
+        <textarea id="broadcast-msg" placeholder="Type your message here…"></textarea>
+        <div style="display:flex;gap:10px;align-items:center">
+          <button class="btn-primary" onclick="sendBroadcast()">Send Broadcast</button>
+          <span id="broadcast-status" style="font-size:12px;color:#6b7280"></span>
+        </div>
+        <p style="font-size:12px;color:#9ca3af;margin-top:12px">
+          ⚠️ This will send a WhatsApp message to all selected recipients immediately.
+        </p>
+      </div>
+    </div>
+
+    <!-- ── Settings ── -->
+    <div class="section-page" id="page-settings">
+      <div class="settings-section">
+        <h3>💰 Commission Rates (%)</h3>
+        <div class="settings-grid">
+          <div class="field"><label>Products</label><input type="number" id="s-commission_rate" min="0" max="100" step="1" placeholder="10"></div>
+          <div class="field"><label>Services</label><input type="number" id="s-service_commission_rate" min="0" max="100" step="1" placeholder="10"></div>
+          <div class="field"><label>Accommodation</label><input type="number" id="s-accommodation_commission_rate" min="0" max="100" step="1" placeholder="5"></div>
+        </div>
+      </div>
+      <div class="settings-section">
+        <h3>📬 Contact Information</h3>
+        <div class="settings-grid">
+          <div class="field"><label>Phone</label><input type="text" id="s-contact_phone" placeholder="+263 77 412 8219"></div>
+          <div class="field"><label>Email</label><input type="text" id="s-contact_email" placeholder="admin@ttech.co.zw"></div>
+          <div class="field"><label>Website</label><input type="text" id="s-contact_website" placeholder="https://t-techsolutions.co.zw"></div>
+          <div class="field"><label>Location</label><input type="text" id="s-contact_location" placeholder="Harare, Zimbabwe"></div>
+        </div>
+      </div>
+      <div class="settings-section">
+        <h3>🔧 Features</h3>
+        <div class="toggle-row">
+          <span class="toggle-label">Auto-post approved products to Facebook</span>
+          <button class="toggle" id="t-auto_post_facebook" onclick="toggleSetting('auto_post_facebook',this)"></button>
+        </div>
+        <div class="toggle-row">
+          <span class="toggle-label">Newsletter subscriptions enabled</span>
+          <button class="toggle" id="t-newsletter_enabled" onclick="toggleSetting('newsletter_enabled',this)"></button>
+        </div>
+        <div class="toggle-row">
+          <span class="toggle-label">Paynow payment gateway enabled</span>
+          <button class="toggle" id="t-paynow_enabled" onclick="toggleSetting('paynow_enabled',this)"></button>
+        </div>
+      </div>
+      <button class="btn-primary" onclick="saveSettings()">Save All Settings</button>
+    </div>
+
+    <!-- ── Audit log ── -->
+    <div class="section-page" id="page-audit">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Time</th><th>Admin</th><th>Action</th><th>Target</th><th>Detail</th></tr></thead>
+          <tbody id="audit-body"><tr class="loading-row"><td colspan="5"><div class="spinner"></div></td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /main -->
+</div><!-- /shell -->
+
+<!-- ── Modal ── -->
+<div class="modal-overlay" id="modal" onclick="closeModal(event)">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <button class="modal-close" onclick="closeModal()">✕</button>
+    <div class="modal-title" id="modal-title"></div>
+    <div id="modal-body"></div>
+    <div class="modal-actions" id="modal-actions"></div>
+  </div>
+</div>
+
+<!-- ── Toast ── -->
+<div id="toast"></div>
+
+<script>
+/* ─────────────────────────────────────────────────────────
+   State
+   ───────────────────────────────────────────────────────── */
+const DATA = { sellers:[], products:[], services:[], orders:[], delivery:[] };
+const FILTERS = { sellers:'all', products:'all', services:'all', orders:'all', delivery:'all' };
+const SEARCH  = { sellers:'', products:'', services:'', orders:'', delivery:'' };
+let currentSection = 'overview';
+let settingsCache  = {};
+
+/* ─────────────────────────────────────────────────────────
+   Navigation
+   ───────────────────────────────────────────────────────── */
+const TITLES = {
+  overview:'Dashboard Overview', sellers:'Seller Management',
+  products:'Product Management', services:'Service Management',
+  orders:'Order Management',     enquiries:'Enquiries',
+  delivery:'Delivery Agents',    broadcast:'Broadcast Message',
+  settings:'Settings',           audit:'Audit Log',
+};
+
+function showSection(name) {
+  document.querySelectorAll('.section-page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.sb-link').forEach(l => l.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  document.querySelectorAll('.sb-link').forEach(l => {
+    if (l.textContent.toLowerCase().includes(TITLES[name].split(' ')[0].toLowerCase()))
+      l.classList.add('active');
+  });
+  document.getElementById('topbar-title').textContent = TITLES[name] || name;
+  currentSection = name;
+  loadSection(name);
+}
+
+function refreshCurrent() { loadSection(currentSection); }
+
+function loadSection(name) {
+  if (name === 'overview')   { loadAuditPreview(); return; }
+  if (name === 'sellers')    { fetchSellers(); return; }
+  if (name === 'products')   { fetchProducts(); return; }
+  if (name === 'services')   { fetchServices(); return; }
+  if (name === 'orders')     { fetchOrders(); return; }
+  if (name === 'enquiries')  { fetchEnquiries(); return; }
+  if (name === 'delivery')   { fetchDelivery(); return; }
+  if (name === 'settings')   { fetchSettings(); return; }
+  if (name === 'audit')      { fetchAudit(); return; }
+}
+
+/* ─────────────────────────────────────────────────────────
+   API helpers
+   ───────────────────────────────────────────────────────── */
+async function api(url, method='GET', body=null) {
+  const opts = { method, headers:{'Content-Type':'application/json'} };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(url, opts);
+  return r.json();
+}
+
+function toast(msg, ok=true) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className   = 'show ' + (ok ? 'ok' : 'err');
+  setTimeout(() => { el.className = ''; }, 3500);
+}
+
+/* ─────────────────────────────────────────────────────────
+   Badges
+   ───────────────────────────────────────────────────────── */
+const BADGE_MAP = {
+  pending:'badge-pending', approved:'badge-approved', rejected:'badge-rejected',
+  suspended:'badge-suspended', fulfilled:'badge-fulfilled',
+  cancelled:'badge-cancelled', confirmed:'badge-confirmed',
+};
+function badge(status) {
+  const cls = BADGE_MAP[status] || 'badge-pending';
+  return `<span class="badge ${cls}">${status}</span>`;
+}
+
+/* ─────────────────────────────────────────────────────────
+   Filter / search
+   ───────────────────────────────────────────────────────── */
+function filterTable(section, filter, btn) {
+  FILTERS[section] = filter;
+  document.querySelectorAll(`#page-${section} .filter-btn`).forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  renderSection(section);
+}
+function searchTable(section, val) {
+  SEARCH[section] = val.toLowerCase();
+  renderSection(section);
+}
+function applyFilter(rows, section) {
+  const f = FILTERS[section], s = SEARCH[section];
+  return rows.filter(r => {
+    const matchF = f === 'all' || (r.status || '') === f;
+    const matchS = !s || JSON.stringify(r).toLowerCase().includes(s);
+    return matchF && matchS;
+  });
+}
+
+/* ─────────────────────────────────────────────────────────
+   Sellers
+   ───────────────────────────────────────────────────────── */
+async function fetchSellers() {
+  document.getElementById('sellers-body').innerHTML = loadingRow(7);
+  DATA.sellers = await api('/admin/api/sellers');
+  renderSection('sellers');
+}
+
+function renderSection(section) {
+  if (section === 'sellers') renderSellers();
+  if (section === 'products') renderProducts();
+  if (section === 'services') renderServices();
+  if (section === 'orders') renderOrders();
+  if (section === 'delivery') renderDelivery();
+}
+
+function renderSellers() {
+  const rows = applyFilter(DATA.sellers, 'sellers');
+  const tbody = document.getElementById('sellers-body');
+  if (!rows.length) { tbody.innerHTML = emptyRow(7, 'No sellers found.'); return; }
+  tbody.innerHTML = rows.map(s => `
+    <tr>
+      <td><div class="td-name">${s.name}</div><div class="td-sub">Since ${(s.registered_at||'').slice(0,10)}</div></td>
+      <td>${s.business_name}</td>
+      <td style="font-family:monospace;font-size:12px">${s.phone}</td>
+      <td>${s.location || '—'}</td>
+      <td>${badge(s.status)}</td>
+      <td>${kycCell(s)}</td>
+      <td><div class="actions">${sellerActions(s)}</div></td>
+    </tr>`).join('');
+}
+
+function kycCell(s) {
+  if (!s.id_photo_url && !s.selfie_photo_url) return '<span class="kyc-missing">None</span>';
+  let html = '';
+  if (s.id_photo_url)     html += `<img src="${s.id_photo_url}"     class="kyc-thumb" onclick="viewKYC(${JSON.stringify(s).replace(/"/g,'&quot;')})" title="ID Photo">`;
+  if (s.selfie_photo_url) html += `<img src="${s.selfie_photo_url}" class="kyc-thumb" onclick="viewKYC(${JSON.stringify(s).replace(/"/g,'&quot;')})" title="Selfie">`;
+  return html;
+}
+
+function sellerActions(s) {
+  let html = '';
+  if (s.status !== 'approved')  html += `<button class="btn btn-approve" onclick="sellerAction('approve','${s.phone}','${escQ(s.name)}')">✅ Approve</button>`;
+  if (s.status !== 'rejected')  html += `<button class="btn btn-reject"  onclick="sellerAction('reject', '${s.phone}','${escQ(s.name)}')">❌ Reject</button>`;
+  if (s.status !== 'suspended') html += `<button class="btn btn-suspend" onclick="sellerAction('suspend','${s.phone}','${escQ(s.name)}')">⚠️ Suspend</button>`;
+  return html;
+}
+
+function viewKYC(s) {
+  document.getElementById('modal-title').textContent = `🪪 KYC — ${s.name} (${s.business_name})`;
+  let body = '';
+  if (s.id_photo_url)     body += `<div class="modal-img-label">Government ID / Passport</div><img src="${s.id_photo_url}" class="modal-img">`;
+  if (s.selfie_photo_url) body += `<div class="modal-img-label" style="margin-top:10px">Selfie holding ID</div><img src="${s.selfie_photo_url}" class="modal-img">`;
+  if (!body) body = '<p style="color:#9ca3af">No KYC documents uploaded.</p>';
+  document.getElementById('modal-body').innerHTML = body;
+  document.getElementById('modal-actions').innerHTML = `
+    <button class="btn-primary" onclick="sellerAction('approve','${s.phone}','${escQ(s.name)}');closeModal()">✅ Approve</button>
+    <button class="btn-danger"  onclick="sellerAction('reject','${s.phone}','${escQ(s.name)}');closeModal()">❌ Reject</button>
+    <button class="btn-secondary" onclick="closeModal()">Close</button>`;
+  openModal();
+}
+
+async function sellerAction(action, phone, name) {
+  if (action === 'reject') {
+    const reason = prompt(`Reason for rejecting ${name} (leave blank for none):`);
+    if (reason === null) return;
+    const res = await api('/admin/api/seller/reject', 'POST', { phone, reason });
+    toast(res.message, res.ok);
+  } else {
+    const confirmed = confirm(`${action.charAt(0).toUpperCase()+action.slice(1)} ${name}?`);
+    if (!confirmed) return;
+    const res = await api(`/admin/api/seller/${action}`, 'POST', { phone });
+    toast(res.message, res.ok);
+  }
+  fetchSellers();
+}
+
+/* ─────────────────────────────────────────────────────────
+   Products
+   ───────────────────────────────────────────────────────── */
+async function fetchProducts() {
+  document.getElementById('products-body').innerHTML = loadingRow(8);
+  DATA.products = await api('/admin/api/products');
+  renderProducts();
+}
+
+function renderProducts() {
+  const rows  = applyFilter(DATA.products, 'products');
+  const tbody = document.getElementById('products-body');
+  if (!rows.length) { tbody.innerHTML = emptyRow(8, 'No products found.'); return; }
+  tbody.innerHTML = rows.map(p => `
+    <tr>
+      <td>${p.image_url ? `<img src="${p.image_url}" class="kyc-thumb" onclick="viewImg('${p.image_url}','${escQ(p.name)}')" title="View photo">` : '<span class="kyc-missing">—</span>'}</td>
+      <td><div class="td-name">${p.name}</div><div class="td-sub">ID: ${p.id}</div></td>
+      <td>${p.category}</td>
+      <td>$${(+p.price).toFixed(2)}</td>
+      <td>${p.stock_qty}</td>
+      <td>${p.business_name || p.seller_name || p.listed_by || '—'}</td>
+      <td>${badge(p.status)}</td>
+      <td><div class="actions">${productActions(p)}</div></td>
+    </tr>`).join('');
+}
+
+function productActions(p) {
+  let html = '';
+  if (p.status !== 'approved')  html += `<button class="btn btn-approve" onclick="productAction('approve',${p.id},'${escQ(p.name)}')">✅</button>`;
+  if (p.status === 'approved')  html += `<button class="btn btn-reject"  onclick="productAction('reject', ${p.id},'${escQ(p.name)}')">❌</button>`;
+  html += `<button class="btn btn-remove" onclick="productAction('remove',${p.id},'${escQ(p.name)}')">🗑️</button>`;
+  return html;
+}
+
+async function productAction(action, id, name) {
+  if (action === 'reject') {
+    const reason = prompt(`Reason for rejecting "${name}":`);
+    if (reason === null) return;
+    const res = await api('/admin/api/product/reject', 'POST', { id, reason });
+    toast(res.message, res.ok);
+  } else if (action === 'remove') {
+    if (!confirm(`Remove "${name}" permanently?`)) return;
+    const res = await api('/admin/api/product/remove', 'POST', { id });
+    toast(res.message, res.ok);
+  } else {
+    const res = await api('/admin/api/product/approve', 'POST', { id });
+    toast(res.message, res.ok);
+  }
+  fetchProducts();
+}
+
+/* ─────────────────────────────────────────────────────────
+   Services
+   ───────────────────────────────────────────────────────── */
+async function fetchServices() {
+  document.getElementById('services-body').innerHTML = loadingRow(7);
+  DATA.services = await api('/admin/api/services');
+  renderServices();
+}
+
+function renderServices() {
+  const rows  = applyFilter(DATA.services, 'services');
+  const tbody = document.getElementById('services-body');
+  if (!rows.length) { tbody.innerHTML = emptyRow(7, 'No services found.'); return; }
+  tbody.innerHTML = rows.map(s => {
+    const price = s.price_type==='hourly' ? `$${s.price}/hr` : s.price_type==='fixed' ? `$${s.price}` : 'Quote';
+    return `<tr>
+      <td><div class="td-name">${s.title}</div></td>
+      <td>${s.category}</td>
+      <td>${price}</td>
+      <td>${s.service_area || '—'}</td>
+      <td>${s.provider_business || s.provider_name || s.provider_phone}</td>
+      <td>${badge(s.status)}</td>
+      <td><div class="actions">${serviceActions(s)}</div></td>
+    </tr>`;
+  }).join('');
+}
+
+function serviceActions(s) {
+  let html = '';
+  if (s.status !== 'approved') html += `<button class="btn btn-approve" onclick="serviceAction('approve',${s.id},'${escQ(s.title)}')">✅ Approve</button>`;
+  if (s.status !== 'rejected') html += `<button class="btn btn-reject"  onclick="serviceAction('reject', ${s.id},'${escQ(s.title)}')">❌ Reject</button>`;
+  return html;
+}
+
+async function serviceAction(action, id, title) {
+  if (action === 'reject') {
+    const reason = prompt(`Reason for rejecting "${title}":`);
+    if (reason === null) return;
+    const res = await api('/admin/api/service/reject', 'POST', { id, reason });
+    toast(res.message, res.ok);
+  } else {
+    const res = await api('/admin/api/service/approve', 'POST', { id });
+    toast(res.message, res.ok);
+  }
+  fetchServices();
+}
+
+/* ─────────────────────────────────────────────────────────
+   Orders
+   ───────────────────────────────────────────────────────── */
+async function fetchOrders() {
+  document.getElementById('orders-body').innerHTML = loadingRow(8);
+  DATA.orders = await api('/admin/api/orders');
+  renderOrders();
+}
+
+function renderOrders() {
+  const rows  = applyFilter(DATA.orders, 'orders');
+  const tbody = document.getElementById('orders-body');
+  if (!rows.length) { tbody.innerHTML = emptyRow(8, 'No orders found.'); return; }
+  tbody.innerHTML = rows.map(o => `
+    <tr>
+      <td style="font-family:monospace;font-size:11px">${o.reference || o.id}</td>
+      <td>${o.product_name}</td>
+      <td style="font-size:12px">${o.buyer_phone}</td>
+      <td>${o.quantity}</td>
+      <td>$${(+o.total_price).toFixed(2)}</td>
+      <td><span style="font-size:11px">${o.delivery_type==='delivery'?'🚚 Deliver':'🏪 Collect'}</span>${o.delivery_address?`<div class="td-sub">${o.delivery_address}</div>`:''}</td>
+      <td>${badge(o.status)}</td>
+      <td><div class="actions">${orderActions(o)}</div></td>
+    </tr>`).join('');
+}
+
+function orderActions(o) {
+  if (o.status === 'fulfilled' || o.status === 'cancelled') return '<span style="color:#9ca3af;font-size:11px">Done</span>';
+  let html = '';
+  if (o.status === 'pending')   html += `<button class="btn btn-approve" onclick="orderAction(${o.id},'confirmed')">✅ Confirm</button>`;
+  if (o.status !== 'fulfilled') html += `<button class="btn btn-view"    onclick="orderAction(${o.id},'fulfilled')">📦 Fulfill</button>`;
+  html += `<button class="btn btn-reject" onclick="orderAction(${o.id},'cancelled')">❌ Cancel</button>`;
+  return html;
+}
+
+async function orderAction(id, status) {
+  if (!confirm(`Mark order #${id} as ${status}?`)) return;
+  const res = await api('/admin/api/order/status', 'POST', { id, status });
+  toast(res.message, res.ok);
+  fetchOrders();
+}
+
+/* ─────────────────────────────────────────────────────────
+   Enquiries
+   ───────────────────────────────────────────────────────── */
+async function fetchEnquiries() {
+  document.getElementById('prop-enq-body').innerHTML = loadingRow(7);
+  document.getElementById('svc-enq-body').innerHTML  = loadingRow(6);
+  const data = await api('/admin/api/enquiries');
+  // Property
+  const pb = document.getElementById('prop-enq-body');
+  pb.innerHTML = data.property.length ? data.property.map(e => `
+    <tr><td>${e.name}</td><td style="font-size:12px">${e.phone}</td>
+    <td>${e.property_title}</td><td>${e.property_city||'—'}</td>
+    <td>$${(+e.price_per_month).toFixed(2)}</td>
+    <td>${badge(e.status)}</td><td style="font-size:11px">${(e.created_at||'').slice(0,16)}</td></tr>`).join('')
+    : emptyRow(7,'No property enquiries.');
+  // Service
+  const sb = document.getElementById('svc-enq-body');
+  sb.innerHTML = data.service.length ? data.service.map(e => `
+    <tr><td>${e.customer_name}</td><td style="font-size:12px">${e.customer_phone}</td>
+    <td>${e.service_title}</td>
+    <td style="font-size:12px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.details||'—'}</td>
+    <td>${badge(e.status)}</td><td style="font-size:11px">${(e.created_at||'').slice(0,16)}</td></tr>`).join('')
+    : emptyRow(6,'No service enquiries.');
+}
+
+/* ─────────────────────────────────────────────────────────
+   Delivery
+   ───────────────────────────────────────────────────────── */
+async function fetchDelivery() {
+  document.getElementById('delivery-body').innerHTML = loadingRow(6);
+  DATA.delivery = await api('/admin/api/delivery');
+  renderDelivery();
+}
+
+function renderDelivery() {
+  const rows  = applyFilter(DATA.delivery, 'delivery');
+  const tbody = document.getElementById('delivery-body');
+  if (!rows.length) { tbody.innerHTML = emptyRow(6,'No delivery agents.'); return; }
+  tbody.innerHTML = rows.map(d => `
+    <tr>
+      <td>${d.name}</td>
+      <td style="font-size:12px">${d.phone}</td>
+      <td>${d.vehicle_type||'—'}</td>
+      <td>${d.service_area||'—'}</td>
+      <td>${badge(d.status)}</td>
+      <td><div class="actions">
+        ${d.status!=='approved'?`<button class="btn btn-approve" onclick="deliveryAction('approve','${d.phone}')">✅ Approve</button>`:''}
+        ${d.status!=='rejected'?`<button class="btn btn-reject"  onclick="deliveryAction('reject', '${d.phone}')">❌ Reject</button>`:''}
+      </div></td>
+    </tr>`).join('');
+}
+
+async function deliveryAction(action, phone) {
+  if (!confirm(`${action} agent ${phone}?`)) return;
+  const res = await api(`/admin/api/delivery/${action}`, 'POST', { phone });
+  toast(res.message, res.ok);
+  fetchDelivery();
+}
+
+/* ─────────────────────────────────────────────────────────
+   Broadcast
+   ───────────────────────────────────────────────────────── */
+async function sendBroadcast() {
+  const msg    = document.getElementById('broadcast-msg').value.trim();
+  const target = document.querySelector('input[name="btarget"]:checked').value;
+  if (!msg) { toast('Please type a message first.', false); return; }
+  if (!confirm(`Send this to all ${target}?`)) return;
+  document.getElementById('broadcast-status').textContent = 'Sending…';
+  const res = await api('/admin/api/broadcast', 'POST', { message: msg, target });
+  document.getElementById('broadcast-status').textContent = '';
+  toast(res.message, res.ok);
+  if (res.ok) document.getElementById('broadcast-msg').value = '';
+}
+
+/* ─────────────────────────────────────────────────────────
+   Settings
+   ───────────────────────────────────────────────────────── */
+async function fetchSettings() {
+  settingsCache = await api('/admin/api/settings');
+  const toggles = ['auto_post_facebook','newsletter_enabled','paynow_enabled'];
+  for (const [k, v] of Object.entries(settingsCache)) {
+    const el = document.getElementById('s-' + k);
+    if (el) el.value = v;
+    if (toggles.includes(k)) {
+      const t = document.getElementById('t-' + k);
+      if (t) { if (v === '1') t.classList.add('on'); else t.classList.remove('on'); }
+    }
+  }
+}
+
+function toggleSetting(key, btn) {
+  const isOn = btn.classList.toggle('on');
+  settingsCache[key] = isOn ? '1' : '0';
+}
+
+async function saveSettings() {
+  const keys = ['commission_rate','service_commission_rate','accommodation_commission_rate',
+                'contact_phone','contact_email','contact_website','contact_location'];
+  const body = { ...settingsCache };
+  keys.forEach(k => {
+    const el = document.getElementById('s-' + k);
+    if (el) body[k] = el.value;
+  });
+  const res = await api('/admin/api/settings', 'POST', body);
+  toast(res.message, res.ok);
+}
+
+/* ─────────────────────────────────────────────────────────
+   Audit log
+   ───────────────────────────────────────────────────────── */
+async function fetchAudit() {
+  document.getElementById('audit-body').innerHTML = loadingRow(5);
+  const logs = await api('/admin/api/audit');
+  const tbody = document.getElementById('audit-body');
+  tbody.innerHTML = logs.length ? logs.map(l => `
+    <tr>
+      <td style="font-size:11px;white-space:nowrap">${(l.created_at||'').slice(0,16)}</td>
+      <td style="font-size:11px">${l.admin_phone}</td>
+      <td>${l.action}</td>
+      <td style="font-size:11px">${l.target_type} ${l.target_id}</td>
+      <td style="font-size:11px;max-width:200px">${l.detail||''}</td>
+    </tr>`).join('') : emptyRow(5,'No audit entries.');
+}
+
+async function loadAuditPreview() {
+  const logs  = await api('/admin/api/audit');
+  const tbody = document.getElementById('overview-audit-body');
+  const slice = logs.slice(0, 8);
+  tbody.innerHTML = slice.length ? slice.map(l => `
+    <tr>
+      <td style="font-size:11px;white-space:nowrap">${(l.created_at||'').slice(0,16)}</td>
+      <td>${l.action}</td>
+      <td style="font-size:11px">${l.detail||l.target_type+' '+l.target_id}</td>
+    </tr>`).join('') : emptyRow(3,'No recent activity.');
+}
+
+/* ─────────────────────────────────────────────────────────
+   Image modal helper
+   ───────────────────────────────────────────────────────── */
+function viewImg(url, title) {
+  document.getElementById('modal-title').textContent = title;
+  document.getElementById('modal-body').innerHTML = `<img src="${url}" class="modal-img">`;
+  document.getElementById('modal-actions').innerHTML = `<button class="btn-secondary" onclick="closeModal()">Close</button>`;
+  openModal();
+}
+
+/* ─────────────────────────────────────────────────────────
+   Modal
+   ───────────────────────────────────────────────────────── */
+function openModal() { document.getElementById('modal').classList.add('open'); }
+function closeModal(e) {
+  if (!e || e.target === document.getElementById('modal'))
+    document.getElementById('modal').classList.remove('open');
+}
+
+/* ─────────────────────────────────────────────────────────
+   Table helpers
+   ───────────────────────────────────────────────────────── */
+function loadingRow(cols) {
+  return `<tr class="loading-row"><td colspan="${cols}"><div class="spinner"></div></td></tr>`;
+}
+function emptyRow(cols, msg) {
+  return `<tr class="empty-row"><td colspan="${cols}">${msg}</td></tr>`;
+}
+function escQ(s) { return (s||'').replace(/'/g,"&#39;").replace(/"/g,'&quot;'); }
+
+/* ─────────────────────────────────────────────────────────
+   Boot
+   ───────────────────────────────────────────────────────── */
+loadAuditPreview();
+</script>
+</body>
+</html>
