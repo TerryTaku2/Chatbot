@@ -154,11 +154,11 @@
     </div>
 
     <a class="wa-link"
-       href="https://wa.me/263774128219?text=Hi%2C+I+just+registered+as+a+seller">
+       href="https://wa.me/{{ wa_number }}?text=Hi%2C+I+just+registered+as+a+seller">
       💬 Chat with us on WhatsApp
     </a>
     <p class="note" style="margin-top:20px">
-      Questions? WhatsApp us at +263 77 412 8219
+      Questions? WhatsApp us at {{ contact_phone }}
     </p>
   </div>
 
@@ -273,7 +273,7 @@
               Government ID <span class="required">*</span>
             </label>
             <div class="upload-box {{ 'has-error' if field_errors.id_photo else '' }}"
-                 id="idBox" onclick="document.getElementById('idInput').click()">
+                 id="idBox">
               <input type="file" id="idInput" name="id_photo"
                      accept="image/jpeg,image/png,image/webp"
                      onchange="previewFile(this,'idBox','idPreview','idCheck')">
@@ -294,7 +294,7 @@
               Selfie with ID <span class="required">*</span>
             </label>
             <div class="upload-box {{ 'has-error' if field_errors.selfie_photo else '' }}"
-                 id="selfieBox" onclick="document.getElementById('selfieInput').click()">
+                 id="selfieBox">
               <input type="file" id="selfieInput" name="selfie_photo"
                      accept="image/jpeg,image/png,image/webp"
                      onchange="previewFile(this,'selfieBox','selfiePreview','selfieCheck')">
@@ -335,12 +335,13 @@
     const box     = document.getElementById(boxId);
     const preview = document.getElementById(previewId);
     const check   = document.getElementById(checkId);
+
     if (input.files && input.files[0]) {
       const file = input.files[0];
-      // 5 MB guard
       if (file.size > 5 * 1024 * 1024) {
         alert('File too large — please choose a photo under 5 MB.');
         input.value = '';
+        resetBox(box, preview, check);
         return;
       }
       preview.src = URL.createObjectURL(file);
@@ -348,11 +349,23 @@
       check.style.display    = 'block';
       box.classList.add('has-file');
       box.classList.remove('has-error');
-      // hide icon & label text
-      box.querySelector('.upload-icon').style.display      = 'none';
+      box.querySelector('.upload-icon').style.display       = 'none';
       box.querySelector('.upload-label-text').style.display = 'none';
-      box.querySelector('.upload-hint').style.display      = 'none';
+      box.querySelector('.upload-hint').style.display       = 'none';
+    } else {
+      // User cancelled — restore original state
+      resetBox(box, preview, check);
     }
+  }
+
+  function resetBox(box, preview, check) {
+    preview.style.display = 'none';
+    preview.src = '';
+    check.style.display   = 'none';
+    box.classList.remove('has-file');
+    box.querySelector('.upload-icon').style.display       = '';
+    box.querySelector('.upload-label-text').style.display = '';
+    box.querySelector('.upload-hint').style.display       = '';
   }
 
   // Show loading state on submit

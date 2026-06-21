@@ -3505,10 +3505,16 @@ def list_product():
 
 @app.route("/register", methods=["GET", "POST"])
 def register_seller_web():
-    if request.method == "GET":
+    _wa  = WA_BUSINESS_NUMBER or ADMIN_PHONE
+    _ph  = get_setting("contact_phone", "+263 77 412 8219")
+    def _render(success=False, error=None, form=None, field_errors=None, **kw):
         return render_template("register_seller.html",
-                               success=False, error=None,
-                               form={}, field_errors={})
+                               success=success, error=error,
+                               form=form or {}, field_errors=field_errors or {},
+                               wa_number=_wa, contact_phone=_ph, **kw)
+
+    if request.method == "GET":
+        return _render()
 
     name          = request.form.get("name", "").strip()
     business_name = request.form.get("business_name", "").strip()
@@ -3552,17 +3558,13 @@ def register_seller_web():
         field_errors["selfie_photo"] = "Please upload a selfie holding your ID."
 
     if field_errors:
-        return render_template("register_seller.html",
-                               success=False, error=None,
-                               form=form, field_errors=field_errors)
+        return _render(form=form, field_errors=field_errors)
 
     existing = get_seller(phone)
     if existing and existing["status"] == "approved":
-        return render_template("register_seller.html",
-                               success=False,
-                               error="This number is already registered and approved. "
-                                     "Message us on WhatsApp to list your products.",
-                               form=form, field_errors={})
+        return _render(error="This number is already registered and approved. "
+                             "Message us on WhatsApp to list your products.",
+                       form=form)
 
     # Save KYC photos
     id_photo_path     = save_image(id_file)
@@ -3573,9 +3575,7 @@ def register_seller_web():
     if not selfie_photo_path:
         field_errors["selfie_photo"] = "Invalid file — use JPG, PNG or WEBP under 5 MB."
     if field_errors:
-        return render_template("register_seller.html",
-                               success=False, error=None,
-                               form=form, field_errors=field_errors)
+        return _render(form=form, field_errors=field_errors)
 
     register_seller(phone, name, business_name, location,
                     id_photo=id_photo_path, selfie_photo=selfie_photo_path)
@@ -3605,11 +3605,9 @@ def register_seller_web():
                 caption=f"🤳 Selfie with ID — {name} | Phone: {phone}",
             )
 
-    return render_template("register_seller.html",
-                           success=True,
-                           submitted_name=name,
-                           submitted_business=business_name,
-                           form={}, field_errors={})
+    return _render(success=True,
+                   submitted_name=name,
+                   submitted_business=business_name)
 
 
 # ── Web admin panel ───────────────────────────────────────────────────────────
