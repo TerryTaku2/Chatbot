@@ -1858,7 +1858,7 @@ def handle_session(phone, msg_text, session):
         if msg_text == "1":
             update_order_status(order["id"], "fulfilled")
             ref = order.get("reference", str(order["id"]))
-            # Fulfillment notification + post-delivery review prompt
+            # Notify buyer
             send_whatsapp_message(
                 order["buyer_phone"],
                 f"📦 *Order Delivered!*\n\n"
@@ -1867,21 +1867,43 @@ def handle_session(phone, msg_text, session):
                 "⭐ *How was your experience?*\n"
                 "Reply *rate product* to leave a quick review — it helps other buyers!"
             )
+            # Notify seller
+            if order.get("seller_phone"):
+                send_whatsapp_message(
+                    order["seller_phone"],
+                    f"✅ *Order Fulfilled — {ref}*\n\n"
+                    f"Product : {order['product_name']}\n"
+                    f"Buyer   : {order['buyer_phone']}\n\n"
+                    "This order has been marked as delivered by admin.\n\n"
+                    "_Reply *0* for the main menu._"
+                )
             log_admin_action(phone, "fulfill_order", "order", ref)
             clear_session(phone)
-            return f"📦 Order *{ref}* marked as fulfilled. Buyer notified + review prompt sent."
+            return f"📦 Order *{ref}* marked as fulfilled. Buyer & seller notified."
         if msg_text == "2":
             update_order_status(order["id"], "cancelled")
+            ref = order.get("reference", str(order["id"]))
+            contact_ph = get_setting("contact_phone", "+263 77 412 8219")
+            # Notify buyer
             send_whatsapp_message(
                 order["buyer_phone"],
-                f"❌ Your order *{order.get('reference', '')}* for *{order['product_name']}* "
+                f"❌ Your order *{ref}* for *{order['product_name']}* "
                 "has been *cancelled*.\n\n"
-                "Contact us for more information:\n"
-                "📞 +263 77 412 8219\n\n"
+                f"Contact us for more information:\n📞 {contact_ph}\n\n"
                 "_Reply *0* for the main menu._"
             )
+            # Notify seller
+            if order.get("seller_phone"):
+                send_whatsapp_message(
+                    order["seller_phone"],
+                    f"❌ *Order Cancelled — {ref}*\n\n"
+                    f"Product : {order['product_name']}\n"
+                    f"Buyer   : {order['buyer_phone']}\n\n"
+                    "This order has been cancelled by admin.\n\n"
+                    "_Reply *0* for the main menu._"
+                )
             clear_session(phone)
-            return f"❌ Order *{order.get('reference', order['id'])}* cancelled. Buyer notified."
+            return f"❌ Order *{ref}* cancelled. Buyer & seller notified."
         return (
             f"🛒 *{order.get('product_name')}*\n\n"
             f"1️⃣  — 📦 Fulfilled\n2️⃣  — ❌ Cancelled\n0️⃣  — Back"
@@ -2749,7 +2771,7 @@ def _reject_product(product_id, reason):
             product["listed_by"],
             f"❌ Your product *{product['name']}* was not approved.\n\n"
             f"Reason: _{reason}_\n\n"
-            "Fix the issue and reply *sell* to try again.\n\n"
+            "To re-list, go to *Sell* menu → reply *2* to get a new listing link.\n\n"
             "_Reply *0* for the main menu._"
         )
     return f"❌ *{product['name']}* rejected. Seller notified."
@@ -3605,6 +3627,19 @@ def register_seller_web():
                 caption=f"🤳 Selfie with ID — {name} | Phone: {phone}",
             )
 
+    # Send WhatsApp confirmation to the seller
+    send_whatsapp_message(
+        phone,
+        f"👋 Hi *{name}*, thank you for registering on *T-Tech Connect!*\n\n"
+        f"📋 *Application Received*\n"
+        f"Business : {business_name}\n"
+        f"Location : {location}\n\n"
+        "Our team will review your ID documents and notify you here within *24 hours*. 🕐\n\n"
+        "While you wait, feel free to browse our marketplace:\n"
+        f"🌐 {BASE_URL}\n\n"
+        "_Reply *0* for the main menu._"
+    )
+
     return _render(success=True,
                    submitted_name=name,
                    submitted_business=business_name)
@@ -3846,18 +3881,36 @@ def api_update_order_status():
         return jsonify({"ok": False, "message": "Invalid status."})
     update_order_status(order_id, status)
     log_admin_action("web_admin", f"order_{status}", "order", order_id)
-    order = get_order(order_id)
-    if order and order["buyer_phone"]:
-        msgs = {
-            "confirmed":  "✅ Your order has been confirmed and is being processed.",
-            "fulfilled":  "📦 Your order has been fulfilled! Thank you for shopping with T-Tech Connect.",
-            "cancelled":  "❌ Your order has been cancelled. Contact us for more information.",
-        }
-        send_whatsapp_message(
-            order["buyer_phone"],
-            msgs[status] + "\n\n_Reply *0* for the main menu._"
-        )
-    return jsonify({"ok": True, "message": f"Order #{order_id} marked as {status}."})
+    order        = get_order(order_id)
+    contact_ph   = get_setting("contact_phone", "+263 77 412 8219")
+    buyer_msgs   = {
+        "confirmed": "✅ Your order has been *confirmed* and is being processed.",
+        "fulfilled": "📦 *Order Delivered!*\n\nThank you for shopping with T-Tech Connect! 🎉\n\n⭐ Reply *rate product* to leave a review.",
+        "cancelled": f"❌ Your order has been *cancelled*.\n\nContact us: 📞 {contact_ph}",
+    }
+    seller_msgs  = {
+        "confirmed": "✅ One of your orders has been *confirmed* by admin.",
+        "fulfilled": "✅ One of your orders has been marked as *fulfilled* by admin.",
+        "cancelled": "❌ One of your orders has been *cancelled* by admin.",
+    }
+    if order:
+        ref  = order["reference"] or str(order_id)
+        prod = get_product_by_id(order["product_id"])
+        prod_name   = prod["name"] if prod else f"Order #{order_id}"
+        seller_phone = prod["listed_by"] if prod else None
+        # Notify buyer
+        if order["buyer_phone"]:
+            send_whatsapp_message(
+                order["buyer_phone"],
+                f"{buyer_msgs[status]}\n\nRef: *{ref}* — {prod_name}\n\n_Reply *0* for the main menu._"
+            )
+        # Notify seller
+        if seller_phone:
+            send_whatsapp_message(
+                seller_phone,
+                f"{seller_msgs[status]}\n\nRef: *{ref}*\nProduct: {prod_name}\nBuyer: {order['buyer_phone']}\n\n_Reply *0* for the main menu._"
+            )
+    return jsonify({"ok": True, "message": f"Order #{order_id} marked as {status}. Buyer & seller notified."})
 
 
 @app.route("/admin/api/delivery/approve", methods=["POST"])
