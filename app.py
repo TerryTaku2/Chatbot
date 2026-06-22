@@ -31,15 +31,18 @@ from db import (
     get_service_enquiries,
     get_setting, set_setting,
     log_admin_action, check_and_record_hit, log_send, cleanup_expired_sessions,
-    add_to_cart, remove_from_cart, get_cart, get_cart_total, clear_cart, update_cart_qty,
+    add_to_cart, remove_from_cart, get_cart, get_cart_total, get_cart_by_seller, clear_cart, update_cart_qty,
     create_dispute, get_disputes, update_dispute, get_buyer_disputes,
     newsletter_subscribe, newsletter_unsubscribe, is_subscribed, get_newsletter_phones,
     log_social_post, get_analytics_summary, get_seller_trust_score,
     get_audit_log,
     add_product_review, get_product_reviews, get_product_avg_rating,
-    get_fulfilled_orders_for_buyer,
+    get_fulfilled_orders_for_buyer, check_buyer_has_access,
     register_delivery_person, get_delivery_person, get_pending_delivery_personnel,
     get_approved_delivery_personnel, set_delivery_person_status, get_delivery_orders,
+    get_featured_products, get_distinct_categories,
+    create_quotation, get_quotation_by_ref, get_buyer_quotations,
+    get_seller_quote_requests, respond_to_quotation,
 )
 
 load_dotenv()
@@ -60,7 +63,9 @@ ADMIN_PHONE         = os.getenv("ADMIN_PHONE", "")
 TTECH_CONNECT_URL       = os.getenv("TTECH_CONNECT_URL", "http://localhost:8000")
 UPLOAD_FOLDER           = os.path.join(os.path.dirname(__file__), "static", "uploads")
 ALLOWED_EXT             = {"jpg", "jpeg", "png", "webp"}
-MAX_IMAGE_BYTES         = 5 * 1024 * 1024   # 5 MB
+ALLOWED_MEDIA_EXT       = {"jpg", "jpeg", "png", "webp", "mp4", "mov", "avi", "mkv", "pdf"}
+MAX_IMAGE_BYTES         = 5 * 1024 * 1024    # 5 MB
+MAX_MEDIA_BYTES         = 100 * 1024 * 1024  # 100 MB for video/digital files
 FACEBOOK_PAGE_TOKEN     = os.getenv("FACEBOOK_PAGE_TOKEN", "")
 FACEBOOK_PAGE_ID        = os.getenv("FACEBOOK_PAGE_ID", "")
 PAYNOW_INTEGRATION_ID   = os.getenv("PAYNOW_INTEGRATION_ID", "")
@@ -81,12 +86,51 @@ RATE_LIMIT_MAX    = 20
 RATE_LIMIT_WINDOW = 60
 
 CATEGORIES = [
-    "Laptops & Desktops",
-    "Networking Equipment",
-    "CCTV & Security Systems",
-    "Printers & Accessories",
-    "Software Licenses",
-    "IT Services",
+    # Food & Groceries
+    "Groceries & Food",
+    "Fresh Produce & Vegetables",
+    "Meat, Poultry & Fish",
+    "Beverages & Drinks",
+    # Fashion & Personal
+    "Clothing & Fashion",
+    "Shoes & Footwear",
+    "Bags & Accessories",
+    "Health & Beauty",
+    # Electronics
+    "Phones & Accessories",
+    "Computers & Laptops",
+    "Electronics & Gadgets",
+    "Networking & Security",
+    # Home & Living
+    "Home & Furniture",
+    "Kitchen & Appliances",
+    "Building & Hardware",
+    # Vehicles & Agriculture
+    "Automotive & Vehicles",
+    "Agricultural Products",
+    # Kids, Sport & Other
+    "Baby & Kids",
+    "Sports & Fitness",
+    "Books & Stationery",
+    # Digital
+    "Photography",
+    "Videography",
+    "Digital Art & Design",
+    "Documents & Templates",
+    "Music & Audio",
+    "Software & Licenses",
+    # Catch-all
+    "Other",
+]
+
+CATEGORY_GROUPS = [
+    ("🍎", "Food & Groceries",          ["Groceries & Food", "Fresh Produce & Vegetables", "Meat, Poultry & Fish", "Beverages & Drinks"]),
+    ("👗", "Fashion & Clothing",         ["Clothing & Fashion", "Shoes & Footwear", "Bags & Accessories", "Health & Beauty"]),
+    ("📱", "Electronics & Tech",         ["Phones & Accessories", "Computers & Laptops", "Electronics & Gadgets", "Networking & Security"]),
+    ("🏠", "Home & Living",              ["Home & Furniture", "Kitchen & Appliances", "Building & Hardware"]),
+    ("🚗", "Vehicles & Agriculture",     ["Automotive & Vehicles", "Agricultural Products"]),
+    ("🎒", "Kids, Sports & Lifestyle",   ["Baby & Kids", "Sports & Fitness", "Books & Stationery", "Software & Licenses", "Other"]),
+    ("🖼️", "Digital & Media",            ["Photography", "Videography", "Digital Art & Design", "Documents & Templates", "Music & Audio", "Software & Licenses"]),
 ]
 
 NUM_EMOJI = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣"]
@@ -107,6 +151,14 @@ SERVICE_CATEGORIES = [
     ("🍳", "Catering & Food"),
     ("✂️", "Beauty & Personal Care"),
     ("📦", "Delivery & Moving"),
+    ("🧹", "Cleaning Services"),
+    ("🏥", "Health & Medical"),
+    ("🌱", "Agriculture & Farming"),
+    ("📸", "Photography & Videography"),
+    ("🔒", "Security Services"),
+    ("💰", "Financial & Legal"),
+    ("🎉", "Events & Entertainment"),
+    ("⚡", "Electrical & Plumbing"),
 ]
 
 SERVICE_PRICE_TYPES = ["Hourly rate", "Fixed price", "Get a quote"]
@@ -149,57 +201,91 @@ CITIES_MENU = (
 BUYER_MENU = (
     "🛒 *Buyer Menu*\n"
     "━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-    "1️⃣  — Browse by category\n"
-    "2️⃣  — Our services\n"
-    "3️⃣  — Search for a product\n"
-    "4️⃣  — Request a quote\n"
-    "5️⃣  — My orders\n\n"
-    "_Reply *1–5* to select | *0* for main menu_"
+    "1️⃣  — 🗂️ Browse products by category\n"
+    "2️⃣  — 🔧 Find a service\n"
+    "3️⃣  — 🔍 Search for a product\n"
+    "4️⃣  — 💬 Request a quote\n"
+    "5️⃣  — 📦 My orders\n"
+    "6️⃣  — 🛒 My cart\n\n"
+    "_Reply *1–6* to select | *0* for main menu_"
 )
 
 SELLER_MENU = (
     "💼 *Sell / Offer Services*\n"
     "━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
     "1️⃣  — 📝 *Register* as a seller\n"
-    "2️⃣  — 📦 List a *product* (physical item)\n"
-    "3️⃣  — 🔧 Offer a *service*\n"
-    "4️⃣  — 📋 My listings & services\n"
-    "5️⃣  — 🛒 My orders & bookings\n\n"
+    "2️⃣  — 🗂️ List a *product or service*\n"
+    "3️⃣  — 📋 My listings & services\n"
+    "4️⃣  — 🛒 My orders & bookings\n\n"
     "💰 10% commission on approved listings\n\n"
-    "_Reply *1–5* | *0* for main menu_"
+    "_Reply *1–4* | *0* for main menu_"
 )
 
 FIND_SERVICE_MENU = (
     "🔧 *Find a Service*\n"
     "━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-    "1️⃣  — Browse by category\n"
-    "2️⃣  — Search by keyword\n\n"
-    "_Reply *1* or *2* | *0* for main menu_"
+    "1️⃣  — 🗂️ Browse by category\n"
+    "2️⃣  — 🔍 Search by keyword\n"
+    "3️⃣  — 🌟 Popular services\n\n"
+    "_Reply *1–3* | *0* for main menu_"
 )
 
-SERVICE_CATS_MENU = (
-    "🔧 *Browse by Service Category:*\n\n"
-    "1️⃣  — 🏠 Home Services\n"
-    "2️⃣  — 🔨 Construction & Building\n"
-    "3️⃣  — 💻 IT & Technology\n"
-    "4️⃣  — 🚗 Automotive\n"
-    "5️⃣  — 🎓 Education & Tutoring\n"
-    "6️⃣  — 🍳 Catering & Food\n"
-    "7️⃣  — ✂️ Beauty & Personal Care\n"
-    "8️⃣  — 📦 Delivery & Moving\n\n"
-    "_Reply *1–8* to browse | *0* to go back_"
-)
 
-CATEGORIES_MENU = (
-    "🖥️ *Browse by Category:*\n\n"
-    "1️⃣  — Laptops & Desktops\n"
-    "2️⃣  — Networking Equipment\n"
-    "3️⃣  — CCTV & Security Systems\n"
-    "4️⃣  — Printers & Accessories\n"
-    "5️⃣  — Software Licenses\n"
-    "6️⃣  — IT Services\n\n"
-    "_Reply *1–6* to browse | *0* to go back_"
-)
+def _build_svc_cats_page(page=1):
+    start  = (page - 1) * 8
+    cats   = SERVICE_CATEGORIES[start:start + 8]
+    header = (
+        "🔧 *Browse Service Categories:*\n━━━━━━━━━━━━━━━━━━━━━━━━━"
+        if page == 1 else
+        "🔧 *More Service Categories:*\n━━━━━━━━━━━━━━━━━━━━━━━━━"
+    )
+    lines  = [header + "\n"]
+    for i, (icon, label) in enumerate(cats):
+        lines.append(f"{NUM_EMOJI[i]}  — {icon} {label}")
+    if page == 1:
+        lines.append("9️⃣  — ➡️ More categories (8 more)")
+        lines.append("\n_Reply *1–9* to browse | *0* to go back_")
+    else:
+        lines.append("9️⃣  — ⬅️ First page")
+        lines.append("\n_Reply *1–9* to browse | *0* to go back_")
+    return "\n".join(lines)
+
+
+SERVICE_CATS_MENU  = _build_svc_cats_page(1)
+SERVICE_CATS_PAGE2 = _build_svc_cats_page(2)
+
+
+def _build_quote_cats_page(page=1):
+    start  = (page - 1) * 8
+    cats   = SERVICE_CATEGORIES[start:start + 8]
+    header = (
+        "🔧 *Choose a Service Category:*\n━━━━━━━━━━━━━━━━━━━━━━━━━"
+        if page == 1 else
+        "🔧 *More Service Categories:*\n━━━━━━━━━━━━━━━━━━━━━━━━━"
+    )
+    lines  = [header + "\n"]
+    for i, (icon, label) in enumerate(cats):
+        lines.append(f"{NUM_EMOJI[i]}  — {icon} {label}")
+    if page == 1:
+        lines.append("9️⃣  — ➡️ More categories (8 more)")
+        lines.append("\n_Reply *1–9* to select | *0* to go back_")
+    else:
+        lines.append("9️⃣  — ⬅️ Previous categories")
+        lines.append("\n_Reply *1–9* to select | *0* to go back_")
+    return "\n".join(lines)
+
+
+QUOTE_CATS_MENU  = _build_quote_cats_page(1)
+QUOTE_CATS_PAGE2 = _build_quote_cats_page(2)
+
+def build_categories_menu():
+    lines = ["🛍️ *Browse by Category:*\n"]
+    for i, (icon, label, _) in enumerate(CATEGORY_GROUPS):
+        lines.append(f"{NUM_EMOJI[i]}  — {icon} {label}")
+    lines.append(f"\n_Reply *1–{len(CATEGORY_GROUPS)}* to browse | *0* to go back_")
+    return "\n".join(lines)
+
+CATEGORIES_MENU = build_categories_menu()
 
 SERVICES_RESPONSE = (
     "🛠️ *Our Services:*\n\n"
@@ -333,16 +419,14 @@ def verify_webhook_signature(req) -> bool:
     return hmac.compare_digest(signature, expected)
 
 
-# ── Image helpers ─────────────────────────────────────────────────────────────
+# ── Image / media helpers ─────────────────────────────────────────────────────
 
 def save_image(file_obj):
     if not file_obj or file_obj.filename == "":
         return None
-    # Read into memory first so we can check size and type
     data = file_obj.read()
     if len(data) > MAX_IMAGE_BYTES:
         return None
-    # Detect actual file type from magic bytes (not the extension)
     kind = filetype.guess(data)
     if kind is None or kind.extension not in ALLOWED_EXT:
         return None
@@ -351,6 +435,35 @@ def save_image(file_obj):
     with open(path, "wb") as f:
         f.write(data)
     return filename
+
+
+def save_media_file(file_obj):
+    """Save a digital product file (image, video, PDF). Returns filename or None."""
+    if not file_obj or file_obj.filename == "":
+        return None
+    data = file_obj.read()
+    if len(data) > MAX_MEDIA_BYTES:
+        return None
+    kind = filetype.guess(data)
+    # filetype doesn't detect PDF reliably; fall back to extension
+    if kind is not None and kind.extension in ALLOWED_MEDIA_EXT:
+        ext = kind.extension
+    else:
+        ext = file_obj.filename.rsplit(".", 1)[-1].lower() if "." in file_obj.filename else ""
+        if ext not in ALLOWED_MEDIA_EXT:
+            return None
+    filename = f"digital_{uuid.uuid4().hex}.{ext}"
+    path     = os.path.join(UPLOAD_FOLDER, filename)
+    with open(path, "wb") as f:
+        f.write(data)
+    return filename
+
+
+def _make_download_token(buyer_phone, product_id):
+    """HMAC token that proves this phone bought this product."""
+    secret = app.secret_key.encode() if isinstance(app.secret_key, str) else app.secret_key
+    msg    = f"{buyer_phone}:{product_id}".encode()
+    return hmac.new(secret, msg, hashlib.sha256).hexdigest()
 
 
 # ── Context-setting helpers ───────────────────────────────────────────────────
@@ -390,42 +503,77 @@ def _to_dict(row):
 
 
 def format_numbered_products(results, title="🔍 *Results:*"):
-    """Show up to 5 products numbered for easy selection."""
     if not results:
         return "😕 No products found.\n\n_Reply *0* to go back._"
+    rows = [_to_dict(r) for r in results[:8]]
+    has_seller_info = any(r.get("seller_name") or r.get("business_name") for r in rows)
     lines = [f"{title}\n"]
-    for i, raw in enumerate(results[:5]):
-        row      = _to_dict(raw)
-        in_stock = row.get("stock_qty", 0) > 0
-        status   = "✅ In Stock" if in_stock else "❌ Out of Stock"
-        desc     = row.get("description") or ""
-        short    = (desc[:60] + "…") if len(desc) > 60 else desc
-        photo    = "  📷 Photo" if row.get("image_path") else ""
+    for i, row in enumerate(rows):
+        is_digital = row.get("product_type") == "digital"
+        if is_digital:
+            status = "🖼️ Digital"
+        else:
+            status = "✅ In Stock" if row.get("stock_qty", 0) > 0 else "❌ Out of Stock"
+        seller = row.get("business_name") or row.get("seller_name") or ""
+        city   = row.get("seller_city") or row.get("seller_location") or ""
+        rating = row.get("avg_rating") or 0
+        category    = row.get("category") or ""
+        cat_line    = f"    📁 {category}\n" if category else ""
+        seller_line = ""
+        if seller:
+            loc_part    = f", {city}" if city else ""
+            rating_part = f"  ⭐{rating:.1f}" if rating else ""
+            seller_line = f"    🏪 {seller}{loc_part}{rating_part}\n"
         lines.append(
             f"{NUM_EMOJI[i]}  *{row['name']}*\n"
-            f"    💰 ${row['price']:.2f}  |  {status}{photo}\n"
-            + (f"    _{short}_\n" if short else "")
+            f"    💰 *${row['price']:.2f}*  |  {status}\n"
+            + cat_line
+            + seller_line
         )
-    lines.append("\n_Reply with a number to select | *0* to go back_")
+    footer = "\n_Reply a number to view & buy | *0* to go back_"
+    if has_seller_info and len(rows) > 1:
+        footer += " | *C* to compare"
+    lines.append(footer)
     return "\n".join(lines)
 
 
 def format_buyer_orders(orders):
     if not orders:
         return (
-            "📭 You have no orders yet.\n\n"
-            "_Reply *0* to go back._"
+            "📭 *No orders yet.*\n\n"
+            "Start shopping:\n"
+            "1️⃣  — 🗂️ Browse categories\n"
+            "3️⃣  — 🔍 Search for a product\n\n"
+            "_Reply *1* or *3* to shop | *0* for main menu_"
         )
-    lines = ["📦 *Your Orders:*\n"]
+    STATUS_ICON = {
+        "pending":   "⏳",
+        "confirmed": "✅",
+        "fulfilled": "📦",
+        "cancelled": "❌",
+        "refunded":  "💸",
+    }
+    lines = [f"📦 *Your Orders ({len(orders)}):*\n"]
     for o in orders:
+        seller   = o.get("seller_name") or o.get("business_name") or "Seller"
+        delivery = o.get("delivery_type", "self_collect")
+        del_icon = "🚚 Delivery" if delivery == "delivery" else "🏪 Self-collect"
+        status   = o.get("status", "pending")
+        s_icon   = STATUS_ICON.get(status, "•")
         lines.append(
-            f"Ref    : *{o['reference']}*\n"
-            f"Item   : {o['name']}\n"
-            f"Qty    : {o['quantity']}  |  Total: ${o['total_price']:.2f}\n"
-            f"Status : {o['status'].title()}\n"
+            f"📌 *{o['reference']}*\n"
+            f"   {o['name']}\n"
+            f"   Qty: {o['quantity']}  ·  *${o['total_price']:.2f}*\n"
+            f"   {del_icon}  ·  {s_icon} {status.title()}\n"
+            f"   🏪 {seller}\n"
             "─────────────────"
         )
-    lines.append("_Reply *0* to go back._")
+    lines.append(
+        "\n💡 *Quick actions:*\n"
+        "Reply *dispute* to report a problem\n"
+        "Reply *rate product* to leave a review\n"
+        "_Reply *0* for main menu_"
+    )
     return "\n".join(lines)
 
 
@@ -433,7 +581,7 @@ def format_seller_listings(products):
     if not products:
         return (
             "📭 You have no listings yet.\n\n"
-            "Reply *2* to list your first product.\n\n"
+            "Reply *2* to list your first product or service.\n\n"
             "_Reply *0* to go back._"
         )
     lines = [f"📋 *Your Listings ({len(products)}):*\n"]
@@ -468,14 +616,22 @@ def format_seller_orders(orders):
 # ── NLP intent detection ─────────────────────────────────────────────────────
 
 INTENT_PATTERNS = {
-    "Home Services":           ["leaking", "plumb", "electric", "paint", "clean", "roof", "pipe", "tap", "geyser", "drain", "tile", "ceiling"],
-    "Construction & Building": ["build", "construct", "renovat", "brick", "cement", "wall", "floor", "house", "extension", "slab"],
-    "IT & Technology":         ["computer", "laptop", "network", "wifi", "cctv", "software", "website", "virus", "hack", "printer", "server"],
-    "Automotive":              ["car", "vehicle", "mechanic", "tyre", "engine", "brake", "service car", "panel beat", "weld"],
-    "Education & Tutoring":    ["tutor", "teach", "lesson", "math", "science", "homework", "exam", "school", "college"],
-    "Catering & Food":         ["food", "cater", "cook", "chef", "event", "wedding", "birthday", "party", "meal"],
-    "Beauty & Personal Care":  ["hair", "nail", "makeup", "salon", "beauty", "barber", "weave", "braids", "lash"],
-    "Delivery & Moving":       ["deliver", "move", "transport", "courier", "ship", "relocat", "removals"],
+    "Home Services":             ["leaking", "plumb", "paint", "roof", "pipe", "tap", "geyser", "drain", "tile", "ceiling", "fix home", "repair home", "handyman"],
+    "Construction & Building":   ["build", "construct", "renovat", "brick", "cement", "wall", "floor", "house", "extension", "slab", "contractor", "architec"],
+    "IT & Technology":           ["computer", "laptop", "network", "wifi", "cctv", "software", "website", "virus", "hack", "printer", "server", "app", "tech support", "data recov"],
+    "Automotive":                ["car", "vehicle", "mechanic", "tyre", "engine", "brake", "panel beat", "weld", "auto", "garage", "exhaust"],
+    "Education & Tutoring":      ["tutor", "teach", "lesson", "math", "science", "homework", "exam", "school", "college", "learn", "cours", "varsity"],
+    "Catering & Food":           ["food", "cater", "cook", "chef", "wedding", "birthday", "party", "meal", "lunch", "dinner", "buffet"],
+    "Beauty & Personal Care":    ["hair", "nail", "makeup", "salon", "beauty", "barber", "weave", "braids", "lash", "spa", "facial", "wax"],
+    "Delivery & Moving":         ["deliver", "move", "transport", "courier", "ship", "relocat", "removals", "pickup", "cargo"],
+    "Cleaning Services":         ["clean", "wash", "laundry", "mop", "sweep", "vacuum", "sanitiz", "domestic work", "housekeep", "spring clean"],
+    "Health & Medical":          ["doctor", "nurse", "medical", "health", "clinic", "physio", "dental", "dentist", "therapy", "counsel", "psych"],
+    "Agriculture & Farming":     ["farm", "agricultur", "crop", "seed", "harvest", "livestock", "poultry", "garden", "soil", "irrigation", "tractor"],
+    "Photography & Videography": ["photo", "video", "shoot", "picture", "portrait", "wedding photo", "event photo", "cinemat", "film", "camera", "drone"],
+    "Security Services":         ["guard", "security", "alarm", "patrol", "protect", "surveillance", "bouncer", "access control"],
+    "Financial & Legal":         ["account", "tax", "legal", "lawyer", "audit", "bookkeep", "financ", "convey", "notary", "insurance", "vat"],
+    "Events & Entertainment":    ["event", "dj", "wedding plan", "decor", "sound system", "mc", "host", "entertain", "concert", "function"],
+    "Electrical & Plumbing":     ["electric", "wiring", "switch", "socket", "power", "plumber", "plumbing", "geyser install", "borehole"],
 }
 
 def detect_service_intent(text):
@@ -589,25 +745,49 @@ def format_cart(items):
     if not items:
         return (
             "🛒 *Your Cart is Empty*\n\n"
-            "Browse products and use *add <number>* to add items.\n\n"
+            "Browse products, select one and choose *Add to Cart* to build your order.\n\n"
             "_Reply *0* for the main menu._"
         )
     lines = ["🛒 *Your Cart:*\n"]
     total = 0
+    sellers = set()
     for i, item in enumerate(items):
         subtotal = item["price"] * item["quantity"]
         total   += subtotal
+        sellers.add(item.get("listed_by", ""))
         lines.append(
             f"{NUM_EMOJI[i]}  *{item['name']}*\n"
             f"    💰 ${item['price']:.2f} × {item['quantity']} = *${subtotal:.2f}*\n"
         )
+    seller_note = f"  ({len(sellers)} seller{'s' if len(sellers) > 1 else ''})" if len(sellers) > 1 else ""
     lines.append(
         f"\n━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🧾 *Total: ${total:.2f}*\n\n"
-        f"1️⃣  — ✅ Checkout\n"
+        f"🧾 *Grand Total: ${total:.2f}*{seller_note}\n\n"
+        f"1️⃣  — 📋 View Quote & Checkout\n"
         f"2️⃣  — 🗑️ Clear cart\n"
         f"3️⃣  — ➖ Remove an item\n"
         f"0️⃣  — Continue shopping"
+    )
+    return "\n".join(lines)
+
+
+def format_quote(cart_by_seller):
+    lines = ["📋 *Your Quote Summary*\n━━━━━━━━━━━━━━━━━━━━━━━"]
+    grand_total = 0
+    for group in cart_by_seller:
+        subtotal = sum(i["price"] * i["quantity"] for i in group["items"])
+        grand_total += subtotal
+        lines.append(f"\n📦 *{group['seller_name']}*")
+        for item in group["items"]:
+            item_total = item["price"] * item["quantity"]
+            lines.append(f"  • {item['name']} ×{item['quantity']}    *${item_total:.2f}*")
+        lines.append(f"  Subtotal: *${subtotal:.2f}*")
+    lines.append(
+        f"\n━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🧾 *Grand Total: ${grand_total:.2f}*\n\n"
+        f"1️⃣  — ✅ Confirm & choose delivery\n"
+        f"2️⃣  — ✏️ Edit cart\n"
+        f"0️⃣  — Cancel"
     )
     return "\n".join(lines)
 
@@ -617,11 +797,16 @@ def format_cart(items):
 def _price_label(svc):
     pt = svc.get("price_type", "quoted")
     p  = svc.get("price", 0)
-    if pt == "hourly":
-        return f"${p:.0f}/hr"
-    if pt == "fixed":
-        return f"${p:.0f} fixed"
-    return "Get a quote"
+    labels = {
+        "hourly":      f"${p:.0f}/hr",
+        "daily":       f"${p:.0f}/day",
+        "per_visit":   f"${p:.0f}/visit",
+        "per_project": f"${p:.0f}/project",
+        "per_sqm":     f"${p:.0f}/sqm",
+        "per_km":      f"${p:.0f}/km",
+        "fixed":       f"${p:.0f} fixed",
+    }
+    return labels.get(pt, "Get a quote")
 
 
 def _star_str(rating, count):
@@ -636,10 +821,16 @@ def format_service_list(services, title="🔧 *Services Found:*"):
         return "😕 No services found.\n\n_Reply *0* to go back._"
     lines = [f"{title} ({len(services)} found)\n"]
     for i, s in enumerate(services[:8]):
+        cat      = s.get("category", "")
+        cat_line = f"    📂 {cat}\n" if cat else ""
+        provider = s.get("provider_business") or s.get("provider_name") or ""
+        prov_line = f"    🏢 {provider}\n" if provider else ""
         lines.append(
             f"{NUM_EMOJI[i]}  *{s['title']}*\n"
-            f"    {_star_str(s.get('avg_rating',0), s.get('review_count',0))}\n"
-            f"    💰 {_price_label(s)}  |  📍 {s.get('service_area','Zimbabwe')}\n"
+            f"{cat_line}"
+            f"{prov_line}"
+            f"    {_star_str(s.get('avg_rating', 0), s.get('review_count', 0))}\n"
+            f"    💰 {_price_label(s)}  |  📍 {s.get('service_area', 'Zimbabwe')}\n"
         )
     lines.append("\n_Reply with a number to view details | *0* to go back_")
     return "\n".join(lines)
@@ -653,18 +844,24 @@ def format_service_detail(s, reviews):
         review_lines.append(f"  {stars} _{comment}_")
     reviews_block = "\n".join(review_lines) if review_lines else "  _No reviews yet — be the first!_"
 
+    provider_phone = s.get("provider_phone", "")
+    has_wa = bool(provider_phone)
+    wa_option = "3️⃣  — 💬 Contact provider directly\n" if has_wa else ""
+
     return (
         f"🔧 *{s['title']}*\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📦 Category : {s['category']}\n"
+        f"📂 Category : {s['category']}\n"
+        f"🏢 Provider : {s.get('provider_business') or s.get('provider_name', 'N/A')}\n"
         f"💰 Pricing  : {_price_label(s)}\n"
-        f"📍 Area     : {s.get('service_area','Zimbabwe')}\n"
-        f"🏢 Provider : {s.get('provider_business') or s.get('provider_name','N/A')}\n"
-        f"{_star_str(s.get('avg_rating',0), s.get('review_count',0))}\n\n"
-        f"📝 _{s.get('description','No description provided.')}_\n\n"
-        f"💬 *Recent Reviews:*\n{reviews_block}\n\n"
-        f"1️⃣  — 📩 Enquire about this service\n"
+        f"📍 Area     : {s.get('service_area', 'Zimbabwe')}\n"
+        f"{_star_str(s.get('avg_rating', 0), s.get('review_count', 0))}\n\n"
+        f"📝 _{s.get('description', 'No description provided.')}_\n\n"
+        f"💬 *Reviews:*\n{reviews_block}\n\n"
+        f"1️⃣  — 📩 Send an enquiry\n"
         f"2️⃣  — ⭐ Leave a review\n"
+        f"{wa_option}"
+        f"💬 Reply *Q* to request a custom quote\n"
         f"0️⃣  — Back to results"
     )
 
@@ -781,7 +978,11 @@ def handle_session(phone, msg_text, session):
 
     # "0" = go back one level
     if msg_text == "0":
-        if state in ("ctx_buyer", "ctx_categories", "ctx_search", "ctx_results"):
+        if state == "ctx_cat_group":
+            set_session(phone, "ctx_categories")
+            return CATEGORIES_MENU
+        if state in ("ctx_buyer", "ctx_categories", "ctx_search", "ctx_results",
+                     "buy_qty", "buy_confirm", "ctx_buy_or_cart"):
             return go_buyer_menu(phone)
         if state == "ctx_seller":
             return go_welcome(phone)
@@ -800,9 +1001,13 @@ def handle_session(phone, msg_text, session):
         # Cart back-navigation
         if state in ("ctx_cart", "ctx_cart_remove"):
             return go_buyer_menu(phone)
-        if state in ("ctx_checkout_delivery", "ctx_checkout_delivery_addr"):
+        if state == "ctx_quote":
             set_session(phone, "ctx_cart", {})
             return format_cart(get_cart(phone))
+        if state in ("ctx_checkout_delivery", "ctx_checkout_delivery_addr"):
+            total = data.get("total", get_cart_total(phone))
+            set_session(phone, "ctx_quote", {"total": total})
+            return format_quote(get_cart_by_seller(phone))
         if state == "ctx_checkout":
             total = data.get("total", 0)
             set_session(phone, "ctx_checkout_delivery", {"total": total})
@@ -849,6 +1054,41 @@ def handle_session(phone, msg_text, session):
         if state in ("ctx_dispute_type", "ctx_dispute_desc"):
             clear_session(phone)
             return WELCOME
+        if state in ("ctx_quote_start",):
+            return go_buyer_menu(phone)
+        if state == "ctx_quote_svc_cat":
+            set_session(phone, "ctx_quote_start", {})
+            return (
+                "💬 *Request a Quotation*\n\n"
+                "1️⃣  — 📦 A product / goods\n"
+                "2️⃣  — 🔧 A service (choose from registered providers)\n\n"
+                "_Reply *0* to go back._"
+            )
+        if state == "ctx_quote_svc_list":
+            # Go back to the category page the buyer was on
+            cat_page = data.get("page", 1)
+            set_session(phone, "ctx_quote_svc_cat", {"page": cat_page})
+            return QUOTE_CATS_PAGE2 if cat_page == 2 else QUOTE_CATS_MENU
+        if state in ("ctx_quote_desc", "ctx_quote_confirm"):
+            # If this came from a service provider selection, go back to provider list
+            if data.get("item_type") == "service" and data.get("service_id"):
+                svc_list_data = {
+                    "services":  [{"id": data.get("service_id"), "title": data.get("product_name", ""),
+                                   "provider_phone": data.get("seller_phone", ""),
+                                   "provider_business": data.get("provider_name", "")}],
+                    "category":  data.get("category", ""),
+                    "page":      1,
+                }
+                # Safest: just go back to the category picker
+                set_session(phone, "ctx_quote_svc_cat", {"page": 1})
+                return QUOTE_CATS_MENU
+            set_session(phone, "ctx_quote_start", data)
+            return (
+                "💬 *Request a Quotation*\n\n"
+                "1️⃣  — 📦 A product / goods\n"
+                "2️⃣  — 🔧 A service (choose from registered providers)\n\n"
+                "_Reply *0* to go back._"
+            )
         if state in ("reg_kyc", "reg_location", "reg_name", "reg_business"):
             clear_session(phone)
             return WELCOME
@@ -886,14 +1126,18 @@ def handle_session(phone, msg_text, session):
     if msg_text in ("1", "2", "3", "4", "5") and state not in (
         "ctx_buyer", "ctx_seller", "ctx_accommodation",
         "ctx_find_service", "ctx_svc_cats", "ctx_svc_results", "ctx_svc_detail",
-        "ctx_categories", "ctx_city_select",
+        "ctx_categories", "ctx_cat_group", "ctx_city_select",
+        "ctx_search", "ctx_results", "ctx_buy_or_cart",
         "ctx_prop_results", "ctx_prop_detail",
-        "ctx_cart", "ctx_cart_remove",
+        "ctx_cart", "ctx_cart_remove", "ctx_quote",
         "ctx_checkout", "ctx_checkout_ecocash", "ctx_checkout_pending",
         "ctx_checkout_delivery", "ctx_checkout_delivery_addr",
-        "buy_delivery", "buy_delivery_addr",
+        "buy_qty", "buy_confirm", "buy_delivery", "buy_delivery_addr",
         "del_reg_vehicle",
         "ctx_dispute_type",
+        "ctx_quote_start", "ctx_quote_svc_cat", "ctx_quote_svc_list",
+        "ctx_quote_desc", "ctx_quote_confirm",
+        "ctx_admin_new_seller", "ctx_admin_new_seller_reject", "ctx_admin_new_seller_more_info",
     ) and not state.startswith("ctx_admin") \
       and not state.startswith("svc_") \
       and not state.startswith("prod_review"):
@@ -910,15 +1154,25 @@ def handle_session(phone, msg_text, session):
         if msg_text == "1":
             return go_categories(phone)
         if msg_text == "2":
-            return SERVICES_RESPONSE
+            return go_find_service_menu(phone)
         if msg_text == "3":
             set_session(phone, "ctx_search")
             return "🔍 What are you looking for?\n\nType your search term:\n_e.g. laptop, cctv, printer_\n\n_Reply *0* to go back._"
         if msg_text == "4":
-            set_session(phone, "awaiting_name")
-            return "📋 *Get a Quote*\n━━━━━━━━━━━━━━━━━━━━━━━━━\n\nWhat is your *full name*?\n\n_Reply *0* to cancel._"
+            set_session(phone, "ctx_quote_start", {})
+            return (
+                "💬 *Request a Quotation*\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                "Request a price from sellers before you buy.\n\n"
+                "1️⃣  — 📦 Quote for a *product / goods*\n"
+                "2️⃣  — 🔧 Quote for a *service*\n\n"
+                "_Reply *0* to go back._"
+            )
         if msg_text == "5":
-            return format_buyer_orders(get_buyer_orders(phone)) + f"\n\n{BUYER_MENU}"
+            return format_buyer_orders(get_buyer_orders(phone))
+        if msg_text == "6":
+            set_session(phone, "ctx_cart", {})
+            return format_cart(get_cart(phone))
         return BUYER_MENU
 
     # ── Menu context: main seller menu ────────────────────────────────────────
@@ -928,12 +1182,9 @@ def handle_session(phone, msg_text, session):
         if msg_text == "2":
             return _handle_sell_product(phone)
         if msg_text == "3":
-            return _handle_offer_service(phone)
-        if msg_text == "4":
             seller = get_seller(phone)
             if not seller or seller["status"] != "approved":
                 return "You need an approved seller account first.\n\nReply *1* to register.\n\n_Reply *0* to go back to the menu."
-            # Show both product listings and service listings
             products = get_seller_products(phone)
             services = get_provider_services(phone)
             lines    = []
@@ -948,49 +1199,53 @@ def handle_session(phone, msg_text, session):
                     icon = {"approved": "✅", "pending": "⏳", "rejected": "❌"}.get(s["status"], "•")
                     lines.append(f"{icon} {s['title']} — {_price_label(s)} ({s['status'].title()})")
             if not products and not services:
-                return "📭 You have no listings yet.\n\nReply *2* to list a product or *3* to offer a service.\n\n_Reply *0* for main menu._"
+                return "📭 You have no listings yet.\n\nReply *2* to list a product or service.\n\n_Reply *0* for main menu._"
             lines.append("\n_Reply *0* for the main menu._")
             return "\n".join(lines)
-        if msg_text == "5":
+        if msg_text == "4":
             seller = get_seller(phone)
             if seller and seller["status"] == "approved":
                 return format_seller_orders(get_seller_orders(phone))
             return format_buyer_orders(get_buyer_orders(phone))
         return SELLER_MENU
 
-    # ── Menu context: category list ───────────────────────────────────────────
+    # ── Menu context: category groups ────────────────────────────────────────
     if state == "ctx_categories":
-        cat_map = {str(i + 1): CATEGORIES[i] for i in range(len(CATEGORIES))}
+        group_map = {str(i + 1): CATEGORY_GROUPS[i] for i in range(len(CATEGORY_GROUPS))}
+        if msg_text in group_map:
+            icon, label, cats = group_map[msg_text]
+            lines = [f"{icon} *{label}:*\n"]
+            for j, cat in enumerate(cats):
+                lines.append(f"{NUM_EMOJI[j]}  — {cat}")
+            lines.append(f"\n_Reply *1–{len(cats)}* to view | *0* to go back_")
+            set_session(phone, "ctx_cat_group", {"group_idx": msg_text, "cats": cats, "label": label})
+            return "\n".join(lines)
+        return CATEGORIES_MENU
+
+    # ── Menu context: categories within a group ───────────────────────────────
+    if state == "ctx_cat_group":
+        cats      = data.get("cats", [])
+        label     = data.get("label", "")
+        group_idx = data.get("group_idx", "1")
+        cat_map   = {str(i + 1): cats[i] for i in range(len(cats))}
         if msg_text in cat_map:
             category = cat_map[msg_text]
             results  = get_products_by_category(category)
             if not results:
-                # IT Services & no listings → offer a quote instead
-                if category == "IT Services":
-                    return (
-                        f"🛠️ No services are currently listed under *{category}*.\n\n"
-                        "Would you like to request a custom service quote?\n\n"
-                        "1️⃣  — Yes, request a quote\n"
-                        "0️⃣  — Back to categories"
-                    )
                 return (
                     f"😕 No products listed under *{category}* yet.\n\n"
                     "_Reply *0* to browse other categories._"
                 )
-            # Convert to dicts to avoid sqlite3.Row issues
-            product_data = [_to_dict(r) for r in results[:5]]
+            product_data = [_to_dict(r) for r in results[:8]]
             set_session(phone, "ctx_results", {"products": product_data, "back": "categories"})
-            return format_numbered_products(product_data, title=f"🖥️ *{category}:*")
-        # Handle "1" for quote after "no IT services" message
-        if msg_text == "1":
-            set_session(phone, "awaiting_name")
-            return (
-                "📋 *Request a Service Quote*\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                "What is your *full name*?\n\n"
-                "_Reply *0* to cancel._"
-            )
-        return CATEGORIES_MENU
+            return format_numbered_products(product_data, title=f"🛍️ *{category}:*")
+        # re-show the group's sub-list
+        icon = CATEGORY_GROUPS[int(group_idx) - 1][0]
+        lines = [f"{icon} *{label}:*\n"]
+        for j, cat in enumerate(cats):
+            lines.append(f"{NUM_EMOJI[j]}  — {cat}")
+        lines.append(f"\n_Reply *1–{len(cats)}* to view | *0* to go back_")
+        return "\n".join(lines)
 
     # ── Menu context: search prompt ───────────────────────────────────────────
     if state == "ctx_search":
@@ -1000,7 +1255,7 @@ def handle_session(phone, msg_text, session):
                 f"😕 No results for *{msg_text}*.\n\n"
                 "Try a different keyword, or reply *0* to go back."
             )
-        product_data = [_to_dict(r) for r in results[:5]]
+        product_data = [_to_dict(r) for r in results[:8]]
         set_session(phone, "ctx_results", {"products": product_data, "back": "buyer"})
         return format_numbered_products(product_data, title=f"🔍 *Results for \"{msg_text}\":*")
 
@@ -1008,40 +1263,132 @@ def handle_session(phone, msg_text, session):
     if state == "ctx_results":
         products = data.get("products", [])
         num_map  = {str(i + 1): products[i] for i in range(len(products))}
+
+        if msg_text.upper() == "C" and len(products) > 1:
+            lines = ["📊 *Price Comparison*\n━━━━━━━━━━━━━━━━━━━━━━━━━\n"]
+            for i, p in enumerate(products):
+                seller = p.get("business_name") or p.get("seller_name") or "Unknown seller"
+                city   = p.get("seller_city") or p.get("seller_location") or ""
+                rating = p.get("avg_rating") or 0
+                stock  = p.get("stock_qty", 0)
+                is_dig = p.get("product_type") == "digital"
+                avail  = "🖼️ Digital" if is_dig else ("✅ In stock" if stock > 0 else "❌ Out of stock")
+                loc    = f" · {city}" if city else ""
+                stars  = f" · ⭐{rating:.1f}" if rating else ""
+                lines.append(
+                    f"{NUM_EMOJI[i]}  *${p['price']:.2f}* — {seller}{loc}{stars}\n"
+                    f"    {p['name']} · {avail}\n"
+                )
+            lines.append("_Reply a number to select | *0* to go back_")
+            return "\n".join(lines)
+
         if msg_text in num_map:
             p       = num_map[msg_text]
-            product = get_product_by_id(p["id"])
-            if not product or product["status"] != "approved":
+            row     = get_product_by_id(p["id"])
+            if not row or row["status"] != "approved":
                 return "❌ This item is no longer available.\n\n_Reply *0* to go back._"
-            if product["stock_qty"] == 0:
+            product    = dict(row)
+            is_digital = product.get("product_type") == "digital"
+
+            if not is_digital and product["stock_qty"] == 0:
                 add_to_waitlist(phone, product["id"])
                 return (
                     f"❌ *{product['name']}* is currently out of stock.\n\n"
-                    "🔔 You've been added to the waitlist — we'll notify you when it's back.\n\n"
+                    "🔔 You're on the waitlist — we'll message you the moment it's back in stock!\n\n"
+                    "Meanwhile, try:\n"
+                    "3️⃣  — 🔍 Search for alternatives\n"
+                    "1️⃣  — 🗂️ Browse other categories\n\n"
                     "_Reply *0* to go back._"
                 )
-            # Show full product card then ask for quantity
-            desc = product["description"] or "No description available."
+
+            desc = product.get("description") or "No description available."
             set_session(phone, "buy_qty", {
                 "product_id": product["id"],
                 "back": data.get("back", "buyer"),
-                "products": products,
             })
-            # Send product photo over WhatsApp if available
+
+            # Fetch seller info and product rating for the detail card
+            seller_line = ""
+            rating_line = ""
+            try:
+                seller_row  = get_seller(product["listed_by"]) if product.get("listed_by") else None
+                seller_biz  = (dict(seller_row).get("business_name") if seller_row else None) or ""
+                seller_city = (dict(seller_row).get("location") if seller_row else None) or ""
+                if seller_biz:
+                    loc_part    = f", {seller_city}" if seller_city else ""
+                    seller_line = f"🏪 Seller   : {seller_biz}{loc_part}\n"
+                avg_r, r_cnt = get_product_avg_rating(product["id"])
+                if r_cnt > 0:
+                    rating_line = f"⭐ Rating   : {avg_r:.1f}/5  ({r_cnt} review{'s' if r_cnt != 1 else ''})\n"
+            except Exception:
+                pass
+
+            # Send product photo via WhatsApp before the text card
             if product.get("image_path"):
-                image_url = f"{BASE_URL}/uploads/{product['image_path']}"
-                send_whatsapp_image(phone, image_url, caption=product["name"])
+                send_whatsapp_image(
+                    phone,
+                    f"{BASE_URL}/uploads/{product['image_path']}",
+                    caption=product["name"],
+                )
+
             web_link = f"{BASE_URL}/product/{product['id']}"
+
+            if is_digital:
+                return (
+                    f"🖼️ *{product['name']}*\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"📁 Category : {product['category']}\n"
+                    f"💰 Price    : *${product['price']:.2f}*\n"
+                    f"📦 Type     : Digital Download 🔒\n"
+                    f"{seller_line}"
+                    f"{rating_line}"
+                    f"📝 _{desc[:140]}_\n\n"
+                    f"🔗 Full details: {web_link}\n\n"
+                    "Reply *1* to purchase — you'll receive a secure download link on WhatsApp after payment.\n\n"
+                    "_Reply *0* to go back._"
+                )
+            unit        = product.get("stock_unit") or "pcs"
+            stock_label = f"{product['stock_qty']} {unit}"
+            price_unit  = f"per {unit}" if unit not in ("pcs", "units", "piece") else "each"
+            location    = product.get("seller_location") or ""
+            delivers    = product.get("offers_delivery", 0)
+            del_info    = product.get("delivery_info") or ""
+            extras      = product.get("extra_services") or ""
+
+            pay_methods = product.get("payment_methods") or ""
+            currency    = product.get("currency") or "USD"
+
+            loc_line  = f"📍 Location : {location}\n"           if location else ""
+            del_line  = (f"🚚 Delivery : {del_info}\n"          if del_info
+                         else "🚚 Delivery : Available\n"       if delivers
+                         else "🏪 Collect   : Self-collect only\n")
+            ext_line  = f"✨ Includes  : {extras}\n"            if extras else ""
+            cur_line  = f"💱 Currency : {currency}\n"
+
+            if pay_methods:
+                pay_entries = [m.strip() for m in pay_methods.split("|") if m.strip()]
+                pay_body    = "\n".join(f"   • {e}" for e in pay_entries)
+                pay_line    = f"💳 Payment  :\n{pay_body}\n"
+            else:
+                pay_line = ""
+
             return (
                 f"🛒 *{product['name']}*\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"📦 Category : {product['category']}\n"
-                f"💰 Price    : ${product['price']:.2f} each\n"
-                f"📦 In stock : {product['stock_qty']} unit(s)\n"
-                f"📝 {desc[:120]}\n"
-                f"🔗 _View photos: {web_link}_\n\n"
-                "How many would you like?\n"
-                "_Type a number (e.g. 1, 2, 3...) or *0* to go back._"
+                f"💰 Price    : *${product['price']:.2f}* {price_unit}\n"
+                f"✅ In stock : {stock_label}\n"
+                f"{seller_line}"
+                f"{rating_line}"
+                f"{loc_line}"
+                f"{del_line}"
+                f"{cur_line}"
+                f"{pay_line}"
+                f"{ext_line}"
+                f"📝 _{desc[:120]}_\n\n"
+                f"🔗 Full details: {web_link}\n\n"
+                f"🔢 How many *{unit}* would you like?\n"
+                "_Type a number to order  |  reply *Q* for a custom quote  |  *0* to go back._"
             )
         # Invalid number — re-show the list
         return format_numbered_products(products, title="📋 *Select a product:*")
@@ -1164,35 +1511,87 @@ def handle_session(phone, msg_text, session):
     # ── Find a service: top menu ──────────────────────────────────────────────
     if state == "ctx_find_service":
         if msg_text == "1":
-            set_session(phone, "ctx_svc_cats")
+            set_session(phone, "ctx_svc_cats", {"page": 1})
             return SERVICE_CATS_MENU
         if msg_text == "2":
             set_session(phone, "ctx_svc_search")
-            return "🔍 What service are you looking for?\n\nType a keyword:\n_e.g. plumber, electrician, tutor_\n\n_Reply *0* to go back._"
+            return (
+                "🔍 *Search for a Service*\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                "Type what you need:\n"
+                "_e.g. plumber, electrician, wedding photographer, accountant_\n\n"
+                "_Reply *0* to go back._"
+            )
+        if msg_text == "3":
+            # Popular services — pull top 2 from high-demand categories
+            popular = []
+            for cat in ["Home Services", "IT & Technology", "Beauty & Personal Care",
+                        "Electrical & Plumbing", "Cleaning Services", "Catering & Food"]:
+                svcs = get_services_by_category(cat)
+                if svcs:
+                    popular.extend(svcs[:2])
+                if len(popular) >= 8:
+                    break
+            if popular:
+                set_session(phone, "ctx_svc_results", {"services": popular})
+                return format_service_list(popular, title="🌟 *Popular Services:*")
+            return (
+                "😕 No services listed yet.\n\n"
+                "Reply *1* to browse by category or *2* to search.\n\n"
+                "_Reply *0* to go back._"
+            )
         return FIND_SERVICE_MENU
 
-    # ── Service category browse ────────────────────────────────────────────────
+    # ── Service category browse (paginated, all 16 categories) ────────────────
     if state == "ctx_svc_cats":
-        cat_map = {str(i + 1): SERVICE_CATEGORIES[i][1] for i in range(len(SERVICE_CATEGORIES))}
-        if msg_text in cat_map:
-            category = cat_map[msg_text]
+        page        = data.get("page", 1)
+        offset      = (page - 1) * 8
+        active_menu = SERVICE_CATS_PAGE2 if page == 2 else SERVICE_CATS_MENU
+
+        # "9" toggles between page 1 and 2
+        if msg_text == "9":
+            new_page = 2 if page == 1 else 1
+            set_session(phone, "ctx_svc_cats", {"page": new_page})
+            return SERVICE_CATS_PAGE2 if new_page == 2 else SERVICE_CATS_MENU
+
+        if msg_text.isdigit() and 1 <= int(msg_text) <= 8:
+            idx = offset + int(msg_text) - 1
+            if idx >= len(SERVICE_CATEGORIES):
+                return active_menu
+            _, category = SERVICE_CATEGORIES[idx]
             services = get_services_by_category(category)
             if not services:
                 return (
                     f"😕 No services listed under *{category}* yet.\n\n"
-                    "Reply *2* to search by keyword, or *0* to go back."
+                    f"💡 Try searching instead:\n"
+                    f"   Type _find {category.split()[0].lower()}_ to search\n\n"
+                    f"_Reply *9* to see more categories | *0* to go back_"
                 )
-            set_session(phone, "ctx_svc_results", {"services": services})
+            set_session(phone, "ctx_svc_results", {"services": services, "category": category})
             return format_service_list(services, title=f"🔧 *{category}:*")
-        return SERVICE_CATS_MENU
+
+        return active_menu
 
     # ── Service keyword search ─────────────────────────────────────────────────
     if state == "ctx_svc_search":
         services = search_services(msg_text)
         if not services:
+            # Try NLP intent fallback
+            intent = detect_service_intent(msg_text)
+            if intent:
+                services = get_services_by_category(intent)
+            if services:
+                set_session(phone, "ctx_svc_results", {"services": services, "query": msg_text})
+                return (
+                    f"💡 No exact match — showing *{intent}* providers:\n\n"
+                    + format_service_list(services, title=f"🔧 *{intent}:*")
+                )
             return (
                 f"😕 No services found for *{msg_text}*.\n\n"
-                "Try a different keyword or reply *0* to go back."
+                "💡 Tips:\n"
+                "  • Try simpler words: _plumber_, _cleaner_, _tutor_\n"
+                "  • Reply *1* to browse all service categories\n\n"
+                "_Reply *0* to go back._"
             )
         set_session(phone, "ctx_svc_results", {"services": services, "query": msg_text})
         return format_service_list(services, title=f"🔍 *Results for \"{msg_text}\":*")
@@ -1211,7 +1610,7 @@ def handle_session(phone, msg_text, session):
             return format_service_detail(svc, reviews)
         return format_service_list(services, title="📋 *Select a service:*")
 
-    # ── Service detail: enquire or review ──────────────────────────────────────
+    # ── Service detail: enquire, review, or direct WA contact ─────────────────
     if state == "ctx_svc_detail":
         svc      = data.get("service", {})
         services = data.get("services", [])
@@ -1226,10 +1625,43 @@ def handle_session(phone, msg_text, session):
         if msg_text == "2":
             set_session(phone, "svc_review_rating", {"service": svc, "services": services})
             return (
-                f"⭐ *Review: {svc.get('title')}*\n\n"
-                "Rate this service:\n"
-                "1️⃣  ⭐\n2️⃣  ⭐⭐\n3️⃣  ⭐⭐⭐\n4️⃣  ⭐⭐⭐⭐\n5️⃣  ⭐⭐⭐⭐⭐\n\n"
+                f"⭐ *Rate: {svc.get('title')}*\n\n"
+                "1️⃣  ⭐  — Poor\n"
+                "2️⃣  ⭐⭐ — Fair\n"
+                "3️⃣  ⭐⭐⭐ — Good\n"
+                "4️⃣  ⭐⭐⭐⭐ — Very Good\n"
+                "5️⃣  ⭐⭐⭐⭐⭐ — Excellent\n\n"
                 "_Reply *0* to cancel._"
+            )
+        if msg_text == "3":
+            provider_phone = svc.get("provider_phone", "")
+            if provider_phone:
+                clean   = provider_phone.lstrip("+").replace(" ", "")
+                title   = (svc.get("title") or "your service").replace(" ", "+")
+                wa_url  = f"https://wa.me/{clean}?text=Hi%2C+I+found+your+listing+on+T-Tech+Connect.+I%27d+like+to+enquire+about+*{title}*."
+                clear_session(phone)
+                return (
+                    f"💬 *Contact {svc.get('provider_business') or svc.get('provider_name', 'Provider')} Directly*\n\n"
+                    f"Tap the link to open WhatsApp:\n{wa_url}\n\n"
+                    "_Reply *0* for the main menu._"
+                )
+            reviews = get_service_reviews(svc["id"])
+            return format_service_detail(svc, reviews)
+        if msg_text.upper() == "Q":
+            set_session(phone, "ctx_quote_desc", {
+                "item_type":    "service",
+                "service_id":   svc.get("id"),
+                "product_name": svc.get("title", ""),
+                "seller_phone": svc.get("provider_phone", ""),
+            })
+            return (
+                f"💬 *Request Quote: {svc.get('title')}*\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"Provider: {svc.get('provider_business') or svc.get('provider_name', '')}\n"
+                f"Pricing : {_price_label(svc)}\n\n"
+                "Describe your requirements (job scope, location, timing, budget):\n\n"
+                "_e.g. Repaint 3-bedroom house in Gweru, interior only, within 2 weeks_\n\n"
+                "_Reply *0* to go back._"
             )
         reviews = get_service_reviews(svc["id"])
         return format_service_detail(svc, reviews)
@@ -1252,16 +1684,18 @@ def handle_session(phone, msg_text, session):
         name     = data.get("customer_name", "Customer")
         details  = msg_text
         log_service_enquiry(svc["id"], phone, name, details)
+        provider_phone = svc.get("provider_phone", "")
         # Notify provider
-        if svc.get("provider_phone"):
+        if provider_phone:
             send_whatsapp_message(
-                svc["provider_phone"],
-                f"📩 *New Service Enquiry!*\n\n"
-                f"Service  : {svc['title']}\n"
-                f"From     : {name}\n"
-                f"Phone    : {phone}\n"
-                f"Details  : {details}\n\n"
-                "Reply to this number to respond to the customer."
+                provider_phone,
+                f"📩 *New Service Enquiry!*\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"Service : {svc['title']}\n"
+                f"From    : {name}\n"
+                f"Phone   : {phone}\n\n"
+                f"📋 Details:\n_{details}_\n\n"
+                "Reply directly to this WhatsApp to respond to the customer."
             )
         notify_admin(
             f"📩 *Service Enquiry*\n\n"
@@ -1270,11 +1704,20 @@ def handle_session(phone, msg_text, session):
             f"Details : {details}"
         )
         clear_session(phone)
+        # Build direct WA link for buyer to follow up with provider
+        wa_note = ""
+        if provider_phone:
+            clean  = provider_phone.lstrip("+").replace(" ", "")
+            wa_url = f"https://wa.me/{clean}"
+            wa_note = f"\n💬 You can also contact them directly:\n{wa_url}\n"
         return (
-            f"✅ *Enquiry Sent!*\n\n"
+            f"✅ *Enquiry Sent!*\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
             f"Thank you, *{name}*!\n\n"
-            f"Your enquiry for *{svc['title']}* has been received.\n"
-            "The service provider will contact you directly. 📞\n\n"
+            f"📋 Service : {svc['title']}\n"
+            f"Your enquiry has been forwarded to the provider.\n"
+            f"They will contact you directly on WhatsApp. 📞\n"
+            f"{wa_note}\n"
             "_Reply *0* for the main menu._"
         )
 
@@ -1689,6 +2132,64 @@ def handle_session(phone, msg_text, session):
         clear_session(phone)
         return result + "\n\nSend *admin* to return to the panel."
 
+    # ── Admin: new seller registration quick-reply ─────────────────────────────
+    if state == "ctx_admin_new_seller":
+        s_phone = data.get("phone", "")
+        s_name  = data.get("name", "")
+        if msg_text == "1":
+            result = _approve_seller(s_phone)
+            clear_session(phone)
+            return result
+        if msg_text == "2":
+            set_session(phone, "ctx_admin_new_seller_reject", {"phone": s_phone, "name": s_name})
+            return (
+                f"❌ Rejecting *{s_name}*\n\n"
+                "Type the *reason for rejection* (or *skip* for none):\n\n"
+                "_Reply *0* to cancel._"
+            )
+        if msg_text == "3":
+            set_session(phone, "ctx_admin_new_seller_more_info", {"phone": s_phone, "name": s_name})
+            return (
+                f"❓ Requesting more info from *{s_name}*\n\n"
+                "Type the *message* to send them (what information do you need?):\n\n"
+                "_Reply *0* to cancel._"
+            )
+        if msg_text == "0":
+            clear_session(phone)
+            return "Cancelled.\n\nSend *admin* to return to the panel."
+        return (
+            f"📋 *{s_name}* ({s_phone})\n\n"
+            "1️⃣  — ✅ Approve\n"
+            "2️⃣  — ❌ Reject\n"
+            "3️⃣  — ❓ Request more info\n"
+            "0️⃣  — Cancel"
+        )
+
+    if state == "ctx_admin_new_seller_reject":
+        s_phone = data.get("phone", "")
+        reason  = "" if msg_text.lower() in ("skip", "0") else msg_text
+        if msg_text == "0":
+            clear_session(phone)
+            return "Cancelled.\n\nSend *admin* to return to the panel."
+        result = _reject_seller(s_phone, reason)
+        clear_session(phone)
+        return result
+
+    if state == "ctx_admin_new_seller_more_info":
+        s_phone = data.get("phone", "")
+        s_name  = data.get("name", "")
+        if msg_text == "0":
+            clear_session(phone)
+            return "Cancelled.\n\nSend *admin* to return to the panel."
+        send_whatsapp_message(
+            s_phone,
+            f"👋 Hi *{s_name}*, our team needs a bit more information to process your application:\n\n"
+            f"_{msg_text}_\n\n"
+            "Please reply here and we'll update your application. Thank you! 🙏"
+        )
+        clear_session(phone)
+        return f"✅ Message sent to *{s_name}* ({s_phone})."
+
     # ── Admin: product management submenu ─────────────────────────────────────
     if state == "ctx_admin_product_mgmt":
         if msg_text == "1":
@@ -1857,16 +2358,33 @@ def handle_session(phone, msg_text, session):
         order  = data.get("order", {})
         if msg_text == "1":
             update_order_status(order["id"], "fulfilled")
-            ref = order.get("reference", str(order["id"]))
-            # Notify buyer
-            send_whatsapp_message(
-                order["buyer_phone"],
-                f"📦 *Order Delivered!*\n\n"
-                f"Your order *{ref}* for *{order['product_name']}* has been fulfilled. 🎉\n\n"
-                "Thank you for shopping with T-Tech Connect!\n\n"
-                "⭐ *How was your experience?*\n"
-                "Reply *rate product* to leave a quick review — it helps other buyers!"
-            )
+            ref     = order.get("reference", str(order["id"]))
+            product = get_product_by_id(order["product_id"]) if order.get("product_id") else None
+            # Digital product: send secure download link instead of generic message
+            if product and product.get("product_type") == "digital" and product.get("product_file_path"):
+                token        = _make_download_token(order["buyer_phone"], order["product_id"])
+                download_url = (
+                    f"{BASE_URL}/product/{order['product_id']}/download"
+                    f"?phone={order['buyer_phone']}&token={token}"
+                )
+                send_whatsapp_message(
+                    order["buyer_phone"],
+                    f"🎉 *Your digital product is ready!*\n\n"
+                    f"Order *{ref}* — *{order['product_name']}*\n\n"
+                    f"🔗 Download your file here:\n{download_url}\n\n"
+                    "Save it as soon as possible. Thank you for your purchase! 🙏\n\n"
+                    "⭐ Reply *rate product* to leave a review."
+                )
+            else:
+                # Physical product: standard fulfillment message
+                send_whatsapp_message(
+                    order["buyer_phone"],
+                    f"📦 *Order Delivered!*\n\n"
+                    f"Your order *{ref}* for *{order['product_name']}* has been fulfilled. 🎉\n\n"
+                    "Thank you for shopping with T-Tech Connect!\n\n"
+                    "⭐ *How was your experience?*\n"
+                    "Reply *rate product* to leave a quick review — it helps other buyers!"
+                )
             # Notify seller
             if order.get("seller_phone"):
                 send_whatsapp_message(
@@ -2080,21 +2598,13 @@ def handle_session(phone, msg_text, session):
     # ── Cart: view / checkout menu ────────────────────────────────────────────
     if state == "ctx_cart":
         items = get_cart(phone)
-        if msg_text == "1":   # checkout
+        if msg_text == "1":   # checkout — show quote summary first
             if not items:
                 clear_session(phone)
                 return "🛒 Your cart is empty.\n\n_Reply *0* for the main menu._"
             total = get_cart_total(phone)
-            set_session(phone, "ctx_checkout_delivery", {"total": total})
-            return (
-                f"🚚 *Delivery Options*\n"
-                f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"🧾 Order total : *${total:.2f}*\n\n"
-                f"How would you like to receive your order?\n\n"
-                f"1️⃣  — 🚚 Delivery (send to me)\n"
-                f"2️⃣  — 🏪 Self-collect (I'll pick it up)\n"
-                f"0️⃣  — Back to cart"
-            )
+            set_session(phone, "ctx_quote", {"total": total})
+            return format_quote(get_cart_by_seller(phone))
         if msg_text == "2":   # clear cart
             clear_cart(phone)
             clear_session(phone)
@@ -2121,6 +2631,25 @@ def handle_session(phone, msg_text, session):
             set_session(phone, "ctx_cart", {})
             return f"✅ *{item['name']}* removed from cart.\n\n" + format_cart(remaining)
         return "Reply with a number to remove an item."
+
+    # ── Quote summary: review before payment ─────────────────────────────────
+    if state == "ctx_quote":
+        total = data.get("total", get_cart_total(phone))
+        if msg_text == "1":   # confirm — proceed to delivery
+            set_session(phone, "ctx_checkout_delivery", {"total": total})
+            return (
+                f"🚚 *Delivery Options*\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"🧾 Order total : *${total:.2f}*\n\n"
+                f"How would you like to receive your order?\n\n"
+                f"1️⃣  — 🚚 Delivery (send to me)\n"
+                f"2️⃣  — 🏪 Self-collect (I'll pick it up)\n"
+                f"0️⃣  — Back to quote"
+            )
+        if msg_text == "2":   # edit cart
+            set_session(phone, "ctx_cart", {})
+            return format_cart(get_cart(phone))
+        return format_quote(get_cart_by_seller(phone))
 
     # ── Checkout: delivery choice ─────────────────────────────────────────────
     if state == "ctx_checkout_delivery":
@@ -2195,7 +2724,6 @@ def handle_session(phone, msg_text, session):
             )
         if msg_text == "2":   # Cash on Delivery
             items = get_cart(phone)
-            from db import create_order, update_stock, get_product_by_id
             placed = []
             for item in items:
                 product = get_product_by_id(item["product_id"])
@@ -2225,10 +2753,13 @@ def handle_session(phone, msg_text, session):
                 else "🏪 Please collect your order from the seller."
             )
             return (
-                f"✅ *Order Placed — Cash on Delivery!*\n\n"
+                f"✅ *Order Placed — Cash on Delivery!*\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
                 f"Items ordered:\n{items_str}\n\n"
-                f"💵 Pay *${total:.2f}* on delivery.\n\n"
+                f"💵 Pay *${total:.2f}* on collection/delivery.\n\n"
                 f"{buyer_note}\n\n"
+                f"💾 Save this message for your records.\n"
+                f"Reply *my orders* to track  |  *dispute* for issues\n\n"
                 "_Reply *0* for the main menu._"
             )
         return (
@@ -2278,7 +2809,6 @@ def handle_session(phone, msg_text, session):
             total            = data.get("total", 0)
             delivery_type    = data.get("delivery_type", "self_collect")
             delivery_address = data.get("delivery_address", "")
-            from db import create_order, update_stock, get_product_by_id
             placed = []
             for item in items:
                 product = get_product_by_id(item["product_id"])
@@ -2314,11 +2844,13 @@ def handle_session(phone, msg_text, session):
                 else "🏪 Please collect your order from the seller."
             )
             return (
-                f"✅ *Payment Confirmed!*\n\n"
-                f"Reference : *{ref}*\n"
-                f"Total     : *${total:.2f}*\n\n"
+                f"✅ *Payment Confirmed!*\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"📌 Ref  : *{ref}*\n"
+                f"Total: *${total:.2f}*\n\n"
                 f"{buyer_note}\n\n"
-                "Reply *my orders* to track your orders.\n_Reply *0* for the main menu._"
+                f"Reply *my orders* to track  |  *dispute* for issues\n"
+                "_Reply *0* for the main menu._"
             )
         return "Reply *paid* once you've completed the EcoCash payment, or *0* to cancel."
 
@@ -2377,11 +2909,216 @@ def handle_session(phone, msg_text, session):
             "📝 *Seller Registration*\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
             "Registration now requires uploading your ID photo for verification.\n\n"
-            f"Please complete your registration at:\n🔗 {reg_link}\n\n"
+            f"Please complete your registration at:\n{reg_link}\n\n"
             "_Reply *0* for the main menu._"
         )
 
-    # ── Quote flow ────────────────────────────────────────────────────────────
+    # ── Quotation request flow ────────────────────────────────────────────────
+
+    if state == "ctx_quote_start":
+        if msg_text == "1":
+            set_session(phone, "ctx_quote_desc", {"item_type": "product"})
+            return (
+                "📦 *Quote for a Product*\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                "Describe what you need in one message. Include:\n"
+                "  • *What* it is\n"
+                "  • *Quantity* you need\n"
+                "  • *Location* (city/area)\n"
+                "  • *Budget* (optional)\n\n"
+                "_Example:_\n"
+                "_50 bags of cement, delivered to Bulawayo, budget $150_\n\n"
+                "_Reply *0* to go back._"
+            )
+        if msg_text == "2":
+            set_session(phone, "ctx_quote_svc_cat", {"page": 1})
+            return QUOTE_CATS_MENU
+        return (
+            "💬 *Request a Quotation*\n\n"
+            "1️⃣  — 📦 A product / goods\n"
+            "2️⃣  — 🔧 A service (choose from registered providers)\n\n"
+            "_Reply *0* to go back._"
+        )
+
+    # ── Quote: service category selection (paginated) ─────────────────────────
+    if state == "ctx_quote_svc_cat":
+        page        = data.get("page", 1)
+        offset      = (page - 1) * 8
+        active_menu = QUOTE_CATS_PAGE2 if page == 2 else QUOTE_CATS_MENU
+
+        if msg_text == "9":
+            new_page = 2 if page == 1 else 1
+            set_session(phone, "ctx_quote_svc_cat", {"page": new_page})
+            return QUOTE_CATS_PAGE2 if new_page == 2 else QUOTE_CATS_MENU
+
+        if msg_text.isdigit() and 1 <= int(msg_text) <= 8:
+            idx = offset + int(msg_text) - 1
+            if idx >= len(SERVICE_CATEGORIES):
+                return active_menu
+            _, category = SERVICE_CATEGORIES[idx]
+            services    = [dict(s) for s in get_services_by_category(category)]
+            if not services:
+                return (
+                    f"😕 No providers listed under *{category}* yet.\n\n"
+                    f"💡 Try a different category or reply *0* to go back.\n\n"
+                    f"_Reply *9* to see more categories_"
+                )
+            set_session(phone, "ctx_quote_svc_list", {"services": services, "category": category, "page": page})
+            lines = [f"🔧 *{category}*\n━━━━━━━━━━━━━━━━━━━━━━━━━\n\nSelect a provider to request a quote from:\n"]
+            for i, s in enumerate(services[:8]):
+                provider = s.get("provider_business") or s.get("provider_name") or "Provider"
+                rating   = _star_str(s.get("avg_rating", 0), s.get("review_count", 0))
+                lines.append(
+                    f"{NUM_EMOJI[i]}  *{s['title']}*\n"
+                    f"    🏢 {provider}\n"
+                    f"    {rating}\n"
+                    f"    💰 {_price_label(s)}  |  📍 {s.get('service_area', 'Zimbabwe')}\n"
+                )
+            lines.append("\n_Reply with a number to choose | *0* to go back_")
+            return "\n".join(lines)
+
+        return active_menu
+
+    # ── Quote: provider list for chosen category ───────────────────────────────
+    if state == "ctx_quote_svc_list":
+        services = data.get("services", [])
+        category = data.get("category", "")
+        num_map  = {str(i + 1): services[i] for i in range(min(len(services), 8))}
+
+        if msg_text in num_map:
+            svc          = num_map[msg_text]
+            provider     = svc.get("provider_business") or svc.get("provider_name") or "Provider"
+            set_session(phone, "ctx_quote_desc", {
+                "item_type":     "service",
+                "service_id":    svc.get("id"),
+                "product_name":  svc.get("title", ""),
+                "seller_phone":  svc.get("provider_phone", ""),
+                "provider_name": provider,
+                "category":      svc.get("category", category),
+            })
+            return (
+                f"💬 *Request Quote from {provider}*\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"🔧 Service : {svc['title']}\n"
+                f"💰 Pricing : {_price_label(svc)}\n"
+                f"📍 Area    : {svc.get('service_area', 'Zimbabwe')}\n\n"
+                "Describe your requirements in detail:\n"
+                "  • What needs to be done\n"
+                "  • Your location (city/suburb)\n"
+                "  • Timing or deadline\n"
+                "  • Budget (optional)\n\n"
+                "_e.g. Paint 3-bedroom house interior, Harare Borrowdale, within 2 weeks, budget $200_\n\n"
+                "_Reply *0* to go back._"
+            )
+
+        # Re-show the list
+        lines = [f"🔧 *{category}*\n━━━━━━━━━━━━━━━━━━━━━━━━━\n\nSelect a provider:\n"]
+        for i, s in enumerate(services[:8]):
+            provider = s.get("provider_business") or s.get("provider_name") or "Provider"
+            lines.append(
+                f"{NUM_EMOJI[i]}  *{s['title']}*\n"
+                f"    🏢 {provider}\n"
+                f"    💰 {_price_label(s)}  |  📍 {s.get('service_area', 'Zimbabwe')}\n"
+            )
+        lines.append("\n_Reply with a number to choose | *0* to go back_")
+        return "\n".join(lines)
+
+    if state == "ctx_quote_desc":
+        if len(msg_text.strip()) < 10:
+            return "Please describe what you need in a bit more detail (at least 10 characters).\n\n_Reply *0* to go back._"
+        data["description"] = msg_text.strip()
+        set_session(phone, "ctx_quote_confirm", data)
+        item_label    = "📦 Product" if data.get("item_type") == "product" else "🔧 Service"
+        provider_name = data.get("provider_name", "")
+        provider_line = f"Provider: *{provider_name}*\n" if provider_name else ""
+        return (
+            f"📋 *Confirm Your Quote Request*\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"Type   : {item_label}\n"
+            f"{provider_line}"
+            f"Details: _{msg_text.strip()}_\n\n"
+            f"1️⃣  — ✅ Send quote request\n"
+            f"2️⃣  — ✏️ Change description\n"
+            f"0️⃣  — Cancel"
+        )
+
+    if state == "ctx_quote_confirm":
+        if msg_text == "2":
+            # Preserve all the pre-filled data but clear the old description
+            edit_data  = {k: v for k, v in data.items() if k != "description"}
+            set_session(phone, "ctx_quote_desc", edit_data)
+            type_label    = "service" if data.get("item_type") == "service" else "product"
+            provider_name = data.get("provider_name", "")
+            provider_hint = f"Provider: *{provider_name}*\n\n" if provider_name else ""
+            return (
+                f"✏️ *Edit Description*\n\n"
+                f"{provider_hint}"
+                f"Describe the {type_label} you need:\n\n"
+                "_Reply *0* to cancel._"
+            )
+        if msg_text != "1":
+            item_label    = "📦 Product" if data.get("item_type") == "product" else "🔧 Service"
+            provider_name = data.get("provider_name", "")
+            provider_line = f"Provider: *{provider_name}*\n" if provider_name else ""
+            return (
+                f"Type   : {item_label}\n"
+                f"{provider_line}"
+                f"Details: _{data.get('description', '')}_\n\n"
+                "1️⃣  — ✅ Send  |  2️⃣  — ✏️ Edit  |  0️⃣  — Cancel"
+            )
+        # Create quotation
+        ref = create_quotation(
+            buyer_phone=phone,
+            buyer_name="",
+            item_type=data.get("item_type", "product"),
+            category=data.get("category", ""),
+            description=data.get("description", ""),
+            product_id=data.get("product_id"),
+            service_id=data.get("service_id"),
+            seller_phone=data.get("seller_phone", ""),
+        )
+        clear_session(phone)
+
+        target_seller = data.get("seller_phone", "")
+        provider_name = data.get("provider_name", "")
+        item_name     = data.get("product_name", "")
+        item_type     = data.get("item_type", "product")
+        type_label    = "Service" if item_type == "service" else "Product"
+        item_line     = f" — {item_name}" if item_name else ""
+
+        seller_msg = (
+            f"💬 *New Quote Request — {ref}*\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"Type    : {type_label}{item_line}\n"
+            f"Details : {data.get('description', '')}\n"
+            f"From    : {phone}\n\n"
+            f"To respond, reply:\n"
+            f"*quote {ref} <price> <optional note>*\n"
+            f"_Example: quote {ref} 250 Available this weekend_"
+        )
+        if target_seller:
+            send_whatsapp_message(target_seller, seller_msg)
+
+        notify_admin(
+            f"💬 *Quote Request — {ref}*\n"
+            f"Type: {type_label}{item_line}  |  Buyer: {phone}\n"
+            f"Details: {data.get('description', '')}"
+            + (f"\nProvider: {provider_name} ({target_seller})" if target_seller else "")
+        )
+
+        provider_note = f"Your request has been sent to *{provider_name}*.\n" if provider_name else "Matching providers will be notified.\n"
+        return (
+            f"✅ *Quote Request Sent!*\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"📌 Reference: *{ref}*\n"
+            f"🔧 {type_label}{item_line}\n\n"
+            f"{provider_note}"
+            f"You'll receive a WhatsApp notification when a quote arrives. 💬\n\n"
+            f"💾 Reply *my quotes* to check status.\n\n"
+            "_Reply *0* for the main menu._"
+        )
+
+    # ── Legacy quote flow (kept for backward compatibility) ───────────────────
     if state == "awaiting_name":
         data["name"] = msg_text.title()
         set_session(phone, "awaiting_product", data)
@@ -2412,37 +3149,129 @@ def handle_session(phone, msg_text, session):
 
     # ── Order flow ────────────────────────────────────────────────────────────
     if state == "buy_qty":
-        if not msg_text.isdigit() or int(msg_text) < 1:
-            return "Please enter a valid quantity (e.g. *1*)."
-        qty     = int(msg_text)
-        product = get_product_by_id(data["product_id"])
-        if not product:
+        row = get_product_by_id(data["product_id"])
+        if not row:
             clear_session(phone)
             return "❌ Product no longer available.\n\n_Reply *0* for the main menu._"
-        if qty > product["stock_qty"]:
-            return f"❌ Only *{product['stock_qty']}* units available. Please try again."
+        product    = dict(row)
+        is_digital = product.get("product_type") == "digital"
+        unit       = product.get("stock_unit") or "pcs"
+
+        # "Q" = request a custom quote for this product from its seller
+        if msg_text.upper() == "Q":
+            set_session(phone, "ctx_quote_desc", {
+                "item_type":    "product",
+                "product_id":   product["id"],
+                "product_name": product["name"],
+                "seller_phone": product.get("listed_by", ""),
+            })
+            return (
+                f"💬 *Request Quote: {product['name']}*\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"Current price: *${product['price']:.2f}* per {unit}\n\n"
+                "Describe what you need (quantity, special requirements, delivery, budget):\n\n"
+                "_e.g. 20 units, delivery to Mutare, need by Friday, budget $80_\n\n"
+                "_Reply *0* to go back._"
+            )
+
+        # Digital products: qty is always 1
+        if is_digital:
+            qty = 1
+        else:
+            if not msg_text.isdigit() or int(msg_text) < 1:
+                return f"Please enter a valid quantity in *{unit}* (e.g. *1*), or reply *Q* to request a custom quote."
+            qty = int(msg_text)
+            if qty > product["stock_qty"]:
+                return f"❌ Only *{product['stock_qty']} {unit}* available. Please try again."
+
         data["qty"]   = qty
         data["total"] = round(product["price"] * qty, 2)
-        set_session(phone, "buy_confirm", data)
+        set_session(phone, "ctx_buy_or_cart", data)
+        qty_line = "" if is_digital else f"Qty    : *{qty} {unit}*\n"
         return (
-            f"🛒 *Order Summary*\n"
+            f"🛍️ *{product['name']}*\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"Product : {product['name']}\n"
-            f"Qty     : {qty}\n"
-            f"Price   : ${product['price']:.2f} each\n"
-            f"*Total  : ${data['total']:.2f}*\n\n"
-            "1️⃣  — ✅ *Confirm order*\n"
-            "0️⃣  — ❌ Cancel\n\n"
-            "_Reply *1* to confirm or *0* to cancel._"
+            f"{qty_line}"
+            f"Price  : ${product['price']:.2f} per {unit}\n"
+            f"*Total : ${data['total']:.2f}*\n\n"
+            f"1️⃣  — 🛒 Add to Cart (keep shopping)\n"
+            f"2️⃣  — ⚡ Buy Now (checkout now)\n"
+            f"0️⃣  — Cancel\n\n"
+            "_Reply *1* or *2*_"
+        )
+
+    if state == "ctx_buy_or_cart":
+        product_id = data.get("product_id")
+        qty        = data.get("qty", 1)
+        total      = data.get("total", 0)
+        row        = get_product_by_id(product_id)
+        if not row:
+            clear_session(phone)
+            return "❌ Product no longer available.\n\n_Reply *0* for the main menu._"
+        product = dict(row)
+
+        if msg_text == "1":   # Add to Cart
+            add_to_cart(phone, product_id, qty)
+            cart_items = get_cart(phone)
+            cart_total = get_cart_total(phone)
+            item_count = len(cart_items)
+            return (
+                f"✅ *Added to cart!*\n\n"
+                f"🛍️ {product['name']} × {qty}\n"
+                f"🛒 Cart: *{item_count} item{'s' if item_count != 1 else ''}* · *${cart_total:.2f}*\n\n"
+                f"1️⃣  — 🔍 Keep shopping\n"
+                f"2️⃣  — 🛒 View cart & checkout\n"
+                f"0️⃣  — Main menu\n\n"
+                f"_Or checkout faster at {BASE_URL}/cart_"
+            )
+
+        if msg_text == "2":   # Buy Now — go to single-item checkout
+            unit     = product.get("stock_unit") or "pcs"
+            qty_line = "" if product.get("product_type") == "digital" else f"Qty     : {qty} {unit}\n"
+            pay_methods  = product.get("payment_methods") or ""
+            methods_list = [m.strip() for m in pay_methods.split("|") if m.strip()] if pay_methods else []
+            pay_preview  = f"💳 Payment  : {' · '.join(methods_list)}\n" if methods_list else ""
+            set_session(phone, "buy_confirm", data)
+            return (
+                f"🛒 *Order Summary*\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"Product : {product['name']}\n"
+                f"{qty_line}"
+                f"Price   : ${product['price']:.2f} per {unit}\n"
+                f"*Total  : ${total:.2f}*\n\n"
+                f"{pay_preview}"
+                "1️⃣  — ✅ *Confirm & choose delivery*\n"
+                "0️⃣  — ❌ Cancel\n\n"
+                "_Reply *1* to confirm or *0* to cancel._"
+            )
+
+        # re-show the choice
+        unit     = product.get("stock_unit") or "pcs"
+        qty_line = "" if product.get("product_type") == "digital" else f"Qty    : {qty} {unit}\n"
+        return (
+            f"🛍️ *{product['name']}*\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"{qty_line}"
+            f"Price  : ${product['price']:.2f} per {unit}\n"
+            f"Total  : *${total:.2f}*\n\n"
+            f"1️⃣  — 🛒 Add to Cart & keep shopping\n"
+            f"2️⃣  — ⚡ Buy Now (checkout immediately)\n"
+            f"0️⃣  — Cancel\n\n"
+            "_Reply *1* or *2*_"
         )
 
     if state == "buy_confirm":
         if msg_text != "1" and msg_text != "confirm":
             return "Reply *1* to confirm your order or *0* to cancel."
-        product = get_product_by_id(data["product_id"])
-        if not product:
+        row = get_product_by_id(data["product_id"])
+        if not row:
             clear_session(phone)
             return "❌ Product no longer available."
+        product    = dict(row)
+        is_digital = product.get("product_type") == "digital"
+        # Digital products skip delivery — place order immediately
+        if is_digital:
+            return _place_single_order(phone, data, "digital", "")
         set_session(phone, "buy_delivery", data)
         return (
             "🚚 *Delivery Options*\n"
@@ -2532,7 +3361,7 @@ def handle_session(phone, msg_text, session):
 def _handle_register(phone):
     seller = get_seller(phone)
     if seller and seller["status"] == "approved":
-        return "✅ You already have an active seller account.\n\nReply *2* to list a product.\n\n_Reply *0* to go back._"
+        return "✅ You already have an active seller account.\n\nReply *2* to list a product or service.\n\n_Reply *0* to go back._"
     if seller and seller["status"] == "pending":
         return "⏳ Your application is still under review. We'll notify you soon.\n\n_Reply *0* to go back._"
     reg_link = f"{BASE_URL}/register"
@@ -2541,7 +3370,7 @@ def _handle_register(phone):
         "━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         "To register as a seller, open the link below and fill in your details.\n"
         "You will also need to upload a photo of your *ID* and a *selfie* for verification.\n\n"
-        f"🔗 {reg_link}\n\n"
+        f"{reg_link}\n\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         "⏱️ Once submitted, we'll review your application and notify you here within *24 hours*.\n\n"
         "_Reply *0* to go back._"
@@ -2554,7 +3383,7 @@ def _check_seller_approved(phone):
     if not seller:
         return None, (
             "You need a seller account first.\n\n"
-            f"Register here (takes 2 minutes):\n🔗 {BASE_URL}/register\n\n"
+            f"Register here (takes 2 minutes):\n{BASE_URL}/register\n\n"
             "_Reply *0* to go back._"
         )
     if seller["status"] == "pending":
@@ -2566,7 +3395,7 @@ def _check_seller_approved(phone):
     if seller["status"] == "rejected":
         return seller, (
             "❌ Your application was not approved.\n\n"
-            f"You can re-apply at:\n🔗 {BASE_URL}/register\n\n"
+            f"You can re-apply at:\n{BASE_URL}/register\n\n"
             f"📧 {get_setting('contact_email', 'terrencemuromba@gmail.com')}\n"
             f"📞 {get_setting('contact_phone', '+263 77 412 8219')}\n\n"
             "_Reply *0* to go back._"
@@ -2584,10 +3413,13 @@ def _check_seller_approved(phone):
 
 def _place_single_order(phone, data, delivery_type, delivery_address):
     """Place a single-item order (direct buy flow) and return the confirmation message."""
-    product = get_product_by_id(data["product_id"])
-    if not product:
+    row = get_product_by_id(data["product_id"])
+    if not row:
         clear_session(phone)
         return "❌ Product no longer available.\n\n_Reply *0* for the main menu._"
+    product    = dict(row)
+    is_digital = product.get("product_type") == "digital"
+
     order_id, ref, total = create_order(
         buyer_phone=phone,
         product_id=data["product_id"],
@@ -2596,38 +3428,80 @@ def _place_single_order(phone, data, delivery_type, delivery_address):
         delivery_type=delivery_type,
         delivery_address=delivery_address,
     )
-    update_stock(product["id"], product["stock_qty"] - data["qty"])
+    # Only decrement stock for physical products
+    if not is_digital:
+        update_stock(product["id"], product["stock_qty"] - data["qty"])
+
+    # Third-party seller orders auto-confirm — admin only approves T-Tech Connect's own services
+    is_seller_product = bool(product.get("listed_by"))
+    if is_seller_product:
+        update_order_status(order_id, "confirmed")
+
     clear_session(phone)
 
-    d_note = (
-        f"\n📍 Deliver to: {delivery_address}"
-        if delivery_type == "delivery" else "\n🏪 Buyer will self-collect."
-    )
-    if product["listed_by"]:
-        send_whatsapp_message(
-            product["listed_by"],
+    if is_digital:
+        d_note = "\n🖼️ Digital download"
+        seller_note = (
+            f"🛒 *New Digital Order!*\n\n"
+            f"Ref    : *{ref}*\n"
+            f"Item   : {product['name']}\n"
+            f"Revenue: ${total:.2f}\n"
+            f"Buyer  : {phone}"
+        )
+        buyer_note = (
+            "🔒 Once your payment is confirmed, you'll receive a *secure download link* here on WhatsApp."
+        )
+    else:
+        d_note = (
+            f"\n📍 Deliver to: {delivery_address}"
+            if delivery_type == "delivery" else "\n🏪 Buyer will self-collect."
+        )
+        unit        = product.get("stock_unit") or "pcs"
+        qty_display = f"{data['qty']} {unit}"
+        seller_note = (
             f"🛒 *New Order!*\n\n"
             f"Ref    : *{ref}*\n"
             f"Item   : {product['name']}\n"
-            f"Qty    : {data['qty']}  |  Revenue: ${total:.2f}\n"
+            f"Qty    : {qty_display}  |  Revenue: ${total:.2f}\n"
             f"Buyer  : {phone}{d_note}"
         )
+        buyer_note = (
+            "📍 A delivery agent will contact you to arrange delivery. 🚚"
+            if delivery_type == "delivery"
+            else "🏪 Please collect your order from the seller."
+        )
+
+    if product["listed_by"]:
+        send_whatsapp_message(product["listed_by"], seller_note)
+    unit = product.get("stock_unit") or "pcs"
+    qty_str = f"{data['qty']} {unit}" if not is_digital else "Digital"
+    admin_status_note = " _(auto-confirmed)_" if is_seller_product else " _(awaiting your approval)_"
     notify_admin(
-        f"📦 *New Order* — {ref}\n"
-        f"Item: {product['name']} x{data['qty']}  |  ${total:.2f}\n"
-        f"Buyer: {phone}{d_note}"
+        f"{'🖼️' if is_digital else '📦'} *New {'Digital ' if is_digital else ''}Order* — {ref}\n"
+        f"Item: {product['name']}  ×  {qty_str}  |  ${total:.2f}\n"
+        f"Buyer: {phone}{d_note}{admin_status_note}"
     )
-    buyer_note = (
-        "📍 A delivery agent will contact you to arrange delivery. 🚚"
-        if delivery_type == "delivery"
-        else "🏪 Please collect your order from the seller."
-    )
+    qty_line     = "" if is_digital else f"Qty  : {qty_str}  |  "
+    seller_phone = product.get("listed_by") or ""
+    pay_methods  = product.get("payment_methods") or ""
+    methods_list = [m.strip() for m in pay_methods.split("|") if m.strip()] if pay_methods else []
+    pay_block    = ""
+    if methods_list:
+        pay_block += f"💳 Pay via  : {' · '.join(methods_list)}\n"
+    if seller_phone and not is_digital:
+        pay_block += f"📲 Proof to : {seller_phone}\n"
+    if pay_block:
+        pay_block += "\n"
     return (
-        f"✅ *Order Confirmed!*\n\n"
-        f"📌 Reference: *{ref}*\n"
-        f"Item  : {product['name']}\n"
-        f"Qty   : {data['qty']}  |  Total: *${total:.2f}*\n\n"
+        f"✅ *Order Placed!*\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"📌 Ref  : *{ref}*\n"
+        f"Item : {product['name']}\n"
+        f"{qty_line}Total: *${total:.2f}*\n\n"
+        f"{pay_block}"
         f"{buyer_note}\n\n"
+        f"💾 Save your ref number!\n"
+        f"Reply *my orders* to track  |  *dispute* for issues\n\n"
         "_Reply *0* for the main menu._"
     )
 
@@ -2639,10 +3513,13 @@ def _handle_sell_product(phone):
     token = create_vendor_token(phone)
     link  = f"{BASE_URL}/list-product?token={token}"
     return (
-        "🔗 *Your Product Listing Link:*\n\n"
+        "🗂️ *Listing Link — Products & Services*\n\n"
         f"{link}\n\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        "📌 Upload a clear photo for faster approval.\n"
+        "📦 *Product* → set quantity\n"
+        "🔧 *Service* → choose your rate (per hour, per visit, etc.)\n"
+        "🖼️ *Digital* → upload file (photo, video, PDF)\n\n"
+        "📌 Add a clear photo for faster approval.\n"
         "💰 10% commission charged on approval.\n"
         "⏱️ Link expires in *30 minutes* (one use only).\n\n"
         "_Reply *0* to go back._"
@@ -2688,7 +3565,7 @@ def _approve_seller(seller_phone):
         "📌 *Here's how to start selling:*\n\n"
         "1️⃣  Message us on WhatsApp (this chat)\n"
         "2️⃣  Reply *3* from the main menu → *Sell / Offer Services*\n"
-        "3️⃣  Reply *2* to list a product  —or—  *3* to offer a service\n"
+        "3️⃣  Reply *2* to get your listing link (products, services & digital)\n"
         "4️⃣  Fill in the form and your listing goes live after review!\n\n"
         "💰 Commission: 10% on each approved listing.\n\n"
         "_Reply *0* for the main menu._"
@@ -2710,7 +3587,7 @@ def _reject_seller(seller_phone, reason=""):
         f"❌ *{seller['name']}*, your seller application was not approved.\n\n"
         f"{reason_line}"
         "You may re-apply after correcting the issue:\n"
-        f"🔗 {reg_link}\n\n"
+        f"{reg_link}\n\n"
         "Make sure your ID photo is clear and your selfie shows your face and ID together.\n\n"
         "For help contact us:\n"
         f"📧 {get_setting('contact_email', 'terrencemuromba@gmail.com')}\n"
@@ -2739,17 +3616,37 @@ def _suspend_seller(seller_phone):
 
 
 def _approve_product(product_id):
-    product = get_product_by_id(product_id)
-    if not product:
+    row = get_product_by_id(product_id)
+    if not row:
         return "❌ No product found with that ID."
+    product = dict(row)
     set_product_status(product["id"], "approved")
     _log("approve_product", "product", product_id, product["name"])
     if product["listed_by"]:
+        contact_ph   = get_setting("contact_phone", "+263 77 412 8219")
+        listing_url  = f"{BASE_URL}/product/{product['id']}"
+        is_digital   = product.get("product_type") == "digital"
+        digital_note = (
+            "\nWhen a buyer purchases and their order is fulfilled, they will automatically "
+            "receive a secure download link via WhatsApp. 🔒\n"
+        ) if is_digital else ""
+        unit        = product.get("stock_unit") or "pcs"
+        qty         = product.get("stock_qty", 0)
+        total_val   = product["price"] * qty
+        rate_pct    = get_setting("commission_rate", "10")
+        stock_line  = f"📦 Stock    : {qty} {unit}\n" if not is_digital else ""
+        total_line  = f"💵 Total value : *${total_val:.2f}*\n" if not is_digital else f"💵 Price    : *${product['price']:.2f}*\n"
         send_whatsapp_message(
             product["listed_by"],
-            f"🎉 Your product *{product['name']}* is now *live* on T-Tech Connect!\n\n"
-            f"💰 Commission due: *${product['commission']:.2f}*\n"
-            "Pay via EcoCash to *+263 77 412 8219* and send proof of payment.\n\n"
+            f"🎉 *Approved!* Your {'digital ' if is_digital else ''}product is now live on T-Tech Connect!\n\n"
+            f"📌 *{product['name']}*\n"
+            f"💵 Unit price : *${product['price']:.2f}* per {unit}\n"
+            f"{stock_line}"
+            f"{total_line}"
+            f"💰 Commission ({rate_pct}% of total): *${product['commission']:.2f}*\n"
+            f"Pay via EcoCash to 📞 {contact_ph} and send proof of payment.\n"
+            f"{digital_note}\n"
+            f"🔗 Live listing:\n{listing_url}\n\n"
             "_Reply *0* for the main menu._"
         )
     # Auto-post to Facebook if enabled
@@ -2761,7 +3658,7 @@ def _approve_product(product_id):
 
 
 def _reject_product(product_id, reason):
-    product = get_product_by_id(product_id)
+    product = dict(get_product_by_id(product_id) or {})
     if not product:
         return "❌ Product not found."
     set_product_status(product["id"], "rejected", reason)
@@ -2778,7 +3675,7 @@ def _reject_product(product_id, reason):
 
 
 def _remove_product(product_id):
-    product = get_product_by_id(product_id)
+    product = dict(get_product_by_id(product_id) or {})
     if not product:
         return "❌ Product not found."
     set_product_status(product["id"], "rejected", "Removed by admin.")
@@ -2861,6 +3758,42 @@ def handle_admin(msg_text, phone):
         return _show_sellers_list(phone, status="pending")
     if msg_text == "pending":
         return _show_products_list(phone, status="pending")
+
+    if msg_text.startswith("list for "):
+        target_phone = msg_text[9:].strip()
+        seller = get_seller(target_phone)
+        if not seller:
+            return f"❌ No seller found with phone *{target_phone}*."
+        if seller["status"] != "approved":
+            return f"❌ *{seller['name']}* is not approved (status: {seller['status']})."
+        token = create_vendor_token(target_phone)
+        link  = f"{BASE_URL}/list-product?token={token}"
+        return (
+            f"🗂️ *Listing link for {seller['name']}*\n"
+            f"Business: {seller['business_name']}\n\n"
+            f"{link}\n\n"
+            "⏱️ Link expires in *30 minutes* (one use only).\n"
+            "Open it to list a product or service on their behalf.\n\n"
+            "Send *admin* to return to the panel."
+        )
+
+    if msg_text in ("commission", "rates", "commission rate"):
+        prod_rate  = get_setting("commission_rate", "10")
+        svc_rate   = get_setting("service_commission_rate", "10")
+        accom_rate = get_setting("accommodation_commission_rate", "5")
+        set_session(phone, "ctx_admin_commission", {})
+        return (
+            f"💰 *Commission Rates*\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"Current rates:\n"
+            f"• 📦 Products      : *{prod_rate}%*\n"
+            f"• 🔧 Services      : *{svc_rate}%*\n"
+            f"• 🏠 Accommodation : *{accom_rate}%*\n\n"
+            f"1️⃣  — Change product rate\n"
+            f"2️⃣  — Change service rate\n"
+            f"3️⃣  — Change accommodation rate\n"
+            f"0️⃣  — Back to admin panel"
+        )
 
     if msg_text in ("analytics", "stats", "report"):
         s    = get_analytics_summary(days=7)
@@ -3116,14 +4049,8 @@ def handle_message(phone, msg_text):
         if not items:
             return "🛒 Your cart is empty.\n\nBrowse products and add items first.\n\n_Reply *0* for the main menu._"
         total = get_cart_total(phone)
-        set_session(phone, "ctx_checkout_delivery", {"total": total})
-        return (
-            f"🚚 *Delivery Options*\n\n"
-            f"Order total: *${total:.2f}*\n\n"
-            f"1️⃣  — 🚚 Delivery (send to me)\n"
-            f"2️⃣  — 🏪 Self-collect (I'll pick it up)\n"
-            f"0️⃣  — Back to cart"
-        )
+        set_session(phone, "ctx_quote", {"total": total})
+        return format_quote(get_cart_by_seller(phone))
 
     if msg_text.startswith("add "):
         pid_str = msg_text[4:].strip()
@@ -3205,6 +4132,163 @@ def handle_message(phone, msg_text):
         lines.append(f"\n_Contact admin to be assigned: {contact}_")
         return "\n".join(lines)
 
+    if msg_text in ("my orders", "orders", "track", "my order", "order history"):
+        return format_buyer_orders(get_buyer_orders(phone))
+
+    # ── Quotation: seller responds ─────────────────────────────────────────────
+    if msg_text.startswith("quote "):
+        parts = msg_text.split(maxsplit=3)
+        # parts: ["quote", "QTTC-ABC123", "250", "optional message"]
+        if len(parts) < 3 or not parts[1].upper().startswith("QTTC-"):
+            return (
+                "❌ *Invalid format.*\n\n"
+                "To respond to a quote request:\n"
+                "*quote <reference> <price> <optional message>*\n\n"
+                "_Example: quote QTTC-ABC123 250 Can deliver by Friday_"
+            )
+        ref      = parts[1].upper()
+        try:
+            price = float(parts[2].replace("$", "").strip())
+        except ValueError:
+            return f"❌ Invalid price *{parts[2]}*. Please enter a number, e.g. *250*."
+        msg_body = parts[3].strip() if len(parts) > 3 else ""
+        qt       = get_quotation_by_ref(ref)
+        if not qt:
+            return f"❌ Quote *{ref}* not found. Check the reference and try again."
+        if qt["status"] == "quoted":
+            return f"⚠️ Quote *{ref}* has already been responded to."
+
+        # Get seller name
+        seller     = get_seller(phone)
+        seller_name = (seller["business_name"] if seller else None) or phone
+        respond_to_quotation(ref, phone, seller_name, price, msg_body)
+
+        # Notify buyer
+        buyer_msg = (
+            f"💬 *Quote Received!*\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"📌 Ref     : *{ref}*\n"
+            f"🏢 From    : *{seller_name}*\n"
+            f"💰 Price   : *${price:.2f}*\n"
+        )
+        if msg_body:
+            buyer_msg += f"💬 Message : _{msg_body}_\n"
+        buyer_msg += (
+            f"\nTo accept, reply *1* to browse their products or contact them directly.\n"
+            f"Reply *my quotes* to see all your quotes.\n\n"
+            "_Reply *0* for the main menu._"
+        )
+        send_whatsapp_message(qt["buyer_phone"], buyer_msg)
+        notify_admin(
+            f"💬 *Quote Responded — {ref}*\n"
+            f"Seller: {seller_name} ({phone})\n"
+            f"Price : ${price:.2f}\n"
+            + (f"Note  : {msg_body}" if msg_body else "")
+        )
+        return (
+            f"✅ *Quote sent to buyer!*\n\n"
+            f"📌 Ref  : *{ref}*\n"
+            f"💰 Price: *${price:.2f}*\n"
+            + (f"💬 Note : _{msg_body}_\n" if msg_body else "") +
+            "\nThe buyer will be notified immediately. 📲\n\n"
+            "_Reply *0* for the main menu._"
+        )
+
+    if msg_text in ("shop", "browse", "buy"):
+        return go_buyer_menu(phone)
+
+    if msg_text in ("services", "find service", "find a service", "service", "find services"):
+        return go_find_service_menu(phone)
+
+    if msg_text in ("my quotes", "quotes", "quotations", "my quotations"):
+        seller = get_seller(phone)
+        if seller and seller["status"] == "approved":
+            # Approved seller: show pending quote requests they can respond to
+            requests = get_seller_quote_requests(phone)
+            buyer_qs = get_buyer_quotations(phone)
+            lines    = []
+            if requests:
+                lines.append(f"📥 *Quote Requests for You ({len(requests)}):*\n")
+                for q in requests:
+                    lines.append(
+                        f"📌 *{q['reference']}*\n"
+                        f"   {'📦' if q['item_type'] == 'product' else '🔧'} {q['description'][:60]}{'…' if len(q['description']) > 60 else ''}\n"
+                        f"   From: {q['buyer_phone']}\n"
+                        "─────────────────"
+                    )
+                lines.append(
+                    "\n💡 To respond:\n"
+                    "*quote <ref> <price> <optional note>*\n"
+                    "_Example: quote QTTC-ABC123 150 Ready by Monday_\n"
+                )
+            if buyer_qs:
+                lines.append(f"\n📤 *Your Quote Requests ({len(buyer_qs)}):*\n")
+                STATUS_ICON = {"open": "⏳", "quoted": "✅", "expired": "❌"}
+                for q in buyer_qs:
+                    icon       = STATUS_ICON.get(q["status"], "•")
+                    price_line = f"   💰 ${q['quoted_price']:.2f} from {q['seller_name']}\n" if q.get("quoted_price") else ""
+                    lines.append(
+                        f"{icon} *{q['reference']}*\n"
+                        f"   {q['description'][:60]}{'…' if len(q['description']) > 60 else ''}\n"
+                        f"{price_line}"
+                        "─────────────────"
+                    )
+            if not lines:
+                return (
+                    "📭 *No quotes yet.*\n\n"
+                    "No pending quote requests or sent quotations.\n\n"
+                    "Buyers can request quotes from your products/services.\n\n"
+                    "_Reply *0* for the main menu._"
+                )
+            lines.append("_Reply *0* for the main menu._")
+            return "\n".join(lines)
+        else:
+            # Regular buyer: show their submitted quote requests
+            quotes = get_buyer_quotations(phone)
+            if not quotes:
+                return (
+                    "📭 *No quotations yet.*\n\n"
+                    "Request a quote:\n"
+                    "• Reply *4* from the Buyer Menu\n"
+                    "• Type *Q* when viewing any product or service\n\n"
+                    "_Reply *0* for the main menu._"
+                )
+            STATUS_ICON = {"open": "⏳", "quoted": "✅", "expired": "❌"}
+            lines = [f"💬 *Your Quote Requests ({len(quotes)}):*\n"]
+            for q in quotes:
+                icon       = STATUS_ICON.get(q["status"], "•")
+                price_line = f"   💰 Quote: *${q['quoted_price']:.2f}* from {q['seller_name']}\n" if q.get("quoted_price") else "   ⏳ Awaiting response\n"
+                note_line  = f"   💬 _{q['seller_message']}_\n" if q.get("seller_message") else ""
+                lines.append(
+                    f"{icon} *{q['reference']}*\n"
+                    f"   {'📦' if q['item_type'] == 'product' else '🔧'} {q['description'][:60]}{'…' if len(q['description']) > 60 else ''}\n"
+                    f"{price_line}"
+                    f"{note_line}"
+                    "─────────────────"
+                )
+            lines.append("_Reply *0* for the main menu._")
+            return "\n".join(lines)
+
+    # "find <keyword>" — keyword service search shortcut
+    if msg_text.startswith("find "):
+        query = msg_text[5:].strip()
+        if len(query) >= 2:
+            results = search_services(query)
+            if results:
+                set_session(phone, "ctx_svc_results", {"services": results})
+                return format_service_list(results, title=f"🔍 *Services for \"{query}\":*")
+            intent = detect_service_intent(query)
+            if intent:
+                svcs = get_services_by_category(intent)
+                if svcs:
+                    set_session(phone, "ctx_svc_results", {"services": svcs})
+                    return format_service_list(svcs, title=f"🔧 *{intent}:*")
+            return (
+                f"😕 No services found for *{query}*.\n\n"
+                "Reply *2* from the Find a Service menu to search again.\n\n"
+                "_Reply *0* for the main menu._"
+            )
+
     if msg_text in ("issue", "dispute", "problem", "complaint"):
         set_session(phone, "ctx_dispute_type", {})
         return (
@@ -3255,7 +4339,7 @@ def handle_message(phone, msg_text):
             return "Please enter at least *2 characters* to search.\nExample: *search laptop*"
         results = search_products(query)
         if results:
-            product_data = [_to_dict(r) for r in results[:5]]
+            product_data = [_to_dict(r) for r in results[:8]]
             set_session(phone, "ctx_results", {"products": product_data, "back": "buyer"})
             return format_numbered_products(product_data, title=f"🔍 *Results for \"{query}\":*")
         # NLP fallback — suggest a service category if it looks like a service request
@@ -3370,6 +4454,40 @@ def uploaded_file(filename):
     return send_from_directory(UPLOAD_FOLDER, filename)
 
 
+@app.route("/product/<int:product_id>/download")
+def download_digital_product(product_id):
+    """Serve a purchased digital file to verified buyers."""
+    token = request.args.get("token", "")
+    phone = request.args.get("phone", "")
+    if not token or not phone:
+        return _download_denied("Missing access credentials.")
+    expected = _make_download_token(phone, product_id)
+    if not hmac.compare_digest(expected, token):
+        return _download_denied("Invalid or expired link.")
+    row = get_product_by_id(product_id)
+    if not row:
+        return _download_denied("Product not found.")
+    product = dict(row)
+    if product.get("product_type") != "digital":
+        return _download_denied("Product not found.")
+    if not check_buyer_has_access(phone, product_id):
+        return _download_denied("Access denied — no fulfilled order found for this product.")
+    file_path = product.get("product_file_path")
+    if not file_path:
+        return _download_denied("File not available yet. Please contact support.")
+    ext = file_path.rsplit(".", 1)[-1] if "." in file_path else "bin"
+    return send_from_directory(UPLOAD_FOLDER, file_path, as_attachment=True,
+                               download_name=f"{product['name']}.{ext}")
+
+
+def _download_denied(msg):
+    return (
+        f"<div style='font-family:sans-serif;text-align:center;margin-top:80px'>"
+        f"<h2>🔒 Access Denied</h2><p style='color:#6b7280'>{msg}</p>"
+        f"<p style='margin-top:20px'>Contact support on WhatsApp for help.</p></div>"
+    ), 403
+
+
 @app.route("/product/<int:product_id>")
 def product_detail_page(product_id):
     product = get_product_by_id(product_id)
@@ -3381,6 +4499,8 @@ def product_detail_page(product_id):
     image_url = f"/uploads/{product['image_path']}" if product.get("image_path") else None
     wa_number = WA_BUSINESS_NUMBER or ADMIN_PHONE
     wa_link   = f"https://wa.me/{wa_number}?text=I+want+to+buy+{product['name'].replace(' ', '+')}"
+    related   = [dict(p) for p in get_products_by_category(product["category"]) if p["id"] != product_id][:4]
+    cart_count = _cart_count()
     return render_template(
         "product_detail.html",
         product=product,
@@ -3389,6 +4509,8 @@ def product_detail_page(product_id):
         avg_rating=avg,
         review_count=cnt,
         wa_link=wa_link,
+        related=related,
+        cart_count=cart_count,
     )
 
 
@@ -3410,13 +4532,25 @@ def list_product():
         )
 
     # ── Parse multiple items from form arrays ─────────────────────────────────
-    names        = request.form.getlist("item_name")
-    categories   = request.form.getlist("item_category")
-    prices_raw   = request.form.getlist("item_price")
-    qtys_raw     = request.form.getlist("item_qty")
-    descriptions = request.form.getlist("item_desc")
-    types        = request.form.getlist("item_type")
-    image_files  = request.files.getlist("item_image")
+    names              = request.form.getlist("item_name")
+    categories         = request.form.getlist("item_category")
+    prices_raw         = request.form.getlist("item_price")
+    qtys_raw           = request.form.getlist("item_qty")
+    qty_units_raw      = request.form.getlist("item_qty_unit")
+    units_raw          = request.form.getlist("item_unit")
+    specs_raw          = request.form.getlist("item_spec")
+    descriptions       = request.form.getlist("item_desc")
+    types              = request.form.getlist("item_type")
+    location_cities    = request.form.getlist("item_location_city")
+    location_areas     = request.form.getlist("item_location_area")
+    deliveries         = request.form.getlist("item_delivery")
+    delivery_infos     = request.form.getlist("item_delivery_info")
+    extras_lists       = request.form.getlist("item_extras")
+    extras_others      = request.form.getlist("item_extras_other")
+    payment_methods_list = request.form.getlist("item_payment_methods")
+    currencies_list      = request.form.getlist("item_currency")
+    image_files        = request.files.getlist("item_image")
+    media_files        = request.files.getlist("item_file")
 
     if not names:
         return render_template(
@@ -3429,6 +4563,20 @@ def list_product():
     seller_name = seller["business_name"] if seller else row["phone"]
     submitted   = []
     errors      = []
+
+    def _item_location(i):
+        city = location_cities[i].strip() if i < len(location_cities) else ""
+        area = location_areas[i].strip()  if i < len(location_areas)  else ""
+        return f"{city}, {area}" if area else city
+
+    def _item_delivery(i):
+        offers = (deliveries[i] == "yes") if i < len(deliveries) else False
+        info   = delivery_infos[i].strip() if i < len(delivery_infos) else ""
+        return int(offers), info
+
+    def _item_extras(i):
+        # hidden field packed by JS: "Installation, Warranty, custom text"
+        return extras_lists[i].strip() if i < len(extras_lists) else ""
 
     for i, name in enumerate(names):
         name = name.strip()
@@ -3454,36 +4602,69 @@ def list_product():
         if i < len(image_files) and image_files[i].filename:
             image_path = save_image(image_files[i])
 
-        desc = descriptions[i].strip() if i < len(descriptions) else ""
+        # Digital product file (the actual content being sold)
+        media_file_path = None
+        if item_type == "digital" and i < len(media_files) and media_files[i].filename:
+            media_file_path = save_media_file(media_files[i])
+
+        spec             = specs_raw[i].strip() if i < len(specs_raw) else ""
+        desc             = descriptions[i].strip() if i < len(descriptions) else ""
+        full_desc        = (f"📋 {spec}\n\n{desc}".strip() if spec else desc)
+        location         = _item_location(i)
+        offers_del, del_info = _item_delivery(i)
+        extras           = _item_extras(i)
+        payment_methods  = payment_methods_list[i].strip() if i < len(payment_methods_list) else ""
+        currency         = currencies_list[i].strip() if i < len(currencies_list) else "USD"
 
         if item_type == "service":
-            # List as a service (no quantity)
+            unit       = units_raw[i] if i < len(units_raw) else "fixed"
+            unit_label = {
+                "hourly":      "Per Hour",
+                "daily":       "Per Day",
+                "per_visit":   "Per Visit/Session",
+                "per_project": "Per Project",
+                "per_sqm":     "Per Sqm",
+                "per_km":      "Per Km",
+                "quoted":      "Quote Only",
+                "fixed":       "Fixed Price",
+            }.get(unit, "Fixed Price")
+
             svc_id = add_service(
                 title=name,
                 category=category,
-                description=desc,
-                price_type="fixed",
+                description=full_desc,
+                price_type=unit,
                 price=price,
-                service_area="Zimbabwe",
+                service_area=location or "Zimbabwe",
                 provider_phone=row["phone"],
                 provider_name=seller["name"] if seller else "",
                 provider_business=seller["business_name"] if seller else "",
+                seller_location=location,
+                offers_delivery=offers_del,
+                delivery_info=del_info,
+                extra_services=extras,
             )
             comm = round(price * svc_rate / 100, 2)
+            del_note = f"\nDelivery : {'Yes — ' + del_info if offers_del and del_info else ('Yes' if offers_del else 'No')}"
             notify_admin(
                 f"🔧 *New Service Pending #{svc_id}*\n\n"
                 f"Title    : {name}\n"
                 f"Category : {category}\n"
-                f"Price    : ${price:.2f}  |  Commission: ${comm:.2f}\n"
+                f"Rate     : ${price:.2f} {unit_label}  |  Commission: ${comm:.2f}\n"
+                f"Location : {location or 'Not specified'}{del_note}\n"
+                f"Extras   : {extras or 'None'}\n"
                 f"Seller   : {seller_name}\n\n"
                 f"➡ *approve service {svc_id}* or *reject service {svc_id} <reason>*"
             )
             submitted.append({"name": name, "type": "service",
-                               "price": price, "commission": comm, "id": svc_id})
+                               "price": price, "commission": comm, "id": svc_id,
+                               "unit": unit_label})
         else:
-            # List as a product
+            # List as a product (physical or digital)
+            is_digital  = item_type == "digital"
+            stock_unit  = qty_units_raw[i].strip() if i < len(qty_units_raw) and qty_units_raw[i].strip() else "pcs"
             try:
-                qty = int(qtys_raw[i])
+                qty = 1 if is_digital else int(qtys_raw[i])
                 if qty < 1:
                     qty = 1
             except (ValueError, IndexError):
@@ -3491,20 +4672,35 @@ def list_product():
 
             product_id, comm = add_product(
                 name=name, category=category, price=price,
-                stock_qty=qty, description=desc,
+                stock_qty=qty, description=full_desc,
                 image_path=image_path, listed_by=row["phone"],
+                product_type="digital" if is_digital else "physical",
+                product_file_path=media_file_path,
+                stock_unit=stock_unit,
+                seller_location=location,
+                offers_delivery=offers_del,
+                delivery_info=del_info,
+                extra_services=extras,
+                payment_methods=payment_methods,
+                currency=currency,
             )
-            img_note = "🖼️ Image attached." if image_path else "📷 No image."
+            file_note   = "📎 Digital file attached." if media_file_path else ("🖼️ Image attached." if image_path else "📷 No image.")
+            stock_label = f"{qty} {stock_unit}" if not is_digital else "Digital"
+            del_note    = f"\nDelivery : {'Yes — ' + del_info if offers_del and del_info else ('Yes' if offers_del else 'No — self-collect')}"
+            pay_note    = f"\nPayment  : {payment_methods or 'Not specified'}  |  Currency: {currency}"
             notify_admin(
-                f"📦 *New Product Pending #{product_id}*\n\n"
+                f"{'🖼️' if is_digital else '📦'} *New {'Digital ' if is_digital else ''}Product Pending #{product_id}*\n\n"
                 f"Product  : {name}\n"
                 f"Category : {category}\n"
-                f"Price    : ${price:.2f} × {qty}  |  Commission: ${comm:.2f}\n"
-                f"Seller   : {seller_name}  |  {img_note}\n\n"
+                f"Stock    : {stock_label}  |  Price: ${price:.2f}  |  Commission: ${comm:.2f}\n"
+                f"Location : {location or 'Not specified'}{del_note}\n"
+                f"Extras   : {extras or 'None'}{pay_note}\n"
+                f"Seller   : {seller_name}  |  {file_note}\n\n"
                 f"➡ *approve {product_id}* or *reject {product_id} <reason>*"
             )
             submitted.append({"name": name, "type": "product",
-                               "price": price, "qty": qty, "commission": comm, "id": product_id})
+                               "price": price, "qty": qty, "unit": stock_unit,
+                               "commission": comm, "id": product_id})
 
     if errors and not submitted:
         return render_template(
@@ -3611,8 +4807,12 @@ def register_seller_web():
         f"Location : {location}\n"
         + (f"Sells    : {description[:200]}\n" if description else "")
         + f"\n📎 KYC photos follow below.\n\n"
-        f"➡ *approve seller {phone}* or *reject seller {phone}*"
+        f"1️⃣  — ✅ Approve\n"
+        f"2️⃣  — ❌ Reject\n"
+        f"3️⃣  — ❓ Request more info"
     )
+    if ADMIN_PHONE:
+        set_session(ADMIN_PHONE, "ctx_admin_new_seller", {"phone": phone, "name": name})
     if ADMIN_PHONE:
         if id_photo_path:
             send_whatsapp_image(
@@ -3653,6 +4853,8 @@ def admin_required(f):
     @functools.wraps(f)
     def decorated(*args, **kwargs):
         if not session.get("admin_logged_in"):
+            if request.path.startswith("/admin/api/"):
+                return jsonify({"ok": False, "message": "Session expired — please log in again."}), 401
             return redirect("/admin/login")
         return f(*args, **kwargs)
     return decorated
@@ -3708,7 +4910,9 @@ def api_sellers():
 def api_admin_products():
     rows = [dict(r) for r in get_all_products_admin(limit=100)]
     for r in rows:
-        r["image_url"] = f"/uploads/{r['image_path']}" if r.get("image_path") else None
+        r["image_url"] = f"/uploads/{r['image_path']}"            if r.get("image_path")            else None
+        r["file_url"]  = f"/uploads/{r['product_file_path']}"     if r.get("product_file_path")     else None
+        r.setdefault("product_type", "physical")
     return jsonify(rows)
 
 
@@ -3783,7 +4987,8 @@ def api_save_settings():
 def api_approve_seller():
     phone = (request.json or {}).get("phone", "")
     msg   = _approve_seller(phone)
-    return jsonify({"ok": True, "message": msg})
+    ok    = not msg.startswith("❌")
+    return jsonify({"ok": ok, "message": msg})
 
 
 @app.route("/admin/api/seller/reject", methods=["POST"])
@@ -3793,7 +4998,8 @@ def api_reject_seller_route():
     phone  = body.get("phone", "")
     reason = body.get("reason", "")
     msg    = _reject_seller(phone, reason)
-    return jsonify({"ok": True, "message": msg})
+    ok     = not msg.startswith("❌")
+    return jsonify({"ok": ok, "message": msg})
 
 
 @app.route("/admin/api/seller/suspend", methods=["POST"])
@@ -3801,7 +5007,8 @@ def api_reject_seller_route():
 def api_suspend_seller_route():
     phone = (request.json or {}).get("phone", "")
     msg   = _suspend_seller(phone)
-    return jsonify({"ok": True, "message": msg})
+    ok    = not msg.startswith("❌")
+    return jsonify({"ok": ok, "message": msg})
 
 
 @app.route("/admin/api/product/approve", methods=["POST"])
@@ -3894,16 +5101,32 @@ def api_update_order_status():
         "cancelled": "❌ One of your orders has been *cancelled* by admin.",
     }
     if order:
-        ref  = order["reference"] or str(order_id)
-        prod = get_product_by_id(order["product_id"])
-        prod_name   = prod["name"] if prod else f"Order #{order_id}"
+        ref          = order["reference"] or str(order_id)
+        prod         = get_product_by_id(order["product_id"])
+        prod_name    = prod["name"] if prod else f"Order #{order_id}"
         seller_phone = prod["listed_by"] if prod else None
-        # Notify buyer
+        # Notify buyer — digital products get a download link on fulfillment
         if order["buyer_phone"]:
-            send_whatsapp_message(
-                order["buyer_phone"],
-                f"{buyer_msgs[status]}\n\nRef: *{ref}* — {prod_name}\n\n_Reply *0* for the main menu._"
-            )
+            if status == "fulfilled" and prod and prod.get("product_type") == "digital" and prod.get("product_file_path"):
+                token        = _make_download_token(order["buyer_phone"], order["product_id"])
+                download_url = (
+                    f"{BASE_URL}/product/{order['product_id']}/download"
+                    f"?phone={order['buyer_phone']}&token={token}"
+                )
+                send_whatsapp_message(
+                    order["buyer_phone"],
+                    f"🎉 *Your digital product is ready!*\n\n"
+                    f"Order *{ref}* — *{prod_name}*\n\n"
+                    f"🔗 Download your file here:\n{download_url}\n\n"
+                    "Save it as soon as possible. Thank you for your purchase! 🙏\n\n"
+                    "⭐ Reply *rate product* to leave a review.\n\n"
+                    "_Reply *0* for the main menu._"
+                )
+            else:
+                send_whatsapp_message(
+                    order["buyer_phone"],
+                    f"{buyer_msgs[status]}\n\nRef: *{ref}* — {prod_name}\n\n_Reply *0* for the main menu._"
+                )
         # Notify seller
         if seller_phone:
             send_whatsapp_message(
@@ -3948,6 +5171,91 @@ def api_reject_delivery_route():
         "_Reply *0* for the main menu._"
     )
     return jsonify({"ok": True, "message": f"{dp['name']} rejected."})
+
+
+@app.route("/admin/api/create-listing", methods=["POST"])
+@admin_required
+def api_admin_create_listing():
+    """Admin creates a product or service directly on behalf of an approved seller."""
+    body         = request.json or {}
+    seller_phone = body.get("seller_phone", "").strip()
+    item_type    = body.get("type", "product")       # product | service | digital
+    name         = body.get("name", "").strip()
+    category     = body.get("category", "").strip()
+    price        = float(body.get("price", 0) or 0)
+    qty          = int(body.get("qty", 1) or 1)
+    stock_unit   = body.get("unit", "pcs") or "pcs"
+    description  = body.get("description", "").strip()
+    spec         = body.get("spec", "").strip()
+    location     = body.get("location", "").strip()
+    offers_del   = int(body.get("offers_delivery", 0))
+    del_info     = body.get("delivery_info", "").strip()
+    extras       = body.get("extra_services", "").strip()
+    svc_unit     = body.get("svc_unit", "fixed")
+
+    if not seller_phone or not name or not category or price <= 0:
+        return jsonify({"ok": False, "message": "Seller, name, category and price are required."})
+
+    seller = get_seller(seller_phone)
+    if not seller or seller["status"] != "approved":
+        return jsonify({"ok": False, "message": "Seller not found or not approved."})
+
+    full_desc = (f"📋 {spec}\n\n{description}".strip() if spec else description)
+
+    if item_type == "service":
+        prod_rate = float(get_setting("service_commission_rate", "10")) / 100
+        svc_id = add_service(
+            title=name, category=category, description=full_desc,
+            price_type=svc_unit, price=price,
+            service_area=location or "Zimbabwe",
+            provider_phone=seller_phone,
+            provider_name=seller["name"],
+            provider_business=seller["business_name"],
+            seller_location=location,
+            offers_delivery=offers_del,
+            delivery_info=del_info,
+            extra_services=extras,
+        )
+        comm = round(price * prod_rate, 2)
+        log_admin_action("web_admin", "admin_list_service", "service", svc_id,
+                         f"{name} for {seller['name']}")
+        notify_seller = (
+            f"📋 *Admin listed a service on your behalf:*\n\n"
+            f"Title    : {name}\n"
+            f"Category : {category}\n"
+            f"Price    : ${price:.2f}\n\n"
+            f"Your listing is *pending admin approval*.\n\n"
+            "_Reply *0* for the main menu._"
+        )
+        send_whatsapp_message(seller_phone, notify_seller)
+        return jsonify({"ok": True, "message": f"Service '{name}' listed for {seller['name']} — pending approval."})
+    else:
+        prod_rate = float(get_setting("commission_rate", "10")) / 100
+        product_id, comm = add_product(
+            name=name, category=category, price=price,
+            stock_qty=qty, description=full_desc,
+            listed_by=seller_phone,
+            product_type="digital" if item_type == "digital" else "physical",
+            stock_unit=stock_unit,
+            seller_location=location,
+            offers_delivery=offers_del,
+            delivery_info=del_info,
+            extra_services=extras,
+        )
+        log_admin_action("web_admin", "admin_list_product", "product", product_id,
+                         f"{name} for {seller['name']}")
+        notify_seller = (
+            f"📋 *Admin listed a product on your behalf:*\n\n"
+            f"Product  : {name}\n"
+            f"Category : {category}\n"
+            f"Price    : ${price:.2f} × {qty} {stock_unit}\n"
+            f"Commission: ${comm:.2f}\n\n"
+            f"Your listing is *pending approval*.\n\n"
+            "_Reply *0* for the main menu._"
+        )
+        send_whatsapp_message(seller_phone, notify_seller)
+        return jsonify({"ok": True, "message": f"Product '{name}' listed for {seller['name']} — pending approval.",
+                        "product_id": product_id, "commission": comm})
 
 
 @app.route("/admin/api/broadcast", methods=["POST"])
@@ -4081,6 +5389,228 @@ def audit_log_view():
     th,td{{padding:8px 12px;border:1px solid #e5e7eb;text-align:left}}th{{background:#f9fafb}}</style></head>
     <body><h2>Admin Audit Log</h2>
     <table><tr><th>Time</th><th>Action</th><th>Target</th><th>Detail</th></tr>{rows}</table></body></html>"""
+
+
+# ── Web Buyer Storefront ──────────────────────────────────────────────────────
+
+def _get_cart_id():
+    if "cart_id" not in session:
+        session["cart_id"] = "web-" + uuid.uuid4().hex[:12]
+    return session["cart_id"]
+
+
+def _cart_count():
+    return len(get_cart(_get_cart_id()))
+
+
+@app.route("/shop")
+def shop_home():
+    q   = request.args.get("q", "").strip()
+    cat = request.args.get("cat", "").strip()
+
+    if q:
+        products = [dict(p) for p in search_products(q)]
+        page_title = f'Results for "{q}"'
+    elif cat:
+        products = [dict(p) for p in get_products_by_category(cat)]
+        page_title = cat
+    else:
+        products = get_featured_products(limit=16)
+        page_title = None
+
+    active_cats  = get_distinct_categories()
+    cat_groups   = CATEGORY_GROUPS
+    cart_count   = _cart_count()
+    return render_template(
+        "shop.html",
+        products=products,
+        active_cats=active_cats,
+        cat_groups=cat_groups,
+        query=q,
+        selected_cat=cat,
+        page_title=page_title,
+        cart_count=cart_count,
+    )
+
+
+@app.route("/shop/api/cart/add", methods=["POST"])
+def api_cart_add():
+    data       = request.get_json() or {}
+    product_id = data.get("product_id")
+    qty        = max(1, int(data.get("qty", 1)))
+    if not product_id:
+        return jsonify({"ok": False, "error": "Missing product_id"}), 400
+    row = get_product_by_id(product_id)
+    if not row or row["status"] != "approved":
+        return jsonify({"ok": False, "error": "Product not available"}), 404
+    product = dict(row)
+    if product.get("product_type") != "digital" and product.get("stock_qty", 0) < qty:
+        return jsonify({"ok": False, "error": "Not enough stock"}), 400
+    cart_id = _get_cart_id()
+    add_to_cart(cart_id, product_id, qty)
+    return jsonify({"ok": True, "cart_count": len(get_cart(cart_id))})
+
+
+@app.route("/shop/api/cart/update", methods=["POST"])
+def api_cart_update():
+    data       = request.get_json() or {}
+    product_id = data.get("product_id")
+    qty        = int(data.get("qty", 1))
+    if not product_id:
+        return jsonify({"ok": False, "error": "Missing product_id"}), 400
+    cart_id = _get_cart_id()
+    update_cart_qty(cart_id, product_id, qty)
+    items = get_cart(cart_id)
+    total = get_cart_total(cart_id)
+    return jsonify({"ok": True, "cart_count": len(items), "total": total})
+
+
+@app.route("/shop/api/cart/remove", methods=["POST"])
+def api_cart_remove():
+    data       = request.get_json() or {}
+    product_id = data.get("product_id")
+    if not product_id:
+        return jsonify({"ok": False, "error": "Missing product_id"}), 400
+    cart_id = _get_cart_id()
+    remove_from_cart(cart_id, product_id)
+    items = get_cart(cart_id)
+    total = get_cart_total(cart_id)
+    return jsonify({"ok": True, "cart_count": len(items), "total": total})
+
+
+@app.route("/shop/api/cart/clear", methods=["POST"])
+def api_cart_clear():
+    clear_cart(_get_cart_id())
+    return jsonify({"ok": True, "cart_count": 0})
+
+
+@app.route("/cart")
+def cart_page():
+    cart_id = _get_cart_id()
+    items   = get_cart(cart_id)
+    total   = get_cart_total(cart_id)
+    return render_template("cart.html", items=items, total=total, cart_count=len(items))
+
+
+@app.route("/checkout")
+def checkout_page():
+    cart_id = _get_cart_id()
+    items   = get_cart(cart_id)
+    if not items:
+        return redirect("/cart")
+    total = get_cart_total(cart_id)
+    return render_template(
+        "checkout.html",
+        items=items,
+        total=total,
+        buyer_name=session.get("buyer_name", ""),
+        buyer_phone=session.get("buyer_phone", ""),
+        cart_count=len(items),
+    )
+
+
+@app.route("/checkout/place", methods=["POST"])
+def checkout_place():
+    cart_id = _get_cart_id()
+    items   = get_cart(cart_id)
+    if not items:
+        return jsonify({"ok": False, "error": "Cart is empty"}), 400
+
+    data             = request.get_json() or {}
+    buyer_name       = data.get("name", "").strip()
+    buyer_phone      = data.get("phone", "").strip()
+    delivery_type    = data.get("delivery_type", "self_collect")
+    delivery_address = data.get("delivery_address", "").strip()
+
+    if not buyer_name or not buyer_phone:
+        return jsonify({"ok": False, "error": "Name and phone number are required."}), 400
+
+    session["buyer_name"]  = buyer_name
+    session["buyer_phone"] = buyer_phone
+
+    refs          = []
+    order_details = []  # per-order info passed to success page
+    for item in items:
+        row = get_product_by_id(item["product_id"])
+        if not row:
+            continue
+        product = dict(row)
+        is_digital  = product.get("product_type") == "digital"
+        item_dtype  = "self_collect" if is_digital else delivery_type
+        item_addr   = "" if is_digital else delivery_address
+
+        order_id, ref, total = create_order(
+            buyer_phone=buyer_phone,
+            product_id=item["product_id"],
+            quantity=item["quantity"],
+            unit_price=item["price"],
+            delivery_type=item_dtype,
+            delivery_address=item_addr,
+        )
+
+        is_seller_product = bool(product.get("listed_by"))
+        if is_seller_product:
+            update_order_status(order_id, "confirmed")
+        if not is_digital:
+            update_stock(product["id"], max(0, product["stock_qty"] - item["quantity"]))
+
+        # Collect seller payment info for the success page
+        seller_phone    = product.get("listed_by") or ""
+        payment_methods = product.get("payment_methods") or ""
+        methods_list    = [m.strip() for m in payment_methods.split(",") if m.strip()]
+
+        if seller_phone:
+            unit = product.get("stock_unit") or "pcs"
+            qty_display = "Digital" if is_digital else f"{item['quantity']} {unit}"
+            seller_msg = (
+                f"🌐 *New Web Order!*\n\n"
+                f"Ref    : *{ref}*\n"
+                f"Item   : {product['name']}\n"
+                f"Qty    : {qty_display}  |  Revenue: ${total:.2f}\n"
+                f"Buyer  : {buyer_name} ({buyer_phone})\n"
+                f"_Buyer will pay via seller's accepted methods._"
+            )
+            send_whatsapp_message(seller_phone, seller_msg)
+
+        status_note = "_(auto-confirmed)_" if is_seller_product else "_(awaiting approval)_"
+        notify_admin(
+            f"🌐 *Web Order* — {ref}\n"
+            f"Item: {product['name']}  |  ${total:.2f}\n"
+            f"Buyer: {buyer_name} ({buyer_phone})  {status_note}"
+        )
+        refs.append(ref)
+        order_details.append({
+            "ref":             ref,
+            "product_name":    product["name"],
+            "total":           total,
+            "seller_phone":    seller_phone,
+            "payment_methods": methods_list,
+            "is_digital":      is_digital,
+        })
+
+    clear_cart(cart_id)
+    session["last_order_refs"]    = refs
+    session["last_order_name"]    = buyer_name
+    session["last_order_phone"]   = buyer_phone
+    session["last_order_details"] = order_details
+    return jsonify({"ok": True, "refs": refs})
+
+
+@app.route("/order/success")
+def order_success_page():
+    refs    = session.get("last_order_refs", [])
+    name    = session.get("last_order_name", "")
+    phone   = session.get("last_order_phone", "")
+    details = session.get("last_order_details", [])
+    if not refs:
+        return redirect("/shop")
+    return render_template(
+        "order_success.html",
+        refs=refs,
+        buyer_name=name,
+        buyer_phone=phone,
+        order_details=details,
+    )
 
 
 if __name__ == "__main__":

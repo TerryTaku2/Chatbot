@@ -236,6 +236,9 @@
     </div>
 
     <div class="sb-section">Tools</div>
+    <div class="sb-link" onclick="showSection('commission')">
+      <span class="icon">💰</span> Commission
+    </div>
     <div class="sb-link" onclick="showSection('broadcast')">
       <span class="icon">📢</span> Broadcast
     </div>
@@ -323,6 +326,8 @@
         <button class="filter-btn" onclick="filterTable('products','approved',this)">Approved</button>
         <button class="filter-btn" onclick="filterTable('products','rejected',this)">Rejected</button>
         <input class="search-input" placeholder="Search product / seller…" oninput="searchTable('products',this.value)">
+        <button class="btn-primary" style="padding:6px 14px;font-size:12px;margin-left:auto"
+                onclick="openListForSeller()">➕ List for Seller</button>
       </div>
       <div class="table-wrap">
         <table>
@@ -397,6 +402,77 @@
           <thead><tr><th>Name</th><th>Phone</th><th>Vehicle</th><th>Area</th><th>Status</th><th>Actions</th></tr></thead>
           <tbody id="delivery-body"><tr class="loading-row"><td colspan="6"><div class="spinner"></div></td></tr></tbody>
         </table>
+      </div>
+    </div>
+
+    <!-- ── Commission ── -->
+    <div class="section-page" id="page-commission">
+      <div class="settings-section">
+        <h3>💰 Commission Rates</h3>
+        <p style="font-size:12px;color:#6b7280;margin-bottom:16px">
+          Commission is charged on the <strong>total selling price</strong> (price × quantity) when a listing is approved.
+          Changes apply to new listings only — existing approved listings keep their original rate.
+        </p>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px">
+
+          <div style="background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:12px;padding:18px">
+            <div style="font-size:11px;font-weight:700;color:#166534;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">📦 Products</div>
+            <div style="display:flex;align-items:center;gap:10px">
+              <input type="number" id="cr-product" min="0" max="100" step="0.5"
+                     style="width:80px;padding:8px 10px;border:1.5px solid #bbf7d0;border-radius:8px;font-size:18px;font-weight:700;color:#166534;text-align:center"
+                     oninput="previewCommission('product')">
+              <span style="font-size:22px;font-weight:800;color:#166534">%</span>
+            </div>
+            <div id="cr-product-preview" style="font-size:12px;color:#6b7280;margin-top:8px"></div>
+            <button class="btn-primary" style="margin-top:12px;padding:8px 16px;font-size:12px"
+                    onclick="saveCommission('commission_rate','cr-product','📦 Products')">Save</button>
+          </div>
+
+          <div style="background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:12px;padding:18px">
+            <div style="font-size:11px;font-weight:700;color:#1e40af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">🔧 Services</div>
+            <div style="display:flex;align-items:center;gap:10px">
+              <input type="number" id="cr-service" min="0" max="100" step="0.5"
+                     style="width:80px;padding:8px 10px;border:1.5px solid #bfdbfe;border-radius:8px;font-size:18px;font-weight:700;color:#1e40af;text-align:center"
+                     oninput="previewCommission('service')">
+              <span style="font-size:22px;font-weight:800;color:#1e40af">%</span>
+            </div>
+            <div id="cr-service-preview" style="font-size:12px;color:#6b7280;margin-top:8px"></div>
+            <button class="btn-primary" style="margin-top:12px;padding:8px 16px;font-size:12px;background:#1e40af"
+                    onclick="saveCommission('service_commission_rate','cr-service','🔧 Services')">Save</button>
+          </div>
+
+          <div style="background:#fff7ed;border:1.5px solid #fed7aa;border-radius:12px;padding:18px">
+            <div style="font-size:11px;font-weight:700;color:#9a3412;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">🏠 Accommodation</div>
+            <div style="display:flex;align-items:center;gap:10px">
+              <input type="number" id="cr-accom" min="0" max="100" step="0.5"
+                     style="width:80px;padding:8px 10px;border:1.5px solid #fed7aa;border-radius:8px;font-size:18px;font-weight:700;color:#9a3412;text-align:center"
+                     oninput="previewCommission('accom')">
+              <span style="font-size:22px;font-weight:800;color:#9a3412">%</span>
+            </div>
+            <div id="cr-accom-preview" style="font-size:12px;color:#6b7280;margin-top:8px"></div>
+            <button class="btn-primary" style="margin-top:12px;padding:8px 16px;font-size:12px;background:#9a3412"
+                    onclick="saveCommission('accommodation_commission_rate','cr-accom','🏠 Accommodation')">Save</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section" style="margin-top:20px">
+        <h3>📊 Commission Calculator</h3>
+        <p style="font-size:12px;color:#6b7280;margin-bottom:14px">Preview how much commission a seller will pay for a given listing.</p>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+          <div class="field" style="margin:0"><label>Price per unit ($)</label><input type="number" id="calc-price" min="0" step="0.01" placeholder="100.00" oninput="runCalc()"></div>
+          <div class="field" style="margin:0"><label>Quantity</label><input type="number" id="calc-qty" min="1" value="1" oninput="runCalc()"></div>
+          <div class="field" style="margin:0"><label>Type</label>
+            <select id="calc-type" onchange="runCalc()">
+              <option value="product">📦 Product</option>
+              <option value="service">🔧 Service</option>
+              <option value="accom">🏠 Accommodation</option>
+            </select>
+          </div>
+        </div>
+        <div id="calc-result" style="margin-top:14px;background:#f9fafb;border-radius:10px;padding:14px;font-size:14px;display:none">
+          <div id="calc-breakdown" style="color:#374151;line-height:2"></div>
+        </div>
       </div>
     </div>
 
@@ -480,6 +556,115 @@
   </div>
 </div>
 
+<!-- ── List-for-Seller Modal ── -->
+<div class="modal-overlay" id="lfs-modal" onclick="closeLFS(event)">
+  <div class="modal-box" style="max-width:560px" onclick="event.stopPropagation()">
+    <button class="modal-close" onclick="closeLFS()">✕</button>
+    <div class="modal-title">➕ List Product / Service for Seller</div>
+    <div style="display:grid;gap:12px;margin-top:4px">
+
+      <div class="field">
+        <label>Seller *</label>
+        <select id="lfs-seller" required>
+          <option value="" disabled selected>Loading approved sellers…</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Type *</label>
+        <select id="lfs-type" onchange="lfsTypeChange()">
+          <option value="product">📦 Product</option>
+          <option value="service">🔧 Service</option>
+          <option value="digital">🖼️ Digital</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Name *</label>
+        <input type="text" id="lfs-name" placeholder="e.g. HP Laptop 15s">
+      </div>
+
+      <div class="field">
+        <label>Category *</label>
+        <input type="text" id="lfs-category" placeholder="e.g. Computers & Laptops, Groceries & Food">
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+        <div class="field">
+          <label>Price (USD) *</label>
+          <input type="number" id="lfs-price" min="0.01" step="0.01" placeholder="0.00" oninput="lfsCalcComm()">
+        </div>
+        <div class="field" id="lfs-qty-wrap">
+          <label>Qty *</label>
+          <input type="number" id="lfs-qty" min="1" value="1" oninput="lfsCalcComm()">
+        </div>
+        <div class="field" id="lfs-unit-wrap">
+          <label>Unit</label>
+          <input type="text" id="lfs-unit" value="pcs" placeholder="pcs / kg / L">
+        </div>
+      </div>
+
+      <div class="field" id="lfs-svcunit-wrap" style="display:none">
+        <label>Charged Per</label>
+        <select id="lfs-svcunit">
+          <option value="fixed">Fixed Price</option>
+          <option value="hourly">Per Hour</option>
+          <option value="daily">Per Day</option>
+          <option value="per_visit">Per Visit / Session</option>
+          <option value="per_project">Per Project</option>
+          <option value="per_sqm">Per Square Metre</option>
+          <option value="quoted">Quote Only</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Location</label>
+        <input type="text" id="lfs-location" placeholder="e.g. Harare, Avondale">
+      </div>
+
+      <div class="field">
+        <label>Delivery</label>
+        <select id="lfs-delivery">
+          <option value="0">No — self-collect only</option>
+          <option value="1">Yes — delivery available</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Delivery Info</label>
+        <input type="text" id="lfs-delivery-info" placeholder="e.g. Free within 5 km · $3 city-wide">
+      </div>
+
+      <div class="field">
+        <label>Specifications</label>
+        <input type="text" id="lfs-spec" placeholder="e.g. Brand: HP · Condition: New">
+      </div>
+
+      <div class="field">
+        <label>Description</label>
+        <textarea id="lfs-desc" rows="3" style="width:100%;padding:9px 13px;border:1.5px solid #d1d5db;border-radius:8px;font-size:13px;font-family:inherit;resize:vertical"
+                  placeholder="Full details, availability, terms…"></textarea>
+      </div>
+
+      <div class="field">
+        <label>Additional Services</label>
+        <input type="text" id="lfs-extras" placeholder="e.g. Installation, Warranty, After-sales support">
+      </div>
+
+      <div id="lfs-comm-preview" style="background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:10px 14px;font-size:13px;display:none">
+        <span style="font-size:11px;font-weight:700;color:#92400e;text-transform:uppercase">Estimated Commission</span>
+        <div id="lfs-comm-amount" style="font-size:20px;font-weight:800;color:#b45309;margin-top:2px"></div>
+        <div id="lfs-comm-note" style="font-size:11px;color:#92400e"></div>
+      </div>
+
+    </div>
+    <div class="modal-actions" style="margin-top:16px">
+      <button class="btn-primary" onclick="submitListForSeller()">✅ Create Listing</button>
+      <button class="btn-secondary" onclick="closeLFS()">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── Toast ── -->
 <div id="toast"></div>
 
@@ -500,8 +685,9 @@ const TITLES = {
   overview:'Dashboard Overview', sellers:'Seller Management',
   products:'Product Management', services:'Service Management',
   orders:'Order Management',     enquiries:'Enquiries',
-  delivery:'Delivery Agents',    broadcast:'Broadcast Message',
-  settings:'Settings',           audit:'Audit Log',
+  delivery:'Delivery Agents',    commission:'Commission Rates',
+  broadcast:'Broadcast Message', settings:'Settings',
+  audit:'Audit Log',
 };
 
 function showSection(name) {
@@ -520,25 +706,40 @@ function showSection(name) {
 function refreshCurrent() { loadSection(currentSection); }
 
 function loadSection(name) {
-  if (name === 'overview')   { loadAuditPreview(); return; }
-  if (name === 'sellers')    { fetchSellers(); return; }
-  if (name === 'products')   { fetchProducts(); return; }
-  if (name === 'services')   { fetchServices(); return; }
-  if (name === 'orders')     { fetchOrders(); return; }
-  if (name === 'enquiries')  { fetchEnquiries(); return; }
-  if (name === 'delivery')   { fetchDelivery(); return; }
-  if (name === 'settings')   { fetchSettings(); return; }
-  if (name === 'audit')      { fetchAudit(); return; }
+  if (name === 'overview')    { loadAuditPreview(); return; }
+  if (name === 'sellers')     { fetchSellers(); return; }
+  if (name === 'products')    { fetchProducts(); return; }
+  if (name === 'services')    { fetchServices(); return; }
+  if (name === 'orders')      { fetchOrders(); return; }
+  if (name === 'enquiries')   { fetchEnquiries(); return; }
+  if (name === 'delivery')    { fetchDelivery(); return; }
+  if (name === 'commission')  { fetchCommission(); return; }
+  if (name === 'settings')    { fetchSettings(); return; }
+  if (name === 'audit')       { fetchAudit(); return; }
 }
 
 /* ─────────────────────────────────────────────────────────
    API helpers
    ───────────────────────────────────────────────────────── */
 async function api(url, method='GET', body=null) {
-  const opts = { method, headers:{'Content-Type':'application/json'} };
-  if (body) opts.body = JSON.stringify(body);
-  const r = await fetch(url, opts);
-  return r.json();
+  try {
+    const opts = { method, headers:{'Content-Type':'application/json'} };
+    if (body) opts.body = JSON.stringify(body);
+    const r = await fetch(url, opts);
+    if (r.status === 401) {
+      toast('Session expired — please refresh and log in again.', false);
+      return { ok: false, message: 'Session expired.' };
+    }
+    try {
+      return await r.json();
+    } catch {
+      toast('Server error — please try again.', false);
+      return { ok: false, message: 'Server error.' };
+    }
+  } catch (e) {
+    toast('Network error — is the server running?', false);
+    return { ok: false, message: e.message };
+  }
 }
 
 function toast(msg, ok=true) {
@@ -647,18 +848,22 @@ function viewKYC(s) {
 }
 
 async function sellerAction(action, phone, name) {
-  if (action === 'reject') {
-    const reason = prompt(`Reason for rejecting ${name} (leave blank for none):`);
-    if (reason === null) return;
-    const res = await api('/admin/api/seller/reject', 'POST', { phone, reason });
-    toast(res.message, res.ok);
-  } else {
-    const confirmed = confirm(`${action.charAt(0).toUpperCase()+action.slice(1)} ${name}?`);
-    if (!confirmed) return;
-    const res = await api(`/admin/api/seller/${action}`, 'POST', { phone });
-    toast(res.message, res.ok);
+  try {
+    if (action === 'reject') {
+      const reason = prompt(`Reason for rejecting ${name} (leave blank for none):`);
+      if (reason === null) return;
+      const res = await api('/admin/api/seller/reject', 'POST', { phone, reason });
+      toast(res.message, res.ok);
+    } else {
+      const confirmed = confirm(`${action.charAt(0).toUpperCase()+action.slice(1)} ${name}?`);
+      if (!confirmed) return;
+      const res = await api(`/admin/api/seller/${action}`, 'POST', { phone });
+      toast(res.message, res.ok);
+    }
+    fetchSellers();
+  } catch (e) {
+    toast('Action failed: ' + e.message, false);
   }
-  fetchSellers();
 }
 
 /* ─────────────────────────────────────────────────────────
@@ -674,42 +879,84 @@ function renderProducts() {
   const rows  = applyFilter(DATA.products, 'products');
   const tbody = document.getElementById('products-body');
   if (!rows.length) { tbody.innerHTML = emptyRow(8, 'No products found.'); return; }
-  tbody.innerHTML = rows.map(p => `
-    <tr>
-      <td>${p.image_url ? `<img src="${p.image_url}" class="kyc-thumb" onclick="viewImg('${p.image_url}','${escQ(p.name)}')" title="View photo">` : '<span class="kyc-missing">—</span>'}</td>
-      <td><div class="td-name">${p.name}</div><div class="td-sub">ID: ${p.id}</div></td>
+  tbody.innerHTML = rows.map(p => {
+    const thumb = p.image_url
+      ? `<img src="${p.image_url}" class="kyc-thumb" onclick="viewProductMedia(${JSON.stringify(p).replace(/"/g,'&quot;')})" title="View">`
+      : (p.file_url ? `<span class="kyc-thumb" style="display:inline-flex;align-items:center;justify-content:center;background:#f5f3ff;cursor:pointer;font-size:16px" onclick="viewProductMedia(${JSON.stringify(p).replace(/"/g,'&quot;')})" title="View file">🖼️</span>` : '<span class="kyc-missing">—</span>');
+    const typeBadge = p.product_type === 'digital'
+      ? '<span class="badge" style="background:#f5f3ff;color:#7c3aed;border:1px solid #ddd6fe;font-size:9px;margin-left:4px">DIGITAL</span>'
+      : '';
+    return `<tr>
+      <td>${thumb}</td>
+      <td><div class="td-name">${p.name}${typeBadge}</div><div class="td-sub">ID: ${p.id}</div></td>
       <td>${p.category}</td>
       <td>$${(+p.price).toFixed(2)}</td>
-      <td>${p.stock_qty}</td>
+      <td>${p.product_type === 'digital' ? '∞' : p.stock_qty}</td>
       <td>${p.business_name || p.seller_name || p.listed_by || '—'}</td>
       <td>${badge(p.status)}</td>
       <td><div class="actions">${productActions(p)}</div></td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 }
 
 function productActions(p) {
-  let html = '';
+  let html = `<button class="btn btn-view" onclick="viewProductMedia(${JSON.stringify(p).replace(/"/g,'&quot;')})" title="View media">👁️</button>`;
   if (p.status !== 'approved')  html += `<button class="btn btn-approve" onclick="productAction('approve',${p.id},'${escQ(p.name)}')">✅</button>`;
   if (p.status === 'approved')  html += `<button class="btn btn-reject"  onclick="productAction('reject', ${p.id},'${escQ(p.name)}')">❌</button>`;
   html += `<button class="btn btn-remove" onclick="productAction('remove',${p.id},'${escQ(p.name)}')">🗑️</button>`;
   return html;
 }
 
-async function productAction(action, id, name) {
-  if (action === 'reject') {
-    const reason = prompt(`Reason for rejecting "${name}":`);
-    if (reason === null) return;
-    const res = await api('/admin/api/product/reject', 'POST', { id, reason });
-    toast(res.message, res.ok);
-  } else if (action === 'remove') {
-    if (!confirm(`Remove "${name}" permanently?`)) return;
-    const res = await api('/admin/api/product/remove', 'POST', { id });
-    toast(res.message, res.ok);
-  } else {
-    const res = await api('/admin/api/product/approve', 'POST', { id });
-    toast(res.message, res.ok);
+function viewProductMedia(p) {
+  document.getElementById('modal-title').textContent = `${p.product_type === 'digital' ? '🖼️ Digital' : '📦'} ${p.name}`;
+  let body = `<div style="font-size:13px;color:#374151;margin-bottom:12px">
+    <b>Category:</b> ${p.category} &nbsp;|&nbsp; <b>Price:</b> $${(+p.price).toFixed(2)} &nbsp;|&nbsp;
+    <b>Status:</b> ${p.status}${p.description ? `<br><br>${p.description}` : ''}
+  </div>`;
+  if (p.image_url) {
+    body += `<div class="modal-img-label">Preview Image</div><img src="${p.image_url}" class="modal-img">`;
   }
-  fetchProducts();
+  if (p.file_url) {
+    const ext = p.file_url.split('.').pop().toLowerCase();
+    const isVideo = ['mp4','mov','avi','mkv'].includes(ext);
+    const isPdf   = ext === 'pdf';
+    body += `<div class="modal-img-label" style="margin-top:10px">Digital File (${ext.toUpperCase()})</div>`;
+    if (isVideo) {
+      body += `<video controls style="width:100%;border-radius:9px;max-height:300px;background:#000">
+        <source src="${p.file_url}" type="video/${ext === 'mov' ? 'quicktime' : ext}">
+        <a href="${p.file_url}" target="_blank">Download video</a>
+      </video>`;
+    } else if (isPdf) {
+      body += `<a href="${p.file_url}" target="_blank" class="btn-primary" style="display:inline-block;padding:9px 18px;border-radius:8px;font-size:13px;font-weight:700;background:#075e54;color:#fff;text-decoration:none">📄 Open PDF</a>`;
+    } else {
+      body += `<img src="${p.file_url}" class="modal-img" style="cursor:zoom-in" onclick="window.open('${p.file_url}','_blank')">`;
+    }
+  }
+  if (!p.image_url && !p.file_url) body += '<p style="color:#9ca3af">No media uploaded.</p>';
+  document.getElementById('modal-body').innerHTML = body;
+  document.getElementById('modal-actions').innerHTML = `<button class="btn-secondary" onclick="closeModal()">Close</button>`;
+  openModal();
+}
+
+async function productAction(action, id, name) {
+  try {
+    if (action === 'reject') {
+      const reason = prompt(`Reason for rejecting "${name}":`);
+      if (reason === null) return;
+      const res = await api('/admin/api/product/reject', 'POST', { id, reason });
+      toast(res.message, res.ok);
+    } else if (action === 'remove') {
+      if (!confirm(`Remove "${name}" permanently?`)) return;
+      const res = await api('/admin/api/product/remove', 'POST', { id });
+      toast(res.message, res.ok);
+    } else {
+      const res = await api('/admin/api/product/approve', 'POST', { id });
+      toast(res.message, res.ok);
+    }
+    fetchProducts();
+  } catch (e) {
+    toast('Action failed: ' + e.message, false);
+  }
 }
 
 /* ─────────────────────────────────────────────────────────
@@ -747,16 +994,20 @@ function serviceActions(s) {
 }
 
 async function serviceAction(action, id, title) {
-  if (action === 'reject') {
-    const reason = prompt(`Reason for rejecting "${title}":`);
-    if (reason === null) return;
-    const res = await api('/admin/api/service/reject', 'POST', { id, reason });
-    toast(res.message, res.ok);
-  } else {
-    const res = await api('/admin/api/service/approve', 'POST', { id });
-    toast(res.message, res.ok);
+  try {
+    if (action === 'reject') {
+      const reason = prompt(`Reason for rejecting "${title}":`);
+      if (reason === null) return;
+      const res = await api('/admin/api/service/reject', 'POST', { id, reason });
+      toast(res.message, res.ok);
+    } else {
+      const res = await api('/admin/api/service/approve', 'POST', { id });
+      toast(res.message, res.ok);
+    }
+    fetchServices();
+  } catch (e) {
+    toast('Action failed: ' + e.message, false);
   }
-  fetchServices();
 }
 
 /* ─────────────────────────────────────────────────────────
@@ -795,10 +1046,14 @@ function orderActions(o) {
 }
 
 async function orderAction(id, status) {
-  if (!confirm(`Mark order #${id} as ${status}?`)) return;
-  const res = await api('/admin/api/order/status', 'POST', { id, status });
-  toast(res.message, res.ok);
-  fetchOrders();
+  try {
+    if (!confirm(`Mark order #${id} as ${status}?`)) return;
+    const res = await api('/admin/api/order/status', 'POST', { id, status });
+    toast(res.message, res.ok);
+    fetchOrders();
+  } catch (e) {
+    toast('Action failed: ' + e.message, false);
+  }
 }
 
 /* ─────────────────────────────────────────────────────────
@@ -854,10 +1109,14 @@ function renderDelivery() {
 }
 
 async function deliveryAction(action, phone) {
-  if (!confirm(`${action} agent ${phone}?`)) return;
-  const res = await api(`/admin/api/delivery/${action}`, 'POST', { phone });
-  toast(res.message, res.ok);
-  fetchDelivery();
+  try {
+    if (!confirm(`${action} agent ${phone}?`)) return;
+    const res = await api(`/admin/api/delivery/${action}`, 'POST', { phone });
+    toast(res.message, res.ok);
+    fetchDelivery();
+  } catch (e) {
+    toast('Action failed: ' + e.message, false);
+  }
 }
 
 /* ─────────────────────────────────────────────────────────
@@ -966,6 +1225,137 @@ function emptyRow(cols, msg) {
   return `<tr class="empty-row"><td colspan="${cols}">${msg}</td></tr>`;
 }
 function escQ(s) { return (s||'').replace(/'/g,"&#39;").replace(/"/g,'&quot;'); }
+
+/* ─────────────────────────────────────────────────────────
+   List for Seller
+   ───────────────────────────────────────────────────────── */
+async function openListForSeller() {
+  // Populate approved sellers
+  const sellers = await api('/admin/api/sellers');
+  const approved = sellers.filter(s => s.status === 'approved');
+  const sel = document.getElementById('lfs-seller');
+  sel.innerHTML = '<option value="" disabled selected>Select seller</option>' +
+    approved.map(s => `<option value="${s.phone}">${s.name} — ${s.business_name} (${s.phone})</option>`).join('');
+  lfsCalcComm();
+  document.getElementById('lfs-modal').classList.add('open');
+}
+
+function closeLFS(e) {
+  if (!e || e.target === document.getElementById('lfs-modal'))
+    document.getElementById('lfs-modal').classList.remove('open');
+}
+
+function lfsTypeChange() {
+  const type = document.getElementById('lfs-type').value;
+  document.getElementById('lfs-qty-wrap').style.display     = type === 'service' ? 'none' : '';
+  document.getElementById('lfs-unit-wrap').style.display    = type === 'service' ? 'none' : '';
+  document.getElementById('lfs-svcunit-wrap').style.display = type === 'service' ? '' : 'none';
+  lfsCalcComm();
+}
+
+async function lfsCalcComm() {
+  const type  = document.getElementById('lfs-type').value;
+  const price = parseFloat(document.getElementById('lfs-price').value) || 0;
+  const qty   = type === 'service' ? 1 : (parseInt(document.getElementById('lfs-qty').value) || 1);
+  if (!price) { document.getElementById('lfs-comm-preview').style.display='none'; return; }
+  const s    = await api('/admin/api/settings');
+  const rateKey = type === 'service' ? 'service_commission_rate' : 'commission_rate';
+  const rate = parseFloat(s[rateKey] || '10');
+  const total = price * qty;
+  const comm  = total * rate / 100;
+  document.getElementById('lfs-comm-amount').textContent = `$${comm.toFixed(2)}`;
+  document.getElementById('lfs-comm-note').textContent   =
+    `${rate}% of $${total.toFixed(2)} (${qty} × $${price.toFixed(2)})`;
+  document.getElementById('lfs-comm-preview').style.display = 'block';
+}
+
+async function submitListForSeller() {
+  const type = document.getElementById('lfs-type').value;
+  const body = {
+    seller_phone:    document.getElementById('lfs-seller').value,
+    type,
+    name:            document.getElementById('lfs-name').value.trim(),
+    category:        document.getElementById('lfs-category').value.trim(),
+    price:           parseFloat(document.getElementById('lfs-price').value) || 0,
+    qty:             parseInt(document.getElementById('lfs-qty').value) || 1,
+    unit:            document.getElementById('lfs-unit').value.trim() || 'pcs',
+    svc_unit:        document.getElementById('lfs-svcunit').value,
+    spec:            document.getElementById('lfs-spec').value.trim(),
+    description:     document.getElementById('lfs-desc').value.trim(),
+    location:        document.getElementById('lfs-location').value.trim(),
+    offers_delivery: parseInt(document.getElementById('lfs-delivery').value),
+    delivery_info:   document.getElementById('lfs-delivery-info').value.trim(),
+    extra_services:  document.getElementById('lfs-extras').value.trim(),
+  };
+  if (!body.seller_phone || !body.name || !body.category || !body.price) {
+    toast('Please fill in all required fields.', false); return;
+  }
+  try {
+    const res = await api('/admin/api/create-listing', 'POST', body);
+    toast(res.message, res.ok);
+    if (res.ok) { closeLFS(); fetchProducts(); }
+  } catch (e) {
+    toast('Failed to create listing.', false);
+  }
+}
+
+/* ─────────────────────────────────────────────────────────
+   Commission
+   ───────────────────────────────────────────────────────── */
+const CR_KEYS = {
+  product: 'commission_rate',
+  service: 'service_commission_rate',
+  accom:   'accommodation_commission_rate',
+};
+const CR_IDS  = { product:'cr-product', service:'cr-service', accom:'cr-accom' };
+
+async function fetchCommission() {
+  const s = await api('/admin/api/settings');
+  document.getElementById('cr-product').value = s['commission_rate']              || '10';
+  document.getElementById('cr-service').value = s['service_commission_rate']      || '10';
+  document.getElementById('cr-accom').value   = s['accommodation_commission_rate']|| '5';
+  ['product','service','accom'].forEach(t => previewCommission(t));
+}
+
+function previewCommission(type) {
+  const rate = parseFloat(document.getElementById(CR_IDS[type]).value) || 0;
+  const el   = document.getElementById(`cr-${type}-preview`);
+  if (!el) return;
+  const eg = type === 'accom' ? 500 : 100;
+  const qty = type === 'service' ? 1 : 10;
+  const comm = eg * qty * rate / 100;
+  el.textContent = `e.g. $${eg} × ${qty} unit${qty>1?'s':''} = $${(eg*qty).toFixed(2)} total → commission $${comm.toFixed(2)}`;
+}
+
+async function saveCommission(key, inputId, label) {
+  const val = parseFloat(document.getElementById(inputId).value);
+  if (isNaN(val) || val < 0 || val > 100) { toast('Enter a valid rate 0–100.', false); return; }
+  const body = {}; body[key] = String(val);
+  const res = await api('/admin/api/settings', 'POST', body);
+  toast(res.ok ? `${label} rate set to ${val}%` : res.message, res.ok);
+}
+
+function runCalc() {
+  const price = parseFloat(document.getElementById('calc-price').value) || 0;
+  const qty   = parseInt(document.getElementById('calc-qty').value)     || 1;
+  const type  = document.getElementById('calc-type').value;
+  const key   = CR_KEYS[type];
+  const rEl   = document.getElementById('calc-result');
+  if (!price) { rEl.style.display='none'; return; }
+  api('/admin/api/settings').then(s => {
+    const rate  = parseFloat(s[key] || '10');
+    const total = price * qty;
+    const comm  = total * rate / 100;
+    document.getElementById('calc-breakdown').innerHTML =
+      `<div>Unit price : <strong>$${price.toFixed(2)}</strong></div>` +
+      `<div>Quantity   : <strong>${qty}</strong></div>` +
+      `<div>Total value: <strong>$${total.toFixed(2)}</strong></div>` +
+      `<div>Rate       : <strong>${rate}%</strong></div>` +
+      `<div style="margin-top:8px;font-size:16px;color:#075e54;font-weight:800">` +
+      `Commission due: $${comm.toFixed(2)}</div>`;
+    rEl.style.display = 'block';
+  });
+}
 
 /* ─────────────────────────────────────────────────────────
    Boot

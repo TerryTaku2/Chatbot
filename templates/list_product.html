@@ -58,6 +58,26 @@
     .upload-label span{color:#075e54;font-weight:600}
     .preview-img{max-width:100%;max-height:120px;border-radius:8px;margin-top:10px;display:none}
 
+    /* ── Location & extras ── */
+    .radio-row{display:flex;gap:16px;flex-wrap:wrap}
+    .delivery-info-wrap{margin-top:6px}
+    .extras-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px}
+    .extra-cb{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:400;
+              padding:7px 10px;border:1.5px solid #e5e7eb;border-radius:8px;cursor:pointer;
+              transition:all .15s}
+    .extra-cb:hover{border-color:#075e54;background:#f0fdf4}
+    .extra-cb input{accent-color:#075e54}
+
+    /* ── Digital product type ── */
+    .type-btn.active-digital{border-color:#7c3aed;background:#f5f3ff;color:#7c3aed}
+    .digital-file-wrap{display:none}
+    .item-card.is-digital .digital-file-wrap{display:block}
+    .item-card.is-digital .qty-wrap{display:none}
+    .image-wrap{display:block}
+    .digital-badge{margin-top:10px;background:#f5f3ff;border:1px solid #ddd6fe;
+                   border-radius:9px;padding:10px 14px;font-size:12px;color:#5b21b6}
+    .file-name-display{font-size:12px;color:#075e54;margin-top:6px;font-weight:600;display:none}
+
     /* ── Commission badge ── */
     .commission-badge{margin-top:12px;background:#fffbeb;border:1px solid #fcd34d;
                       border-radius:9px;padding:10px 14px;font-size:13px}
@@ -139,35 +159,81 @@
               onclick="setType(this,'product')">📦 Product</button>
       <button type="button" class="type-btn"
               onclick="setType(this,'service')">🔧 Service</button>
+      <button type="button" class="type-btn"
+              onclick="setType(this,'digital')">🖼️ Digital</button>
     </div>
     <input type="hidden" name="item_type" value="product">
 
     <div class="card-body">
       <label>Name *</label>
-      <input type="text" name="item_name" placeholder="e.g. HP Laptop 15s / Plumbing Repair" required>
+      <input type="text" name="item_name" placeholder="e.g. HP Laptop 15s / Photo Pack / Video" required>
 
       <label>Category *</label>
       <select name="item_category" required class="cat-select">
         <option value="" disabled selected>Select a category</option>
-        <optgroup label="📦 Products" class="product-cats">
-          <option>Laptops &amp; Desktops</option>
-          <option>Networking Equipment</option>
-          <option>CCTV &amp; Security Systems</option>
-          <option>Printers &amp; Accessories</option>
-          <option>Software Licenses</option>
-          <option>IT Services</option>
-          <option>Other Product</option>
+        <optgroup label="🍎 Food &amp; Groceries" class="product-cats">
+          <option>Groceries &amp; Food</option>
+          <option>Fresh Produce &amp; Vegetables</option>
+          <option>Meat, Poultry &amp; Fish</option>
+          <option>Beverages &amp; Drinks</option>
         </optgroup>
+        <optgroup label="👗 Fashion &amp; Clothing" class="product-cats">
+          <option>Clothing &amp; Fashion</option>
+          <option>Shoes &amp; Footwear</option>
+          <option>Bags &amp; Accessories</option>
+          <option>Health &amp; Beauty</option>
+        </optgroup>
+        <optgroup label="📱 Electronics &amp; Tech" class="product-cats">
+          <option>Phones &amp; Accessories</option>
+          <option>Computers &amp; Laptops</option>
+          <option>Electronics &amp; Gadgets</option>
+          <option>Networking &amp; Security</option>
+        </optgroup>
+        <optgroup label="🏠 Home &amp; Living" class="product-cats">
+          <option>Home &amp; Furniture</option>
+          <option>Kitchen &amp; Appliances</option>
+          <option>Building &amp; Hardware</option>
+        </optgroup>
+        <optgroup label="🚗 Vehicles &amp; Agriculture" class="product-cats">
+          <option>Automotive &amp; Vehicles</option>
+          <option>Agricultural Products</option>
+        </optgroup>
+        <optgroup label="🎒 Kids, Sports &amp; Lifestyle" class="product-cats">
+          <option>Baby &amp; Kids</option>
+          <option>Sports &amp; Fitness</option>
+          <option>Books &amp; Stationery</option>
+          <option>Software &amp; Licenses</option>
+          <option>Other</option>
+        </optgroup>
+
         <optgroup label="🔧 Services" class="service-cats" style="display:none">
           <option>Home Services</option>
           <option>Construction &amp; Building</option>
+          <option>Electrical &amp; Plumbing</option>
+          <option>Cleaning Services</option>
           <option>IT &amp; Technology</option>
-          <option>Automotive</option>
+          <option>Automotive Services</option>
           <option>Education &amp; Tutoring</option>
-          <option>Catering &amp; Food</option>
+          <option>Catering &amp; Food Services</option>
           <option>Beauty &amp; Personal Care</option>
+          <option>Health &amp; Medical</option>
+          <option>Agriculture &amp; Farming</option>
+          <option>Photography &amp; Videography</option>
+          <option>Events &amp; Entertainment</option>
+          <option>Security Services</option>
+          <option>Financial &amp; Legal</option>
           <option>Delivery &amp; Moving</option>
           <option>Other Service</option>
+        </optgroup>
+
+        <optgroup label="🖼️ Digital &amp; Media" class="digital-cats" style="display:none">
+          <option>Photography</option>
+          <option>Videography</option>
+          <option>Digital Art &amp; Design</option>
+          <option>Documents &amp; Templates</option>
+          <option>Music &amp; Audio</option>
+          <option>Software &amp; Licenses</option>
+          <option>Other</option>
         </optgroup>
       </select>
 
@@ -177,21 +243,208 @@
           <input type="number" name="item_price" min="0.01" step="0.01"
                  placeholder="0.00" required oninput="updateSummary()">
         </div>
-        <div class="qty-wrap">
-          <label>Qty *</label>
-          <input type="number" name="item_qty" min="1" value="1" required>
+        <!-- Product: quantity + unit -->
+        <div class="qty-wrap" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:end">
+          <div>
+            <label>Qty *</label>
+            <input type="number" name="item_qty" min="1" value="1" required oninput="updateSummary()">
+          </div>
+          <div>
+            <label>Unit *</label>
+            <select name="item_qty_unit">
+              <optgroup label="— Count —">
+                <option value="pcs" selected>pcs (pieces)</option>
+                <option value="units">units</option>
+                <option value="dozen">dozen</option>
+                <option value="pair">pair</option>
+                <option value="pack">pack</option>
+                <option value="box">box</option>
+                <option value="bag">bag</option>
+                <option value="roll">roll</option>
+                <option value="bundle">bundle</option>
+                <option value="set">set</option>
+                <option value="carton">carton</option>
+                <option value="tray">tray</option>
+              </optgroup>
+              <optgroup label="— Weight —">
+                <option value="kg">kg</option>
+                <option value="g">g (grams)</option>
+                <option value="t">tonne</option>
+                <option value="lb">lb (pounds)</option>
+              </optgroup>
+              <optgroup label="— Volume —">
+                <option value="L">L (litres)</option>
+                <option value="ml">ml</option>
+                <option value="m³">m³</option>
+              </optgroup>
+              <optgroup label="— Length / Area —">
+                <option value="m">m (metres)</option>
+                <option value="cm">cm</option>
+                <option value="km">km</option>
+                <option value="m²">m² (sqm)</option>
+                <option value="ft">ft (feet)</option>
+                <option value="acre">acre</option>
+              </optgroup>
+            </select>
+          </div>
+        </div>
+        <!-- Service: measurement unit -->
+        <div class="svc-unit-wrap" style="display:none">
+          <label>Charged Per *</label>
+          <select name="item_unit">
+            <option value="fixed">Fixed Price</option>
+            <option value="hourly">Per Hour</option>
+            <option value="daily">Per Day</option>
+            <option value="per_visit">Per Visit / Session</option>
+            <option value="per_project">Per Project</option>
+            <option value="per_sqm">Per Square Metre</option>
+            <option value="per_km">Per Kilometre</option>
+            <option value="quoted">Quote Only</option>
+          </select>
         </div>
       </div>
 
-      <label>Description</label>
-      <textarea name="item_desc" placeholder="Specs, condition, availability, what's included..."></textarea>
+      <label>Specifications <span style="font-weight:400;color:#9ca3af">(optional)</span></label>
+      <input type="text" name="item_spec" placeholder="e.g. Brand: HP · Condition: New · Colour: Black  /  Includes: materials · Min: 2 hrs">
 
-      <label>Image <span style="font-weight:400;color:#9ca3af">(optional)</span></label>
-      <div class="upload-area" onclick="this.querySelector('input').click()">
-        <div class="upload-label"><span>Click to upload</span> or drag &amp; drop<br>JPG, PNG or WEBP — max 5 MB</div>
-        <input type="file" name="item_image" accept="image/jpeg,image/png,image/webp"
-               onchange="previewImage(this)">
-        <img class="preview-img" alt="preview">
+      <label>Description</label>
+      <textarea name="item_desc" placeholder="Full details, availability, terms, what's included..."></textarea>
+
+      <!-- ── Location & Delivery ── -->
+      <label>📍 Your Location <span style="font-weight:400;color:#dc2626">*</span></label>
+      <div class="two-col">
+        <select name="item_location_city" required>
+          <option value="" disabled selected>Select city</option>
+          <option>Harare</option>
+          <option>Bulawayo</option>
+          <option>Mutare</option>
+          <option>Gweru</option>
+          <option>Masvingo</option>
+          <option>Chinhoyi</option>
+          <option>Bindura</option>
+          <option>Kadoma</option>
+          <option>Kwekwe</option>
+          <option>Zvishavane</option>
+          <option>Victoria Falls</option>
+          <option>Beitbridge</option>
+          <option>Other</option>
+        </select>
+        <input type="text" name="item_location_area" placeholder="Street / suburb (optional)">
+      </div>
+
+      <label style="margin-top:14px">🚚 Do you offer delivery?</label>
+      <div class="radio-row" style="margin:6px 0 4px">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:400;cursor:pointer">
+          <input type="radio" name="item_delivery" value="no" checked onchange="toggleDelivery(this)"> No — self-collect only
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:400;cursor:pointer">
+          <input type="radio" name="item_delivery" value="yes" onchange="toggleDelivery(this)"> Yes — I offer delivery
+        </label>
+      </div>
+      <div class="delivery-info-wrap" style="display:none">
+        <input type="text" name="item_delivery_info"
+               placeholder="e.g. Free within 5 km · $3 city-wide · Nationwide available">
+      </div>
+
+      <!-- ── Currency & Payment Methods ── -->
+      <label style="margin-top:14px">💰 Currency Accepted <span style="font-weight:400;color:#dc2626">*</span></label>
+      <div class="radio-row" style="margin:6px 0 10px">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:400;cursor:pointer">
+          <input type="radio" name="item_currency" value="USD" checked> 🇺🇸 USD (US Dollar)
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:400;cursor:pointer">
+          <input type="radio" name="item_currency" value="ZWG"> 🇿🇼 ZWG (Zimbabwe Gold)
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:400;cursor:pointer">
+          <input type="radio" name="item_currency" value="USD & ZWG"> 🔁 Both (USD &amp; ZWG)
+        </label>
+      </div>
+
+      <label>💳 Payment Methods Accepted <span style="font-weight:400;color:#dc2626">*</span> <span style="font-weight:400;color:#9ca3af">(tick all that apply, then add details)</span></label>
+      <div style="margin-top:8px;display:flex;flex-direction:column;gap:8px">
+
+        <div class="pay-method-row">
+          <label class="extra-cb" style="margin-bottom:0"><input type="checkbox" class="pay-check" value="Cash" onchange="togglePayDetail(this)"> 💵 Cash</label>
+          <input type="text" class="pay-detail" placeholder="e.g. On delivery · On collection at shop" style="display:none;margin-top:5px">
+        </div>
+
+        <div class="pay-method-row">
+          <label class="extra-cb" style="margin-bottom:0"><input type="checkbox" class="pay-check" value="EcoCash" onchange="togglePayDetail(this)"> 📱 EcoCash</label>
+          <input type="text" class="pay-detail" placeholder="e.g. Send to 0774128219 (T. Muromba)" style="display:none;margin-top:5px">
+        </div>
+
+        <div class="pay-method-row">
+          <label class="extra-cb" style="margin-bottom:0"><input type="checkbox" class="pay-check" value="Bank Transfer" onchange="togglePayDetail(this)"> 🏦 Bank Transfer</label>
+          <input type="text" class="pay-detail" placeholder="e.g. CBZ · Acc: 1234567890 · Name: T-Tech Solutions" style="display:none;margin-top:5px">
+        </div>
+
+        <div class="pay-method-row">
+          <label class="extra-cb" style="margin-bottom:0"><input type="checkbox" class="pay-check" value="InnBucks" onchange="togglePayDetail(this)"> 📲 InnBucks</label>
+          <input type="text" class="pay-detail" placeholder="e.g. Send to 0774128219" style="display:none;margin-top:5px">
+        </div>
+
+        <div class="pay-method-row">
+          <label class="extra-cb" style="margin-bottom:0"><input type="checkbox" class="pay-check" value="Swipe / POS" onchange="togglePayDetail(this)"> 💳 Swipe / POS</label>
+          <input type="text" class="pay-detail" placeholder="e.g. Available at our shop · USD &amp; ZWG accepted" style="display:none;margin-top:5px">
+        </div>
+
+        <div class="pay-method-row">
+          <label class="extra-cb" style="margin-bottom:0"><input type="checkbox" class="pay-check" value="ZimSwitch" onchange="togglePayDetail(this)"> 🔄 ZimSwitch</label>
+          <input type="text" class="pay-detail" placeholder="e.g. Available in store" style="display:none;margin-top:5px">
+        </div>
+
+        <div class="pay-method-row">
+          <label class="extra-cb" style="margin-bottom:0"><input type="checkbox" class="pay-check" value="OneMoney" onchange="togglePayDetail(this)"> 📡 OneMoney</label>
+          <input type="text" class="pay-detail" placeholder="e.g. Send to 0714128219" style="display:none;margin-top:5px">
+        </div>
+
+        <div class="pay-method-row">
+          <label class="extra-cb" style="margin-bottom:0"><input type="checkbox" class="pay-check" value="Mukuru" onchange="togglePayDetail(this)"> 💸 Mukuru</label>
+          <input type="text" class="pay-detail" placeholder="e.g. Send to +263774128219 · Reference: your order ref" style="display:none;margin-top:5px">
+        </div>
+
+      </div>
+      <input type="hidden" name="item_payment_methods">
+
+      <label style="margin-top:14px">✨ Additional Services <span style="font-weight:400;color:#9ca3af">(optional — tick all that apply)</span></label>
+      <div class="extras-grid">
+        <label class="extra-cb"><input type="checkbox" class="extra-check" value="Installation"> 🔧 Installation</label>
+        <label class="extra-cb"><input type="checkbox" class="extra-check" value="Warranty"> 🛡️ Warranty</label>
+        <label class="extra-cb"><input type="checkbox" class="extra-check" value="After-sales support"> 🤝 After-sales</label>
+        <label class="extra-cb"><input type="checkbox" class="extra-check" value="Training / Demo"> 🎓 Training/Demo</label>
+        <label class="extra-cb"><input type="checkbox" class="extra-check" value="Repairs"> 🛠️ Repairs</label>
+        <label class="extra-cb"><input type="checkbox" class="extra-check" value="Assembly"> ⚙️ Assembly</label>
+        <label class="extra-cb"><input type="checkbox" class="extra-check" value="Gift wrapping"> 🎁 Gift Wrapping</label>
+        <label class="extra-cb"><input type="checkbox" class="extra-check" value="Bulk discount"> 💰 Bulk Discount</label>
+      </div>
+      <input type="text" class="extras-other-input" placeholder="Other services (e.g. 24/7 support, customisation)" style="margin-top:6px">
+      <!-- hidden field populated by JS before submit -->
+      <input type="hidden" name="item_extras">
+
+      <!-- Digital file upload (shown only for digital type) -->
+      <div class="digital-file-wrap">
+        <label>Digital File * <span style="font-weight:400;color:#9ca3af">(photo, video, or PDF)</span></label>
+        <div class="upload-area" onclick="this.querySelector('input[name=item_file]').click()">
+          <div class="upload-label">🖼️ <span>Click to upload</span> your digital file<br>
+            JPG, PNG, MP4, MOV, PDF — max 100 MB</div>
+          <input type="file" name="item_file"
+                 accept="image/*,video/mp4,video/quicktime,video/avi,video/x-matroska,application/pdf"
+                 onchange="showFileName(this)" style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%">
+          <div class="file-name-display"></div>
+        </div>
+        <div class="digital-badge">
+          🔒 Buyers only receive this file after their order is marked <strong>fulfilled</strong> — they get a secure private download link via WhatsApp.
+        </div>
+      </div>
+
+      <div class="image-wrap">
+        <label>Preview Image <span style="font-weight:400;color:#9ca3af">(optional — shown in listing)</span></label>
+        <div class="upload-area" onclick="this.querySelector('input[name=item_image]').click()">
+          <div class="upload-label"><span>Click to upload</span> or drag &amp; drop<br>JPG, PNG or WEBP — max 5 MB</div>
+          <input type="file" name="item_image" accept="image/jpeg,image/png,image/webp"
+                 onchange="previewImage(this)">
+          <img class="preview-img" alt="preview">
+        </div>
       </div>
 
       <div class="commission-badge">
@@ -237,24 +490,84 @@
 
   function setType(btn, type) {
     const card = btn.closest('.item-card');
-    const btns = card.querySelectorAll('.type-btn');
-    btns.forEach(b => b.className = 'type-btn');
-    btn.classList.add(type === 'product' ? 'active-product' : 'active-service');
+    card.querySelectorAll('.type-btn').forEach(b => b.className = 'type-btn');
+    btn.classList.add(type === 'product' ? 'active-product' : type === 'service' ? 'active-service' : 'active-digital');
     card.querySelector('input[name=item_type]').value = type;
     card.classList.toggle('is-service', type === 'service');
+    card.classList.toggle('is-digital', type === 'digital');
 
-    // Show/hide quantity
-    card.querySelector('.qty-wrap').classList.toggle('hidden', type === 'service');
+    const qtyWrap  = card.querySelector('.qty-wrap');
+    const svcWrap  = card.querySelector('.svc-unit-wrap');
     const qtyInput = card.querySelector('input[name=item_qty]');
-    qtyInput.required = type === 'product';
-    if (type === 'service') qtyInput.value = '1';
+    const fileInput = card.querySelector('input[name=item_file]');
 
-    // Show relevant category group
-    card.querySelector('.product-cats').style.display = type === 'product' ? '' : 'none';
-    card.querySelector('.service-cats').style.display  = type === 'service' ? '' : 'none';
+    // Quantity: product only
+    qtyWrap.style.display  = type === 'product'  ? '' : 'none';
+    qtyInput.required      = type === 'product';
+    if (type !== 'product') qtyInput.value = '1';
+
+    // Service unit: service only
+    svcWrap.style.display  = type === 'service'  ? '' : 'none';
+
+    // Digital file: digital only
+    if (fileInput) fileInput.required = (type === 'digital');
+
+    // Category groups
+    card.querySelector('.product-cats').style.display = type === 'product'  ? '' : 'none';
+    card.querySelector('.service-cats').style.display = type === 'service'  ? '' : 'none';
+    card.querySelector('.digital-cats').style.display = type === 'digital'  ? '' : 'none';
     card.querySelector('select[name=item_category]').value = '';
 
+    // Placeholder hints
+    const specInput = card.querySelector('input[name=item_spec]');
+    if (specInput) {
+      if (type === 'service') specInput.placeholder = 'e.g. Includes: materials · Min: 2 hrs · Travel: extra';
+      else if (type === 'digital') specInput.placeholder = 'e.g. Resolution: 4K · Format: MP4 · Duration: 3 min';
+      else specInput.placeholder = 'e.g. Brand: HP · Condition: New · Colour: Black';
+    }
+
     updateSummary();
+  }
+
+  function toggleDelivery(radio) {
+    const wrap = radio.closest('.card-body').querySelector('.delivery-info-wrap');
+    if (wrap) wrap.style.display = radio.value === 'yes' ? 'block' : 'none';
+  }
+
+  function showFileName(input) {
+    const area    = input.closest('.upload-area');
+    const display = area.querySelector('.file-name-display');
+    const label   = area.querySelector('.upload-label');
+    // Remove any previous preview
+    area.querySelectorAll('.media-preview').forEach(el => el.remove());
+
+    if (!input.files || !input.files[0]) return;
+    const file = input.files[0];
+    const ext  = file.name.split('.').pop().toLowerCase();
+    const isImg   = ['jpg','jpeg','png','webp'].includes(ext);
+    const isVideo = ['mp4','mov','avi','mkv'].includes(ext);
+
+    display.style.display = 'block';
+    if (label) label.style.display = 'none';
+
+    if (isImg) {
+      const img = document.createElement('img');
+      img.src = URL.createObjectURL(file);
+      img.className = 'media-preview';
+      img.style.cssText = 'max-width:100%;max-height:200px;border-radius:8px;margin-top:8px;display:block';
+      area.appendChild(img);
+      display.textContent = '✅ ' + file.name;
+    } else if (isVideo) {
+      const vid = document.createElement('video');
+      vid.src = URL.createObjectURL(file);
+      vid.controls = true;
+      vid.className = 'media-preview';
+      vid.style.cssText = 'width:100%;max-height:200px;border-radius:8px;margin-top:8px;display:block;background:#000';
+      area.appendChild(vid);
+      display.textContent = '✅ ' + file.name;
+    } else {
+      display.textContent = '✅ ' + file.name + ' (' + (file.size / 1024).toFixed(0) + ' KB)';
+    }
   }
 
   function previewImage(input) {
@@ -309,12 +622,44 @@
     }
   }
 
-  // Prevent submit with 0 items
+  function togglePayDetail(cb) {
+    const detail = cb.closest('.pay-method-row').querySelector('.pay-detail');
+    if (detail) detail.style.display = cb.checked ? 'block' : 'none';
+    if (!cb.checked && detail) detail.value = '';
+  }
+
+  // Before submit: pack per-card checkboxes into hidden fields
   document.getElementById('listingForm').addEventListener('submit', function(e) {
     if (!document.querySelectorAll('.item-card').length) {
       e.preventDefault();
       alert('Please add at least one item before submitting.');
+      return;
     }
+    let valid = true;
+    document.querySelectorAll('.item-card').forEach(card => {
+      // Additional services
+      const checked = [...card.querySelectorAll('.extra-check:checked')].map(cb => cb.value);
+      const other   = (card.querySelector('.extras-other-input')?.value || '').trim();
+      if (other) checked.push(other);
+      const hiddenExtras = card.querySelector('input[name="item_extras"]');
+      if (hiddenExtras) hiddenExtras.value = checked.join(', ');
+
+      // Payment methods — validate at least one selected, pack with details
+      const payChecked = [...card.querySelectorAll('.pay-check:checked')];
+      if (!payChecked.length) {
+        e.preventDefault();
+        alert('Please select at least one payment method for each item.');
+        valid = false;
+        return;
+      }
+      const payParts = payChecked.map(cb => {
+        const detail = cb.closest('.pay-method-row').querySelector('.pay-detail');
+        const txt    = detail ? detail.value.trim() : '';
+        return txt ? `${cb.value}: ${txt}` : cb.value;
+      });
+      const hiddenPay = card.querySelector('input[name="item_payment_methods"]');
+      if (hiddenPay) hiddenPay.value = payParts.join(' | ');
+    });
   });
 
   // Start with one item

@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Your Cart — T-Tech Connect</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Segoe UI',system-ui,sans-serif;background:#f0f2f5;min-height:100vh;padding-bottom:72px}
+
+    /* ── Topbar ── */
+    .topbar{background:#075e54;padding:0 14px;display:flex;align-items:center;gap:12px;height:56px;position:sticky;top:0;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.18)}
+    .topbar-back{color:#fff;text-decoration:none;font-size:20px}
+    .topbar-title{color:#fff;font-size:16px;font-weight:700;flex:1}
+    .topbar-count{color:rgba(255,255,255,.8);font-size:13px;font-weight:400}
+    .topbar-clear{color:rgba(255,255,255,.8);font-size:13px;font-weight:600;background:none;border:none;cursor:pointer}
+    .topbar-clear:hover{color:#fff}
+
+    /* ── Section ── */
+    .section{padding:12px 14px}
+
+    /* ── Cart item ── */
+    .cart-item{background:#fff;border-radius:12px;border:1px solid #e5e7eb;padding:12px;display:flex;gap:11px;margin-bottom:10px;align-items:flex-start;transition:opacity .25s,transform .25s}
+    .item-img{width:70px;height:70px;border-radius:9px;object-fit:cover;background:#f3f4f6;flex-shrink:0;display:block}
+    .item-img-ph{width:70px;height:70px;border-radius:9px;background:#f3f4f6;display:flex;align-items:center;justify-content:center;font-size:28px;flex-shrink:0}
+    .item-info{flex:1;min-width:0}
+    .item-cat{font-size:10px;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+    .item-name{font-size:14px;font-weight:700;color:#111827;margin:2px 0 3px;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+    .item-seller{font-size:11px;color:#6b7280;margin-bottom:4px}
+    .item-seller strong{color:#374151}
+    .item-price{font-size:16px;font-weight:800;color:#075e54}
+    .item-subtotal{font-size:12px;color:#6b7280;margin-top:1px}
+    .qty-row{display:flex;align-items:center;gap:8px;margin-top:8px}
+    .qty-btn{width:28px;height:28px;border-radius:50%;border:1.5px solid #d1d5db;background:#f9fafb;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-weight:700;color:#374151;transition:all .15s}
+    .qty-btn:hover{border-color:#075e54;color:#075e54}
+    .qty-val{font-size:15px;font-weight:800;color:#111827;min-width:22px;text-align:center}
+    .remove-btn{margin-left:auto;background:none;border:none;font-size:18px;cursor:pointer;color:#9ca3af;padding:4px}
+    .remove-btn:hover{color:#dc2626}
+
+    /* ── Promo input ── */
+    .promo-row{display:flex;gap:8px;margin-bottom:10px}
+    .promo-input{flex:1;padding:10px 14px;border:1.5px solid #e5e7eb;border-radius:10px;font-size:13px;outline:none;color:#374151;background:#fff}
+    .promo-input:focus{border-color:#075e54}
+    .promo-btn{padding:10px 16px;background:#f3f4f6;color:#374151;border:1.5px solid #e5e7eb;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap}
+    .promo-btn:hover{background:#e5e7eb}
+
+    /* ── Summary box ── */
+    .summary{background:#fff;border-radius:12px;border:1px solid #e5e7eb;padding:14px;margin-bottom:12px}
+    .summary-row{display:flex;justify-content:space-between;align-items:center;font-size:14px;color:#374151;padding:7px 0;border-bottom:1px solid #f3f4f6}
+    .summary-row:last-child{border-bottom:none}
+    .summary-row .lbl{color:#6b7280}
+    .summary-row .val{font-weight:700}
+    .summary-row.total{font-size:17px;font-weight:800;color:#111827;border-top:2px solid #e5e7eb;padding-top:10px;margin-top:4px}
+
+    /* ── Trust badges ── */
+    .trust-strip{display:flex;gap:0;background:#fff;border-radius:10px;border:1px solid #e5e7eb;overflow:hidden;margin-bottom:12px}
+    .trust-item{flex:1;padding:10px 6px;text-align:center;font-size:10px;font-weight:700;color:#6b7280;border-right:1px solid #f3f4f6;line-height:1.4}
+    .trust-item:last-child{border-right:none}
+    .trust-icon{display:block;font-size:18px;margin-bottom:3px}
+
+    /* ── Buttons ── */
+    .btn-checkout{width:100%;padding:15px;background:#075e54;color:#fff;border:none;border-radius:12px;font-size:16px;font-weight:700;cursor:pointer;text-decoration:none;display:flex;align-items:center;justify-content:center;gap:8px;transition:background .15s;margin-bottom:10px}
+    .btn-checkout:hover{background:#064e46}
+    .btn-shop{width:100%;padding:12px;background:#f0f2f5;color:#374151;border:1.5px solid #d1d5db;border-radius:12px;font-size:14px;font-weight:600;cursor:pointer;text-decoration:none;display:flex;align-items:center;justify-content:center;gap:6px}
+    .btn-shop:hover{background:#e5e7eb}
+
+    /* ── Empty state ── */
+    .empty{text-align:center;padding:64px 24px;background:#fff;margin:14px;border-radius:16px;border:1px solid #e5e7eb}
+    .empty-icon{font-size:60px;margin-bottom:16px}
+    .empty h2{font-size:20px;font-weight:800;color:#111827;margin-bottom:8px}
+    .empty p{font-size:14px;color:#6b7280;margin-bottom:24px;line-height:1.6}
+    .btn-start{display:inline-block;padding:13px 32px;background:#075e54;color:#fff;border-radius:24px;text-decoration:none;font-weight:700;font-size:15px;transition:background .15s}
+    .btn-start:hover{background:#064e46}
+
+    /* ── Bottom nav ── */
+    .bottom-nav{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #e5e7eb;display:flex;height:56px;z-index:200;box-shadow:0 -2px 10px rgba(0,0,0,.07)}
+    .bnav-item{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;text-decoration:none;color:#9ca3af;font-size:10px;font-weight:600;transition:color .15s}
+    .bnav-item.active{color:#075e54}
+    .bnav-icon{font-size:20px;line-height:1}
+
+    /* ── Toast ── */
+    .toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%) translateY(20px);background:#111827;color:#fff;padding:10px 20px;border-radius:24px;font-size:13px;font-weight:600;opacity:0;transition:all .25s;pointer-events:none;z-index:300;white-space:nowrap}
+    .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  </style>
+</head>
+<body>
+
+<!-- Topbar -->
+<div class="topbar">
+  <a class="topbar-back" href="/shop">←</a>
+  <span class="topbar-title">
+    Your Cart
+    {% if cart_count > 0 %}<span class="topbar-count">({{ cart_count }} item{{ 's' if cart_count != 1 else '' }})</span>{% endif %}
+  </span>
+  {% if items %}
+  <button class="topbar-clear" onclick="confirmClear()">Clear</button>
+  {% endif %}
+</div>
+
+{% if items %}
+<div class="section">
+
+  <!-- Cart items -->
+  {% for item in items %}
+  <div class="cart-item" id="item-{{ item.product_id }}">
+    {% if item.image_path %}
+    <img class="item-img" src="/uploads/{{ item.image_path }}" alt="{{ item.name }}" loading="lazy"
+         onclick="location.href='/product/{{ item.product_id }}'" style="cursor:pointer"/>
+    {% else %}
+    <div class="item-img-ph" onclick="location.href='/product/{{ item.product_id }}'" style="cursor:pointer">
+      {% if item.product_type == 'digital' %}🖼️{% else %}📦{% endif %}
+    </div>
+    {% endif %}
+    <div class="item-info">
+      <div class="item-cat">{{ item.category }}</div>
+      <div class="item-name" onclick="location.href='/product/{{ item.product_id }}'" style="cursor:pointer">{{ item.name }}</div>
+      {% if item.listed_by %}
+      <div class="item-seller">Sold by <strong>{{ item.business_name or 'Verified Seller' }}</strong></div>
+      {% endif %}
+      <div class="item-price">${{ "%.2f"|format(item.price) }}</div>
+      <div class="item-subtotal" id="sub-{{ item.product_id }}">
+        Subtotal: ${{ "%.2f"|format(item.price * item.quantity) }}
+      </div>
+      <div class="qty-row">
+        <button class="qty-btn" onclick="changeQty({{ item.product_id }}, {{ item.price }}, -1)">−</button>
+        <span class="qty-val" id="qty-{{ item.product_id }}">{{ item.quantity }}</span>
+        <button class="qty-btn" onclick="changeQty({{ item.product_id }}, {{ item.price }}, 1)">+</button>
+        <button class="remove-btn" onclick="removeItem({{ item.product_id }})" title="Remove item">🗑</button>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+
+  <!-- Promo code (UI only) -->
+  <div class="promo-row">
+    <input class="promo-input" type="text" placeholder="Promo code (coming soon)…" disabled/>
+    <button class="promo-btn" disabled>Apply</button>
+  </div>
+
+  <!-- Order summary -->
+  <div class="summary">
+    <div class="summary-row">
+      <span class="lbl">Subtotal ({{ cart_count }} item{{ 's' if cart_count != 1 else '' }})</span>
+      <span class="val" id="items-subtotal">${{ "%.2f"|format(total) }}</span>
+    </div>
+    <div class="summary-row">
+      <span class="lbl">Delivery</span>
+      <span class="val" style="color:#16a34a;font-size:12px">Calculated at checkout</span>
+    </div>
+    <div class="summary-row total">
+      <span>Total</span>
+      <span id="grand-total">${{ "%.2f"|format(total) }}</span>
+    </div>
+  </div>
+
+  <!-- Trust badges -->
+  <div class="trust-strip">
+    <div class="trust-item">
+      <span class="trust-icon">🔒</span>
+      Secure Checkout
+    </div>
+    <div class="trust-item">
+      <span class="trust-icon">✅</span>
+      Verified Sellers
+    </div>
+    <div class="trust-item">
+      <span class="trust-icon">🇿🇼</span>
+      Local & Trusted
+    </div>
+    <div class="trust-item">
+      <span class="trust-icon">💬</span>
+      WA Support
+    </div>
+  </div>
+
+  <a href="/checkout" class="btn-checkout">Proceed to Checkout →</a>
+  <a href="/shop" class="btn-shop">← Continue Shopping</a>
+
+</div>
+{% else %}
+<div class="empty">
+  <div class="empty-icon">🛒</div>
+  <h2>Your cart is empty</h2>
+  <p>Looks like you haven't added anything yet.<br/>Browse our products and find something you love!</p>
+  <a href="/shop" class="btn-start">Start Shopping</a>
+</div>
+{% endif %}
+
+<!-- Bottom navigation -->
+<nav class="bottom-nav">
+  <a class="bnav-item" href="/shop">
+    <span class="bnav-icon">🏪</span>
+    <span>Shop</span>
+  </a>
+  <a class="bnav-item active" href="/cart">
+    <span class="bnav-icon">🛒</span>
+    <span>Cart</span>
+  </a>
+  <a class="bnav-item" href="/checkout">
+    <span class="bnav-icon">💳</span>
+    <span>Checkout</span>
+  </a>
+</nav>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  let cartData = {
+    {% for item in items %}
+    {{ item.product_id }}: { qty: {{ item.quantity }}, price: {{ item.price }} },
+    {% endfor %}
+  };
+
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(t._timer);
+    t._timer = setTimeout(() => t.classList.remove('show'), 2400);
+  }
+
+  function recalcTotal() {
+    let t = 0;
+    for (const pid in cartData) t += cartData[pid].qty * cartData[pid].price;
+    document.getElementById('items-subtotal').textContent = '$' + t.toFixed(2);
+    document.getElementById('grand-total').textContent    = '$' + t.toFixed(2);
+  }
+
+  function changeQty(pid, price, delta) {
+    const cur = cartData[pid] ? cartData[pid].qty : 1;
+    const nxt = cur + delta;
+    if (nxt < 1) { removeItem(pid); return; }
+    fetch('/shop/api/cart/update', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({product_id: pid, qty: nxt})
+    })
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) {
+        cartData[pid] = {qty: nxt, price};
+        document.getElementById('qty-' + pid).textContent = nxt;
+        document.getElementById('sub-' + pid).textContent =
+          'Subtotal: $' + (nxt * price).toFixed(2);
+        recalcTotal();
+      }
+    });
+  }
+
+  function removeItem(pid) {
+    fetch('/shop/api/cart/remove', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({product_id: pid})
+    })
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) {
+        const el = document.getElementById('item-' + pid);
+        el.style.opacity   = '0';
+        el.style.transform = 'translateX(30px)';
+        setTimeout(() => {
+          el.remove();
+          delete cartData[pid];
+          recalcTotal();
+          if (d.cart_count === 0) location.reload();
+          else showToast('🗑 Item removed');
+        }, 250);
+      }
+    });
+  }
+
+  function confirmClear() {
+    if (confirm('Remove all items from your cart?')) {
+      fetch('/shop/api/cart/clear', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({})
+      })
+      .then(() => location.reload())
+      .catch(() => location.reload());
+    }
+  }
+</script>
+
+</body>
+</html>

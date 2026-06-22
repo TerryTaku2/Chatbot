@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Order Confirmed — T-Tech Connect</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Segoe UI',system-ui,sans-serif;background:#f0f2f5;min-height:100vh;padding-bottom:32px}
+
+    /* ── Top brand bar ── */
+    .brand-bar{background:#075e54;padding:0 16px;height:52px;display:flex;align-items:center;justify-content:space-between}
+    .brand-link{color:#fff;text-decoration:none;font-size:16px;font-weight:800}
+    .brand-link span{font-weight:400;opacity:.7;font-size:12px;margin-left:3px}
+    .brand-flag{font-size:20px}
+
+    /* ── Success header ── */
+    .success-header{background:linear-gradient(135deg,#064e46 0%,#075e54 60%,#0a7a69 100%);padding:32px 20px 28px;text-align:center}
+    .tick-wrap{display:inline-flex;align-items:center;justify-content:center;width:72px;height:72px;border-radius:50%;background:rgba(255,255,255,.15);margin-bottom:14px;position:relative}
+    .tick-circle{width:72px;height:72px;border-radius:50%;border:3px solid rgba(255,255,255,.4);position:absolute;animation:pulse-ring 1.5s ease-out forwards}
+    .tick-inner{width:56px;height:56px;border-radius:50%;background:#25d366;display:flex;align-items:center;justify-content:center;font-size:28px;animation:pop-in .4s .2s cubic-bezier(.34,1.56,.64,1) both}
+    @keyframes pop-in{from{transform:scale(0);opacity:0}to{transform:scale(1);opacity:1}}
+    @keyframes pulse-ring{0%{transform:scale(1);opacity:.8}100%{transform:scale(1.6);opacity:0}}
+    .success-title{font-size:22px;font-weight:800;color:#fff;margin-bottom:6px}
+    .success-sub{font-size:14px;color:rgba(255,255,255,.8);line-height:1.6}
+
+    /* ── Content area ── */
+    .content{max-width:520px;margin:0 auto;padding:16px}
+
+    /* ── Card ── */
+    .card{background:#fff;border-radius:14px;border:1px solid #e5e7eb;overflow:hidden;margin-bottom:14px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+    .card-head{padding:12px 16px;background:#f9fafb;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;gap:8px}
+    .card-head-icon{font-size:18px}
+    .card-head-title{font-size:12px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.05em;flex:1}
+
+    /* ── Order refs ── */
+    .ref-row{display:flex;align-items:center;justify-content:space-between;padding:11px 16px;border-bottom:1px solid #f3f4f6}
+    .ref-row:last-child{border-bottom:none}
+    .ref-product{font-size:12px;color:#6b7280;margin-top:2px}
+    .ref-code{font-size:15px;font-weight:800;color:#111827;font-family:'Courier New',monospace;letter-spacing:.06em}
+    .copy-btn{font-size:11px;background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;border-radius:8px;padding:5px 12px;cursor:pointer;font-weight:700;white-space:nowrap;transition:background .15s}
+    .copy-btn:hover{background:#dcfce7}
+
+    /* ── Steps list ── */
+    .steps-list{padding:14px 16px}
+    .step-row{display:flex;gap:12px;padding:8px 0;border-bottom:1px solid #f3f4f6}
+    .step-row:last-child{border-bottom:none}
+    .step-num{width:24px;height:24px;border-radius:50%;background:#075e54;color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
+    .step-text{font-size:13px;color:#374151;line-height:1.5;flex:1}
+    .step-text strong{color:#111827}
+
+    /* ── Payment block per order ── */
+    .pay-block{border-bottom:1px solid #e5e7eb}
+    .pay-block:last-child{border-bottom:none}
+    .pay-block-head{padding:12px 16px;display:flex;align-items:center;justify-content:space-between;background:#fafafa;border-bottom:1px solid #f3f4f6}
+    .pay-block-name{font-size:13px;font-weight:700;color:#111827}
+    .pay-block-ref{font-size:11px;color:#6b7280;margin-top:1px}
+    .pay-block-amount{font-size:15px;font-weight:800;color:#075e54}
+    .method-tabs{display:flex;border-bottom:1px solid #e5e7eb;background:#fff}
+    .method-tab{flex:1;padding:9px 4px;text-align:center;font-size:11px;font-weight:700;color:#9ca3af;cursor:pointer;border-bottom:2px solid transparent;transition:all .15s}
+    .method-tab.active{color:#075e54;border-bottom-color:#075e54}
+    .method-panel{display:none;padding:14px 16px}
+    .method-panel.active{display:block}
+    .instr{font-size:13px;color:#374151;line-height:1.8}
+    .instr strong{color:#111827}
+    .ref-tag{background:#fef3c7;padding:2px 8px;border-radius:5px;font-family:'Courier New',monospace;font-weight:700;font-size:13px;color:#92400e;white-space:nowrap}
+    .no-methods{padding:14px 16px;font-size:13px;color:#6b7280;font-style:italic}
+
+    /* ── WA contact button ── */
+    .wa-btn{display:flex;align-items:center;gap:10px;padding:12px 16px;background:#f0fdf4;border-bottom:1px solid #f3f4f6;text-decoration:none;transition:background .15s}
+    .wa-btn:hover{background:#dcfce7}
+    .wa-btn:last-child{border-bottom:none}
+    .wa-icon{font-size:22px;flex-shrink:0}
+    .wa-text{flex:1}
+    .wa-title{font-size:13px;font-weight:700;color:#111827}
+    .wa-sub{font-size:11px;color:#6b7280;margin-top:1px}
+    .wa-arrow{font-size:16px;color:#16a34a}
+
+    /* ── CTA buttons ── */
+    .btn-shop{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:15px;background:#075e54;color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;text-decoration:none;transition:background .15s;margin-bottom:10px}
+    .btn-shop:hover{background:#064e46}
+    .btn-wa-share{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:13px;background:#fff;color:#374151;border:1.5px solid #e5e7eb;border-radius:12px;font-size:14px;font-weight:600;cursor:pointer;text-decoration:none;transition:all .15s}
+    .btn-wa-share:hover{border-color:#25d366;color:#16a34a}
+  </style>
+</head>
+<body>
+
+<!-- Brand bar -->
+<div class="brand-bar">
+  <a href="/shop" class="brand-link">T-Tech <span>Connect</span></a>
+  <span class="brand-flag">🇿🇼</span>
+</div>
+
+<!-- Success header -->
+<div class="success-header">
+  <div class="tick-wrap">
+    <div class="tick-circle"></div>
+    <div class="tick-inner">✓</div>
+  </div>
+  <div class="success-title">Order Placed! 🎉</div>
+  <div class="success-sub">
+    Thank you{% if buyer_name %}, <strong>{{ buyer_name }}</strong>{% endif %}!<br/>
+    Your order is confirmed — complete payment below to proceed.
+  </div>
+</div>
+
+<div class="content">
+
+  <!-- Order references -->
+  <div class="card">
+    <div class="card-head">
+      <span class="card-head-icon">📌</span>
+      <span class="card-head-title">Order Reference{{ 's' if order_details|length > 1 else '' }}</span>
+    </div>
+    {% for od in order_details %}
+    <div class="ref-row">
+      <div>
+        <div class="ref-code">{{ od.ref }}</div>
+        <div class="ref-product">{{ od.product_name }}</div>
+      </div>
+      <button class="copy-btn" onclick="copyRef('{{ od.ref }}', this)">Copy</button>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Next steps -->
+  <div class="card">
+    <div class="card-head">
+      <span class="card-head-icon">📋</span>
+      <span class="card-head-title">What happens next?</span>
+    </div>
+    <div class="steps-list">
+      <div class="step-row">
+        <div class="step-num">1</div>
+        <div class="step-text"><strong>Complete payment</strong> using one of the methods below. Include your order reference.</div>
+      </div>
+      <div class="step-row">
+        <div class="step-num">2</div>
+        <div class="step-text"><strong>Send proof of payment</strong> to the seller on WhatsApp so they can confirm quickly.</div>
+      </div>
+      <div class="step-row">
+        <div class="step-num">3</div>
+        <div class="step-text"><strong>Arrange collection or delivery</strong> directly with the seller after payment confirmation.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Payment instructions per order -->
+  <div class="card">
+    <div class="card-head">
+      <span class="card-head-icon">💳</span>
+      <span class="card-head-title">Complete Your Payment</span>
+    </div>
+    {% for od in order_details %}
+    <div class="pay-block">
+      <div class="pay-block-head">
+        <div>
+          <div class="pay-block-name">{{ od.product_name }}</div>
+          <div class="pay-block-ref">Ref: {{ od.ref }}</div>
+        </div>
+        <div class="pay-block-amount">${{ "%.2f"|format(od.total) }}</div>
+      </div>
+
+      {% if od.payment_methods %}
+      <div class="method-tabs" id="tabs-{{ loop.index }}">
+        {% for method in od.payment_methods %}
+        <div class="method-tab {% if loop.first %}active{% endif %}"
+             onclick="switchTab('{{ loop.index }}', {{ loop.index0 }})">
+          {% if method == 'EcoCash' %}📱{% elif method == 'Bank Transfer' %}🏦{% elif method == 'Cash' %}💵{% else %}💳{% endif %}
+          {{ method }}
+        </div>
+        {% endfor %}
+      </div>
+      {% for method in od.payment_methods %}
+      <div class="method-panel {% if loop.first %}active{% endif %}" id="panel-{{ loop.index }}-{{ loop.index0 }}">
+        <div class="instr">
+          {% if method == 'EcoCash' %}
+            Send EcoCash to the seller's number:<br/>
+            {% if od.seller_phone %}<strong>📱 {{ od.seller_phone }}</strong><br/>{% endif %}
+            Reason / reference: <span class="ref-tag">{{ od.ref }}</span><br/>
+            Amount: <strong>${{ "%.2f"|format(od.total) }}</strong><br/><br/>
+            Then screenshot the confirmation and send to the seller on WhatsApp.
+          {% elif method == 'Bank Transfer' %}
+            Transfer to the seller's bank account.<br/>
+            Reference: <span class="ref-tag">{{ od.ref }}</span><br/>
+            Amount: <strong>${{ "%.2f"|format(od.total) }}</strong><br/><br/>
+            {% if od.seller_phone %}
+            Contact <strong>{{ od.seller_phone }}</strong> for bank details, then send proof of payment.
+            {% endif %}
+          {% elif method == 'Cash' %}
+            Pay <strong>${{ "%.2f"|format(od.total) }}</strong> in cash on collection or delivery.<br/>
+            {% if od.seller_phone %}
+            Confirm collection time with the seller on <strong>{{ od.seller_phone }}</strong>.
+            {% endif %}
+          {% else %}
+            Reference: <span class="ref-tag">{{ od.ref }}</span><br/>
+            Amount: <strong>${{ "%.2f"|format(od.total) }}</strong><br/>
+            {% if od.seller_phone %}Contact seller: <strong>{{ od.seller_phone }}</strong>{% endif %}
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+
+      {% else %}
+      <div class="no-methods">
+        Contact the seller to arrange payment.<br/>
+        {% if od.seller_phone %}📞 <strong>{{ od.seller_phone }}</strong>{% endif %}
+        · Reference: <strong>{{ od.ref }}</strong>
+      </div>
+      {% endif %}
+
+      <!-- WhatsApp seller shortcut -->
+      {% if od.seller_phone %}
+      <a class="wa-btn"
+         href="https://wa.me/{{ od.seller_phone | replace('+','') }}?text=Hi%2C+I%27ve+paid+for+order+{{ od.ref }}.+Please+confirm.+Thank+you!"
+         target="_blank">
+        <span class="wa-icon">💬</span>
+        <span class="wa-text">
+          <div class="wa-title">Message seller on WhatsApp</div>
+          <div class="wa-sub">Send payment proof — {{ od.seller_phone }}</div>
+        </span>
+        <span class="wa-arrow">→</span>
+      </a>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- CTA -->
+  <a href="/shop" class="btn-shop">🏪 Continue Shopping</a>
+  <a class="btn-wa-share" onclick="shareOrder()">💬 Share Order Details</a>
+
+</div>
+
+<script>
+  function switchTab(orderIdx, tabIdx) {
+    const tabs   = document.querySelectorAll('#tabs-' + orderIdx + ' .method-tab');
+    const panels = document.querySelectorAll('[id^="panel-' + orderIdx + '-"]');
+    tabs.forEach((t, i)   => t.classList.toggle('active', i === tabIdx));
+    panels.forEach((p, i) => p.classList.toggle('active', i === tabIdx));
+  }
+
+  function copyRef(ref, btn) {
+    navigator.clipboard.writeText(ref)
+      .then(() => { btn.textContent = '✓ Copied!'; setTimeout(() => btn.textContent = 'Copy', 2000); })
+      .catch(() => { prompt('Copy your order reference:', ref); });
+  }
+
+  function shareOrder() {
+    const refs = [{% for od in order_details %}'{{ od.ref }}'{% if not loop.last %},{% endif %}{% endfor %}];
+    const msg  = 'I placed an order on T-Tech Connect 🇿🇼\n' +
+                 'Ref{{ "s" if order_details|length > 1 else "" }}: ' + refs.join(', ') + '\n' +
+                 window.location.origin + '/shop';
+    if (navigator.share) {
+      navigator.share({ title: 'T-Tech Connect Order', text: msg, url: window.location.origin + '/shop' });
+    } else {
+      navigator.clipboard.writeText(msg).then(() => alert('Order details copied!'));
+    }
+  }
+</script>
+
+</body>
+</html>

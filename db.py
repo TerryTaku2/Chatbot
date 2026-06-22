@@ -48,9 +48,18 @@ def init_db():
 
     # Migrate existing products table if it lacks new columns
     for col, definition in [
-        ("commission",       "REAL NOT NULL DEFAULT 0"),
-        ("status",           "TEXT NOT NULL DEFAULT 'pending'"),
-        ("rejection_reason", "TEXT"),
+        ("commission",        "REAL NOT NULL DEFAULT 0"),
+        ("status",            "TEXT NOT NULL DEFAULT 'pending'"),
+        ("rejection_reason",  "TEXT"),
+        ("product_type",      "TEXT NOT NULL DEFAULT 'physical'"),
+        ("product_file_path", "TEXT"),
+        ("stock_unit",        "TEXT NOT NULL DEFAULT 'pcs'"),
+        ("seller_location",   "TEXT DEFAULT ''"),
+        ("offers_delivery",   "INTEGER DEFAULT 0"),
+        ("delivery_info",     "TEXT DEFAULT ''"),
+        ("extra_services",    "TEXT DEFAULT ''"),
+        ("payment_methods",   "TEXT DEFAULT ''"),
+        ("currency",          "TEXT DEFAULT 'USD'"),
     ]:
         try:
             cursor.execute(f"ALTER TABLE products ADD COLUMN {col} {definition}")
@@ -343,6 +352,17 @@ def init_db():
         )
     """)
 
+    for col, definition in [
+        ("seller_location", "TEXT DEFAULT ''"),
+        ("offers_delivery", "INTEGER DEFAULT 0"),
+        ("delivery_info",   "TEXT DEFAULT ''"),
+        ("extra_services",  "TEXT DEFAULT ''"),
+    ]:
+        try:
+            cursor.execute(f"ALTER TABLE services ADD COLUMN {col} {definition}")
+        except Exception:
+            pass
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS service_reviews (
             id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -380,6 +400,30 @@ def init_db():
         )
     except Exception:
         pass
+
+    # ── Quotations ────────────────────────────────────────────────────────────
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS quotations (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            reference      TEXT UNIQUE NOT NULL,
+            buyer_phone    TEXT NOT NULL,
+            buyer_name     TEXT DEFAULT '',
+            item_type      TEXT NOT NULL DEFAULT 'product',
+            category       TEXT DEFAULT '',
+            description    TEXT NOT NULL,
+            quantity       TEXT DEFAULT '',
+            budget         TEXT DEFAULT '',
+            product_id     INTEGER,
+            service_id     INTEGER,
+            seller_phone   TEXT DEFAULT '',
+            seller_name    TEXT DEFAULT '',
+            status         TEXT NOT NULL DEFAULT 'open',
+            quoted_price   REAL,
+            seller_message TEXT DEFAULT '',
+            created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
 
     conn.commit()
     conn.close()
@@ -437,16 +481,27 @@ def sanitize_fts_query(query):
     return re.sub(r'[\"()*:^~]', '', query).strip()
 
 
-def add_product(name, category, price, stock_qty, description, image_path=None, listed_by=None):
+def add_product(name, category, price, stock_qty, description,
+                image_path=None, listed_by=None,
+                product_type="physical", product_file_path=None,
+                stock_unit="pcs", seller_location="",
+                offers_delivery=0, delivery_info="", extra_services="",
+                payment_methods="", currency="USD"):
     rate       = float(get_setting("commission_rate", "10")) / 100
-    commission = round(price * rate, 2)
+    commission = round(price * stock_qty * rate, 2)
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO products
-            (name, category, price, commission, stock_qty, description, image_path, listed_by, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')
-    """, (name, category, price, commission, stock_qty, description, image_path, listed_by))
+            (name, category, price, commission, stock_qty, description,
+             image_path, listed_by, status, product_type, product_file_path,
+             stock_unit, seller_location, offers_delivery, delivery_info,
+             extra_services, payment_methods, currency)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (name, category, price, commission, stock_qty, description,
+          image_path, listed_by, product_type, product_file_path,
+          stock_unit, seller_location, offers_delivery, delivery_info,
+          extra_services, payment_methods, currency))
     conn.commit()
     product_id = cursor.lastrowid
     conn.close()
@@ -461,13 +516,20 @@ def search_products(query):
     cursor = conn.cursor()
     try:
         cursor.execute("""
-            SELECT p.id, p.name, p.category, p.price, p.stock_qty, p.description, p.image_path
+            SELECT p.id, p.name, p.category, p.price, p.stock_qty, p.description,
+                   p.image_path, p.product_type, p.stock_unit, p.seller_location,
+                   p.offers_delivery, p.listed_by,
+                   s.name AS seller_name, s.business_name, s.location AS seller_city,
+                   ROUND(COALESCE(AVG(r.rating), 0), 1) AS avg_rating,
+                   COUNT(r.id) AS review_count
             FROM products p
-            JOIN products_fts f ON p.id = f.rowid
-            WHERE products_fts MATCH ?
-              AND p.status = 'approved'
-            ORDER BY rank
-            LIMIT 5
+            JOIN (SELECT rowid FROM products_fts WHERE products_fts MATCH ?) fts ON p.id = fts.rowid
+            LEFT JOIN sellers s ON p.listed_by = s.phone
+            LEFT JOIN product_reviews r ON r.product_id = p.id
+            WHERE p.status = 'approved'
+            GROUP BY p.id
+            ORDER BY p.price ASC
+            LIMIT 8
         """, (safe_query,))
         results = cursor.fetchall()
     except Exception:
@@ -534,10 +596,18 @@ def get_products_by_category(category):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT id, name, price, stock_qty, description, image_path
-        FROM products
-        WHERE LOWER(category) = LOWER(?) AND status = 'approved'
-        ORDER BY name
+        SELECT p.id, p.name, p.category, p.price, p.stock_qty, p.description,
+               p.image_path, p.product_type, p.stock_unit, p.seller_location,
+               p.offers_delivery, p.listed_by,
+               s.name AS seller_name, s.business_name, s.location AS seller_city,
+               ROUND(COALESCE(AVG(r.rating), 0), 1) AS avg_rating,
+               COUNT(r.id) AS review_count
+        FROM products p
+        LEFT JOIN sellers s ON p.listed_by = s.phone
+        LEFT JOIN product_reviews r ON r.product_id = p.id
+        WHERE LOWER(p.category) = LOWER(?) AND p.status = 'approved'
+        GROUP BY p.id
+        ORDER BY p.price ASC
     """, (category,))
     rows = cursor.fetchall()
     conn.close()
@@ -591,9 +661,13 @@ def get_buyer_orders(phone):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT o.id, o.reference, p.name, o.quantity, o.total_price, o.status, o.created_at
+        SELECT o.id, o.reference, p.name, p.category,
+               o.quantity, o.unit_price, o.total_price, o.status,
+               o.delivery_type, o.created_at,
+               s.business_name AS seller_name
         FROM orders o
         JOIN products p ON o.product_id = p.id
+        LEFT JOIN sellers s ON p.listed_by = s.phone
         WHERE o.buyer_phone = ?
         ORDER BY o.created_at DESC
         LIMIT 10
@@ -625,6 +699,17 @@ def update_order_status(order_id, status):
     conn.execute("UPDATE orders SET status = ? WHERE id = ?", (status, order_id))
     conn.commit()
     conn.close()
+
+
+def check_buyer_has_access(buyer_phone, product_id):
+    """Return the fulfilled order row if buyer has paid for this digital product."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT * FROM orders WHERE buyer_phone=? AND product_id=? AND status='fulfilled'",
+        (buyer_phone, product_id)
+    ).fetchone()
+    conn.close()
+    return row
 
 
 # ── Vendor tokens ─────────────────────────────────────────────────────────────
@@ -895,16 +980,19 @@ def get_seller_phone_list():
 # ── Services ──────────────────────────────────────────────────────────────────
 
 def add_service(title, category, description, price_type, price,
-                service_area, provider_phone, provider_name="", provider_business=""):
+                service_area, provider_phone, provider_name="", provider_business="",
+                seller_location="", offers_delivery=0, delivery_info="", extra_services=""):
     conn   = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO services
             (title, category, description, price_type, price,
-             service_area, provider_phone, provider_name, provider_business)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             service_area, provider_phone, provider_name, provider_business,
+             seller_location, offers_delivery, delivery_info, extra_services)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (title, category, description, price_type, price,
-          service_area, provider_phone, provider_name, provider_business))
+          service_area, provider_phone, provider_name, provider_business,
+          seller_location, offers_delivery, delivery_info, extra_services))
     conn.commit()
     service_id = cursor.lastrowid
     conn.close()
@@ -1228,7 +1316,8 @@ def get_cart(phone):
     cursor = conn.cursor()
     cursor.execute("""
         SELECT c.product_id, c.quantity,
-               p.name, p.price, p.stock_qty, p.category, p.listed_by
+               p.name, p.price, p.stock_qty, p.category, p.listed_by,
+               p.image_path, p.product_type
         FROM cart c
         JOIN products p ON c.product_id = p.id
         WHERE c.phone = ? AND p.status = 'approved'
@@ -1242,6 +1331,40 @@ def get_cart(phone):
 def get_cart_total(phone):
     items = get_cart(phone)
     return round(sum(i["price"] * i["quantity"] for i in items), 2)
+
+
+def get_cart_by_seller(phone):
+    """Return cart items grouped by seller as a list of dicts with seller info and items."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT c.product_id, c.quantity,
+               p.name, p.price, p.stock_qty, p.category, p.listed_by,
+               s.name AS seller_name, s.business_name
+        FROM cart c
+        JOIN products p ON c.product_id = p.id
+        LEFT JOIN sellers s ON p.listed_by = s.phone
+        WHERE c.phone = ? AND p.status = 'approved'
+        ORDER BY p.listed_by, c.added_at ASC
+    """, (phone,))
+    rows = cursor.fetchall()
+    conn.close()
+
+    groups = {}
+    order = []
+    for row in rows:
+        r = dict(row)
+        seller_phone = r.get("listed_by") or "unknown"
+        if seller_phone not in groups:
+            groups[seller_phone] = {
+                "seller_phone": seller_phone,
+                "seller_name": r.get("business_name") or r.get("seller_name") or "Seller",
+                "items": [],
+            }
+            order.append(seller_phone)
+        groups[seller_phone]["items"].append(r)
+
+    return [groups[sp] for sp in order]
 
 
 def clear_cart(phone):
@@ -1531,3 +1654,110 @@ def get_seller_trust_score(phone):
 
     conn.close()
     return round(score)
+
+
+def get_featured_products(limit=12):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT p.id, p.name, p.category, p.price, p.stock_qty,
+               p.image_path, p.product_type, p.stock_unit,
+               ROUND(COALESCE(AVG(r.rating), 0), 1) AS avg_rating,
+               COUNT(r.id) AS review_count
+        FROM products p
+        LEFT JOIN product_reviews r ON r.product_id = p.id
+        WHERE p.status = 'approved' AND (p.stock_qty > 0 OR p.product_type = 'digital')
+        GROUP BY p.id
+        ORDER BY avg_rating DESC, p.created_at DESC
+        LIMIT ?
+    """, (limit,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_distinct_categories():
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT category, COUNT(*) as count
+        FROM products
+        WHERE status = 'approved'
+        GROUP BY category
+        ORDER BY count DESC
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ── Quotations ────────────────────────────────────────────────────────────────
+
+def create_quotation(buyer_phone, buyer_name, item_type, category, description,
+                     quantity="", budget="", product_id=None, service_id=None,
+                     seller_phone=""):
+    ref  = f"QTTC-{uuid.uuid4().hex[:6].upper()}"
+    conn = get_connection()
+    conn.execute("""
+        INSERT INTO quotations
+            (reference, buyer_phone, buyer_name, item_type, category, description,
+             quantity, budget, product_id, service_id, seller_phone)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (ref, buyer_phone, buyer_name, item_type, category, description,
+          quantity, budget, product_id, service_id, seller_phone))
+    conn.commit()
+    conn.close()
+    return ref
+
+
+def get_quotation_by_ref(reference):
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT * FROM quotations WHERE reference = ?", (reference,)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_buyer_quotations(buyer_phone, limit=10):
+    conn   = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT * FROM quotations
+        WHERE buyer_phone = ?
+        ORDER BY created_at DESC LIMIT ?
+    """, (buyer_phone, limit))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_seller_quote_requests(seller_phone, limit=10):
+    """Quote requests directed at this seller, or open requests with no seller set."""
+    conn   = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT * FROM quotations
+        WHERE (seller_phone = ? OR seller_phone = '')
+          AND status = 'open'
+        ORDER BY created_at DESC LIMIT ?
+    """, (seller_phone, limit))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def respond_to_quotation(reference, seller_phone, seller_name, quoted_price, seller_message=""):
+    conn = get_connection()
+    conn.execute("""
+        UPDATE quotations
+        SET status         = 'quoted',
+            seller_phone   = ?,
+            seller_name    = ?,
+            quoted_price   = ?,
+            seller_message = ?,
+            updated_at     = CURRENT_TIMESTAMP
+        WHERE reference = ?
+    """, (seller_phone, seller_name, quoted_price, seller_message, reference))
+    conn.commit()
+    conn.close()

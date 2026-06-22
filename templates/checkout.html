@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Checkout — T-Tech Connect</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Segoe UI',system-ui,sans-serif;background:#f0f2f5;min-height:100vh;padding-bottom:20px}
+
+    /* ── Topbar ── */
+    .topbar{background:#075e54;padding:0 14px;display:flex;align-items:center;gap:12px;height:56px;box-shadow:0 2px 8px rgba(0,0,0,.18)}
+    .topbar-back{color:#fff;text-decoration:none;font-size:20px}
+    .topbar-title{color:#fff;font-size:16px;font-weight:700;flex:1}
+    .topbar-logo{font-size:18px}
+
+    /* ── Progress stepper ── */
+    .stepper{display:flex;align-items:center;padding:14px 16px;background:#fff;border-bottom:1px solid #e5e7eb}
+    .step{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;position:relative}
+    .step:not(:last-child)::after{content:'';position:absolute;top:14px;left:calc(50% + 14px);right:calc(-50% + 14px);height:2px;background:#e5e7eb;z-index:0}
+    .step.done:not(:last-child)::after{background:#075e54}
+    .step-circle{width:28px;height:28px;border-radius:50%;border:2px solid #e5e7eb;background:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#9ca3af;z-index:1;position:relative;transition:all .2s}
+    .step.active .step-circle{border-color:#075e54;background:#075e54;color:#fff}
+    .step.done .step-circle{border-color:#075e54;background:#075e54;color:#fff}
+    .step-label{font-size:10px;font-weight:700;color:#9ca3af;text-align:center;text-transform:uppercase;letter-spacing:.04em}
+    .step.active .step-label,.step.done .step-label{color:#075e54}
+
+    /* ── Panels ── */
+    .panel{display:none;padding:16px;animation:fadeIn .2s ease}
+    .panel.active{display:block}
+    @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+    .panel-title{font-size:18px;font-weight:800;color:#111827;margin-bottom:4px}
+    .panel-sub{font-size:13px;color:#6b7280;margin-bottom:18px;line-height:1.5}
+
+    /* ── Form ── */
+    .field{margin-bottom:14px}
+    .field label{display:block;font-size:11px;font-weight:700;color:#374151;margin-bottom:5px;text-transform:uppercase;letter-spacing:.05em}
+    .field input,.field textarea{width:100%;padding:12px 14px;border:1.5px solid #d1d5db;border-radius:10px;font-size:14px;color:#111827;background:#fff;outline:none;transition:border-color .15s}
+    .field input:focus,.field textarea:focus{border-color:#075e54;box-shadow:0 0 0 3px rgba(7,94,84,.08)}
+    .field input.error{border-color:#dc2626}
+    .field textarea{resize:vertical;min-height:72px}
+    .field-hint{font-size:11px;color:#9ca3af;margin-top:4px;line-height:1.4}
+    .field-hint.ok{color:#16a34a}
+
+    /* ── Delivery radio cards ── */
+    .radio-group{display:flex;flex-direction:column;gap:10px}
+    .radio-card{display:flex;align-items:center;gap:12px;padding:14px;background:#fff;border-radius:12px;border:1.5px solid #e5e7eb;cursor:pointer;transition:all .15s}
+    .radio-card:hover{border-color:#075e54}
+    .radio-card.selected{border-color:#075e54;background:#f0fdf4}
+    .radio-card input[type=radio]{display:none}
+    .radio-icon{font-size:24px;width:38px;text-align:center}
+    .radio-info{flex:1}
+    .radio-title{font-size:14px;font-weight:700;color:#111827}
+    .radio-desc{font-size:12px;color:#6b7280;margin-top:2px}
+    .radio-check{width:20px;height:20px;border-radius:50%;border:2px solid #d1d5db;flex-shrink:0;position:relative;transition:all .15s}
+    .radio-card.selected .radio-check{border-color:#075e54;background:#075e54}
+    .radio-card.selected .radio-check::after{content:'';position:absolute;top:3px;left:3px;width:8px;height:8px;border-radius:50%;background:#fff}
+
+    /* ── Order summary card ── */
+    .order-card{background:#fff;border-radius:12px;border:1px solid #e5e7eb;overflow:hidden;margin-bottom:14px}
+    .order-card-head{padding:12px 14px;background:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:12px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em}
+    .summary-item{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:#374151;padding:9px 14px;border-bottom:1px solid #f3f4f6}
+    .summary-item:last-child{border-bottom:none}
+    .item-name{flex:1;margin-right:8px}
+    .item-qty{color:#9ca3af;font-size:12px;margin-right:6px}
+    .item-amount{font-weight:700;color:#075e54}
+    .summary-total{display:flex;justify-content:space-between;font-size:17px;font-weight:800;color:#111827;padding:12px 14px;border-top:2px solid #e5e7eb}
+
+    /* ── Confirm box ── */
+    .confirm-card{background:#fff;border-radius:12px;border:1px solid #e5e7eb;overflow:hidden;margin-bottom:14px}
+    .confirm-row{display:flex;gap:10px;font-size:13px;padding:10px 14px;border-bottom:1px solid #f3f4f6;color:#374151}
+    .confirm-row:last-child{border-bottom:none}
+    .confirm-lbl{font-weight:700;min-width:76px;color:#6b7280;flex-shrink:0}
+
+    /* ── Trust strip ── */
+    .trust-strip{display:flex;background:#fff;border-radius:10px;border:1px solid #e5e7eb;overflow:hidden;margin-bottom:14px}
+    .trust-item{flex:1;padding:10px 6px;text-align:center;font-size:10px;font-weight:600;color:#6b7280;border-right:1px solid #f3f4f6;line-height:1.4}
+    .trust-item:last-child{border-right:none}
+    .trust-icon{display:block;font-size:18px;margin-bottom:2px}
+
+    /* ── Buttons ── */
+    .btn-next{width:100%;padding:15px;background:#075e54;color:#fff;border:none;border-radius:12px;font-size:16px;font-weight:700;cursor:pointer;margin-top:4px;transition:background .15s;display:flex;align-items:center;justify-content:center;gap:8px}
+    .btn-next:hover{background:#064e46}
+    .btn-next:disabled{background:#9ca3af;cursor:default}
+    .btn-back{width:100%;padding:12px;background:#f0f2f5;color:#374151;border:1.5px solid #d1d5db;border-radius:12px;font-size:14px;font-weight:600;cursor:pointer;margin-top:10px}
+    .btn-back:hover{background:#e5e7eb}
+
+    /* ── Error ── */
+    .error-msg{background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px 14px;font-size:13px;color:#dc2626;margin:0 16px 12px;display:none;animation:fadeIn .2s}
+    .error-msg.show{display:flex;align-items:center;gap:8px}
+
+    /* ── Overlay spinner ── */
+    .overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:400;display:none;align-items:center;justify-content:center;flex-direction:column;gap:16px}
+    .overlay.show{display:flex}
+    .spinner{width:48px;height:48px;border:5px solid rgba(255,255,255,.25);border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite}
+    .overlay-text{color:#fff;font-size:14px;font-weight:600}
+    @keyframes spin{to{transform:rotate(360deg)}}
+  </style>
+</head>
+<body>
+
+<!-- Topbar -->
+<div class="topbar">
+  <a class="topbar-back" href="/cart">←</a>
+  <span class="topbar-title">Checkout</span>
+  <span class="topbar-logo">🔒</span>
+</div>
+
+<!-- Stepper -->
+<div class="stepper">
+  <div class="step active" id="step-dot-1">
+    <div class="step-circle">1</div>
+    <div class="step-label">You</div>
+  </div>
+  <div class="step" id="step-dot-2">
+    <div class="step-circle">2</div>
+    <div class="step-label">Delivery</div>
+  </div>
+  <div class="step" id="step-dot-3">
+    <div class="step-circle">3</div>
+    <div class="step-label">Confirm</div>
+  </div>
+</div>
+
+<div class="error-msg" id="err-msg">⚠️ <span id="err-text"></span></div>
+
+<!-- Step 1: Identity -->
+<div class="panel active" id="panel-1">
+  <div class="panel-title">Who's ordering?</div>
+  <div class="panel-sub">No account needed — just your name and WhatsApp number.</div>
+  <div class="field">
+    <label>Full Name</label>
+    <input type="text" id="buyer-name" placeholder="e.g. Tendai Moyo" value="{{ buyer_name }}" autocomplete="name"/>
+  </div>
+  <div class="field">
+    <label>WhatsApp / Phone Number</label>
+    <input type="tel" id="buyer-phone" placeholder="e.g. 0771234567 or 263771234567"
+           value="{{ buyer_phone }}" autocomplete="tel" oninput="formatPhone(this)"/>
+    <div class="field-hint" id="phone-hint">Include country code — e.g. 263 for Zimbabwe. Order updates sent here.</div>
+  </div>
+  <button class="btn-next" onclick="goStep(2)">Continue → Delivery</button>
+</div>
+
+<!-- Step 2: Delivery -->
+<div class="panel" id="panel-2">
+  <div class="panel-title">Delivery options</div>
+  <div class="panel-sub">How would you like to receive your order?</div>
+  <div class="radio-group">
+    <label class="radio-card selected" onclick="selectDelivery(this,'self_collect')">
+      <input type="radio" name="delivery" value="self_collect" checked/>
+      <div class="radio-icon">🏪</div>
+      <div class="radio-info">
+        <div class="radio-title">Self-Collect</div>
+        <div class="radio-desc">Pick up directly from the seller — no delivery fee</div>
+      </div>
+      <div class="radio-check"></div>
+    </label>
+    <label class="radio-card" onclick="selectDelivery(this,'delivery')">
+      <input type="radio" name="delivery" value="delivery"/>
+      <div class="radio-icon">🚚</div>
+      <div class="radio-info">
+        <div class="radio-title">Home Delivery</div>
+        <div class="radio-desc">Delivered to your address — seller sets the delivery fee</div>
+      </div>
+      <div class="radio-check"></div>
+    </label>
+  </div>
+  <div class="field" id="address-wrap" style="margin-top:14px;display:none">
+    <label>Delivery Address</label>
+    <textarea id="delivery-address" placeholder="e.g. 45 Samora Machel Ave, Harare CBD…" rows="3"></textarea>
+  </div>
+  <button class="btn-next" style="margin-top:14px" onclick="goStep(3)">Continue → Review</button>
+  <button class="btn-back" onclick="goStep(1)">← Back</button>
+</div>
+
+<!-- Step 3: Review & Place -->
+<div class="panel" id="panel-3">
+  <div class="panel-title">Review & Place Order</div>
+  <div class="panel-sub">Check your details below — you'll receive payment instructions after placing.</div>
+
+  <!-- Order summary -->
+  <div class="order-card">
+    <div class="order-card-head">Order Summary</div>
+    {% for item in items %}
+    <div class="summary-item">
+      <span class="item-name">{{ item.name }}</span>
+      <span class="item-qty">×{{ item.quantity }}</span>
+      <span class="item-amount">${{ "%.2f"|format(item.price * item.quantity) }}</span>
+    </div>
+    {% endfor %}
+    <div class="summary-total">
+      <span>Total</span>
+      <span>${{ "%.2f"|format(total) }}</span>
+    </div>
+  </div>
+
+  <!-- Contact + delivery confirm -->
+  <div class="confirm-card">
+    <div class="confirm-row"><span class="confirm-lbl">Name</span><span id="confirm-name">—</span></div>
+    <div class="confirm-row"><span class="confirm-lbl">Phone</span><span id="confirm-phone">—</span></div>
+    <div class="confirm-row"><span class="confirm-lbl">Delivery</span><span id="confirm-delivery">—</span></div>
+  </div>
+
+  <!-- Trust strip -->
+  <div class="trust-strip">
+    <div class="trust-item"><span class="trust-icon">🔒</span>Secure</div>
+    <div class="trust-item"><span class="trust-icon">✅</span>Verified</div>
+    <div class="trust-item"><span class="trust-icon">💬</span>WA Support</div>
+    <div class="trust-item"><span class="trust-icon">🇿🇼</span>Local</div>
+  </div>
+
+  <button class="btn-next" id="place-btn" onclick="placeOrder()">✅ Place Order — ${{ "%.2f"|format(total) }}</button>
+  <button class="btn-back" onclick="goStep(2)">← Back</button>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="spinner"></div>
+  <div class="overlay-text">Placing your order…</div>
+</div>
+
+<script>
+  let state = {
+    step:     1,
+    name:     '{{ buyer_name | e }}',
+    phone:    '{{ buyer_phone | e }}',
+    delivery: 'self_collect',
+    address:  '',
+  };
+
+  /* ── Phone formatting helper ── */
+  function formatPhone(input) {
+    let v = input.value.replace(/\D/g, '');
+    if (v.startsWith('07') || v.startsWith('08')) {
+      document.getElementById('phone-hint').textContent = '💡 Tip: for WhatsApp, add 263 prefix — e.g. 263' + v.slice(1);
+      document.getElementById('phone-hint').className = 'field-hint ok';
+    } else if (v.startsWith('263') && v.length >= 12) {
+      document.getElementById('phone-hint').textContent = '✅ Looks good!';
+      document.getElementById('phone-hint').className = 'field-hint ok';
+    } else {
+      document.getElementById('phone-hint').textContent = 'Include country code — e.g. 263 for Zimbabwe.';
+      document.getElementById('phone-hint').className = 'field-hint';
+    }
+  }
+
+  /* ── Stepper ── */
+  function setStep(n) {
+    for (let i = 1; i <= 3; i++) {
+      document.getElementById('panel-' + i).classList.toggle('active', i === n);
+      const dot = document.getElementById('step-dot-' + i);
+      dot.classList.remove('active', 'done');
+      if (i < n)  { dot.classList.add('done');   dot.querySelector('.step-circle').textContent = '✓'; }
+      if (i === n) { dot.classList.add('active'); dot.querySelector('.step-circle').textContent = i; }
+      if (i > n)  dot.querySelector('.step-circle').textContent = i;
+    }
+    hideErr();
+    window.scrollTo(0, 0);
+    state.step = n;
+  }
+
+  function showErr(msg) {
+    const box = document.getElementById('err-msg');
+    document.getElementById('err-text').textContent = msg;
+    box.classList.add('show');
+    window.scrollTo(0, 0);
+  }
+  function hideErr() { document.getElementById('err-msg').classList.remove('show'); }
+
+  /* ── Step navigation ── */
+  function goStep(n) {
+    if (n === 2) {
+      state.name  = document.getElementById('buyer-name').value.trim();
+      state.phone = document.getElementById('buyer-phone').value.trim().replace(/\s/g, '');
+      if (!state.name)  { showErr('Please enter your full name.'); return; }
+      if (!state.phone || state.phone.replace(/\D/g,'').length < 9) {
+        showErr('Please enter a valid WhatsApp/phone number.'); return;
+      }
+      /* Normalise: 07x → 2637x */
+      let digits = state.phone.replace(/\D/g,'');
+      if (digits.startsWith('0') && digits.length === 10) {
+        digits = '263' + digits.slice(1);
+        state.phone = digits;
+        document.getElementById('buyer-phone').value = digits;
+      }
+    }
+    if (n === 3) {
+      state.address = (document.getElementById('delivery-address').value || '').trim();
+      if (state.delivery === 'delivery' && !state.address) {
+        showErr('Please enter your delivery address.'); return;
+      }
+      document.getElementById('confirm-name').textContent  = state.name;
+      document.getElementById('confirm-phone').textContent = state.phone;
+      document.getElementById('confirm-delivery').textContent =
+        state.delivery === 'delivery'
+          ? '🚚 Home Delivery — ' + state.address
+          : '🏪 Self-Collect from seller';
+    }
+    setStep(n);
+  }
+
+  function selectDelivery(el, val) {
+    document.querySelectorAll('.radio-card').forEach(c => c.classList.remove('selected'));
+    el.classList.add('selected');
+    state.delivery = val;
+    document.getElementById('address-wrap').style.display = val === 'delivery' ? 'block' : 'none';
+  }
+
+  /* ── Place order ── */
+  function placeOrder() {
+    document.getElementById('overlay').classList.add('show');
+    document.getElementById('place-btn').disabled = true;
+    fetch('/checkout/place', {
+      method:  'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        name:             state.name,
+        phone:            state.phone,
+        delivery_type:    state.delivery,
+        delivery_address: state.address,
+      })
+    })
+    .then(r => r.json())
+    .then(d => {
+      document.getElementById('overlay').classList.remove('show');
+      if (d.ok) {
+        location.href = '/order/success';
+      } else {
+        document.getElementById('place-btn').disabled = false;
+        showErr(d.error || 'Could not place order — please try again.');
+      }
+    })
+    .catch(() => {
+      document.getElementById('overlay').classList.remove('show');
+      document.getElementById('place-btn').disabled = false;
+      showErr('Network error — check your connection and try again.');
+    });
+  }
+
+  /* ── Init ── */
+  if (state.phone) formatPhone({value: state.phone});
+</script>
+
+</body>
+</html>

@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>{% if page_title %}{{ page_title }} — {% endif %}T-Tech Connect Shop</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Segoe UI',system-ui,sans-serif;background:#f0f2f5;min-height:100vh;padding-bottom:72px}
+
+    /* ── Topbar ── */
+    .topbar{background:#075e54;padding:0 14px;display:flex;align-items:center;gap:10px;height:56px;position:sticky;top:0;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.18)}
+    .topbar-brand{color:#fff;font-size:17px;font-weight:800;text-decoration:none;white-space:nowrap;flex-shrink:0}
+    .topbar-brand span{font-weight:400;opacity:.7;font-size:12px;margin-left:3px}
+    .search-wrap{flex:1;position:relative}
+    .search-wrap input{width:100%;padding:9px 36px 9px 36px;border-radius:22px;border:none;background:rgba(255,255,255,.18);color:#fff;font-size:14px;outline:none;transition:background .15s}
+    .search-wrap input::placeholder{color:rgba(255,255,255,.6)}
+    .search-wrap input:focus{background:rgba(255,255,255,.28)}
+    .search-icon{position:absolute;left:11px;top:50%;transform:translateY(-50%);font-size:14px;pointer-events:none}
+    .search-clear{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:rgba(255,255,255,.7);font-size:15px;cursor:pointer;display:none;line-height:1}
+    .cart-btn{position:relative;font-size:22px;color:#fff;text-decoration:none;display:flex;align-items:center;flex-shrink:0}
+    .cart-badge{position:absolute;top:-5px;right:-7px;background:#ef4444;color:#fff;border-radius:50%;min-width:17px;height:17px;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;border:2px solid #075e54}
+
+    /* ── Hero ── */
+    .hero{background:linear-gradient(135deg,#064e46 0%,#075e54 55%,#0a7a69 100%);padding:22px 16px 20px;text-align:center}
+    .hero h1{color:#fff;font-size:21px;font-weight:800;margin-bottom:5px}
+    .hero p{color:rgba(255,255,255,.8);font-size:13px}
+    .hero-tags{display:flex;gap:8px;justify-content:center;margin-top:12px;flex-wrap:wrap}
+    .hero-tag{background:rgba(255,255,255,.15);color:#fff;border-radius:20px;padding:5px 12px;font-size:12px;font-weight:600;border:1px solid rgba(255,255,255,.25);text-decoration:none}
+    .hero-tag:hover{background:rgba(255,255,255,.25)}
+
+    /* ── Filter bar ── */
+    .filter-bar{background:#fff;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;gap:0;overflow:hidden}
+    .cat-scroll-wrap{flex:1;overflow:hidden;position:relative}
+    .cat-scroll{overflow-x:auto;padding:10px 14px;display:flex;gap:7px;scrollbar-width:none}
+    .cat-scroll::-webkit-scrollbar{display:none}
+    .cat-pill{white-space:nowrap;padding:6px 13px;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer;border:1.5px solid #e5e7eb;background:#f9fafb;color:#374151;text-decoration:none;display:inline-block;transition:all .15s}
+    .cat-pill:hover,.cat-pill.active{background:#075e54;color:#fff;border-color:#075e54}
+    .sort-wrap{padding:6px 12px;border-left:1px solid #e5e7eb;flex-shrink:0}
+    .sort-select{border:none;background:transparent;font-size:13px;font-weight:600;color:#374151;cursor:pointer;outline:none;padding:4px 2px}
+
+    /* ── Section ── */
+    .section{padding:14px 14px 0}
+    .section-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+    .section-title{font-size:15px;font-weight:800;color:#111827}
+    .section-link{font-size:12px;color:#075e54;text-decoration:none;font-weight:600}
+    .results-count{font-size:12px;color:#6b7280;margin-left:6px;font-weight:400}
+
+    /* ── Category grid ── */
+    .cat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}
+    @media(min-width:480px){.cat-grid{grid-template-columns:repeat(4,1fr)}}
+    @media(min-width:720px){.cat-grid{grid-template-columns:repeat(7,1fr)}}
+    .cat-card{background:#fff;border-radius:12px;border:1px solid #e5e7eb;padding:13px 8px;text-align:center;text-decoration:none;display:block;transition:all .15s}
+    .cat-card:hover{border-color:#075e54;box-shadow:0 2px 10px rgba(7,94,84,.15);transform:translateY(-1px)}
+    .cat-icon{font-size:26px;display:block;margin-bottom:5px}
+    .cat-label{font-size:11px;font-weight:700;color:#374151;line-height:1.3}
+
+    /* ── Product grid ── */
+    .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:11px;padding-bottom:16px}
+    @media(min-width:480px){.grid{grid-template-columns:repeat(3,1fr)}}
+    @media(min-width:760px){.grid{grid-template-columns:repeat(4,1fr)}}
+
+    /* ── Product card ── */
+    .card{background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb;transition:transform .15s,box-shadow .15s;display:flex;flex-direction:column}
+    .card:hover{transform:translateY(-2px);box-shadow:0 4px 18px rgba(0,0,0,.1)}
+    .card-img-wrap{position:relative;width:100%;aspect-ratio:1;overflow:hidden;background:#f3f4f6;flex-shrink:0}
+    .card-img{width:100%;height:100%;object-fit:cover;display:block;cursor:pointer;transition:transform .2s}
+    .card:hover .card-img{transform:scale(1.04)}
+    .card-img-ph{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:36px;cursor:pointer}
+    .badge-overlay{position:absolute;top:8px;left:8px;display:flex;flex-direction:column;gap:4px}
+    .badge-oos{background:rgba(220,38,38,.88);color:#fff;font-size:10px;font-weight:700;padding:3px 8px;border-radius:10px}
+    .badge-dig{background:rgba(124,58,237,.88);color:#fff;font-size:10px;font-weight:700;padding:3px 8px;border-radius:10px}
+    .badge-low{background:rgba(245,158,11,.88);color:#fff;font-size:10px;font-weight:700;padding:3px 8px;border-radius:10px}
+    .card-body{padding:10px 11px 4px;cursor:pointer;flex:1}
+    .card-cat{font-size:10px;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .card-name{font-size:13px;font-weight:700;color:#111827;line-height:1.35;margin-bottom:4px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+    .card-price{font-size:16px;font-weight:800;color:#075e54}
+    .card-rating{font-size:11px;color:#f59e0b;margin-top:2px;display:flex;align-items:center;gap:3px}
+    .card-rating span{color:#6b7280;font-size:10px}
+    .card-footer{padding:8px 11px 11px}
+    .btn-cart{width:100%;padding:9px;background:#075e54;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;transition:background .15s;display:flex;align-items:center;justify-content:center;gap:5px}
+    .btn-cart:hover{background:#064e46}
+    .btn-cart:disabled{background:#9ca3af;cursor:default}
+    .btn-cart.oos{background:#f3f4f6;color:#9ca3af;cursor:default}
+
+    /* ── Empty states ── */
+    .empty{text-align:center;padding:48px 24px;color:#9ca3af}
+    .empty-icon{font-size:48px;margin-bottom:12px}
+    .empty h3{font-size:16px;color:#374151;margin-bottom:6px;font-weight:700}
+    .empty p{font-size:13px}
+    .empty a{color:#075e54;font-weight:700;text-decoration:none}
+
+    /* ── Toast ── */
+    .toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%) translateY(20px);background:#111827;color:#fff;padding:10px 20px;border-radius:24px;font-size:13px;font-weight:600;opacity:0;transition:all .25s;pointer-events:none;z-index:300;white-space:nowrap;max-width:90vw}
+    .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+    /* ── Bottom navigation ── */
+    .bottom-nav{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #e5e7eb;display:flex;height:56px;z-index:200;box-shadow:0 -2px 10px rgba(0,0,0,.07)}
+    .bnav-item{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;text-decoration:none;color:#9ca3af;font-size:10px;font-weight:600;transition:color .15s;position:relative}
+    .bnav-item.active{color:#075e54}
+    .bnav-icon{font-size:20px;line-height:1}
+    .bnav-badge{position:absolute;top:8px;right:calc(50% - 14px);background:#ef4444;color:#fff;border-radius:50%;min-width:15px;height:15px;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;border:2px solid #fff}
+
+    /* ── Float cart (legacy, hidden behind bottom nav) ── */
+    .float-cart{display:none}
+
+    /* ── Promo strip ── */
+    .promo-strip{background:#fef3c7;border-bottom:1px solid #fcd34d;padding:8px 16px;display:flex;align-items:center;gap:8px;font-size:12px;color:#92400e;font-weight:600;overflow:hidden}
+    .promo-strip span{white-space:nowrap;animation:marquee 22s linear infinite}
+    @keyframes marquee{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
+  </style>
+</head>
+<body>
+
+<!-- Topbar -->
+<div class="topbar">
+  <a class="topbar-brand" href="/shop">T-Tech <span>Connect</span></a>
+  <form class="search-wrap" method="GET" action="/shop" id="search-form">
+    <span class="search-icon">🔍</span>
+    <input type="text" name="q" id="search-input" placeholder="Search products…" value="{{ query or '' }}" autocomplete="off"/>
+    <button type="button" class="search-clear" id="search-clear" onclick="clearSearch()">✕</button>
+  </form>
+  <a class="cart-btn" href="/cart" title="View cart">
+    🛒
+    <span class="cart-badge" id="cart-badge" {% if cart_count == 0 %}style="display:none"{% endif %}>{{ cart_count }}</span>
+  </a>
+</div>
+
+{% if not page_title %}
+<!-- Hero (home only) -->
+<div class="hero">
+  <h1>Shop Smart. Shop Local. 🇿🇼</h1>
+  <p>Thousands of products from verified Zimbabwean sellers</p>
+  <div class="hero-tags">
+    <a class="hero-tag" href="/shop?cat=Phones+%26+Accessories">📱 Phones</a>
+    <a class="hero-tag" href="/shop?cat=Clothing+%26+Fashion">👗 Fashion</a>
+    <a class="hero-tag" href="/shop?cat=Groceries+%26+Food">🍎 Groceries</a>
+    <a class="hero-tag" href="/shop?cat=Electronics+%26+Gadgets">⚡ Electronics</a>
+  </div>
+</div>
+
+<!-- Promo strip -->
+<div class="promo-strip">
+  <span>🚚 Free delivery on orders over $50 · 🇿🇼 Trusted Zimbabwean sellers · 🔒 Secure checkout · ✅ Quality guaranteed · 🚚 Free delivery on orders over $50 · 🇿🇼 Trusted Zimbabwean sellers · 🔒 Secure checkout · ✅ Quality guaranteed &nbsp;&nbsp;&nbsp;</span>
+</div>
+{% endif %}
+
+<!-- Filter / sort bar -->
+<div class="filter-bar">
+  <div class="cat-scroll-wrap">
+    <div class="cat-scroll">
+      <a class="cat-pill {% if not selected_cat and not query %}active{% endif %}" href="/shop">All</a>
+      {% for cat in active_cats %}
+      <a class="cat-pill {% if selected_cat == cat.category %}active{% endif %}"
+         href="/shop?cat={{ cat.category | urlencode }}">{{ cat.category }}</a>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="sort-wrap">
+    <select class="sort-select" id="sort-select" onchange="sortProducts(this.value)">
+      <option value="featured">Sort</option>
+      <option value="price-asc">Price ↑</option>
+      <option value="price-desc">Price ↓</option>
+      <option value="rating">Top Rated</option>
+    </select>
+  </div>
+</div>
+
+{% if page_title %}
+<!-- ── Filtered / search results view ── -->
+<div class="section">
+  <div class="section-head">
+    <span class="section-title">
+      {{ page_title }}
+      {% if products %}<span class="results-count">({{ products|length }} found)</span>{% endif %}
+    </span>
+    <a class="section-link" href="/shop">← All</a>
+  </div>
+  {% if products %}
+  <div class="grid" id="product-grid">
+    {% for p in products %}
+    <div class="card" data-price="{{ p.price }}" data-rating="{{ p.avg_rating or 0 }}">
+      <div class="card-img-wrap" onclick="location.href='/product/{{ p.id }}'">
+        {% if p.image_path %}
+        <img class="card-img" src="/uploads/{{ p.image_path }}" alt="{{ p.name }}" loading="lazy"/>
+        {% else %}
+        <div class="card-img-ph">{% if p.product_type == 'digital' %}🖼️{% else %}📦{% endif %}</div>
+        {% endif %}
+        <div class="badge-overlay">
+          {% if p.product_type == 'digital' %}
+          <span class="badge-dig">🖼️ Digital</span>
+          {% elif p.stock_qty == 0 %}
+          <span class="badge-oos">Out of Stock</span>
+          {% elif p.stock_qty <= 5 %}
+          <span class="badge-low">Only {{ p.stock_qty }} left</span>
+          {% endif %}
+        </div>
+      </div>
+      <div class="card-body" onclick="location.href='/product/{{ p.id }}'">
+        <div class="card-cat">{{ p.category }}</div>
+        <div class="card-name">{{ p.name }}</div>
+        <div class="card-price">${{ "%.2f"|format(p.price) }}</div>
+        {% if p.avg_rating and p.avg_rating > 0 %}
+        <div class="card-rating">⭐ {{ "%.1f"|format(p.avg_rating) }} <span>({{ p.review_count }})</span></div>
+        {% endif %}
+      </div>
+      <div class="card-footer">
+        {% if p.product_type == 'digital' or p.stock_qty > 0 %}
+        <button class="btn-cart" data-pid="{{ p.id }}" onclick="addToCart(event, {{ p.id }}, this)">
+          🛒 Add to Cart
+        </button>
+        {% else %}
+        <button class="btn-cart oos" disabled>Out of Stock</button>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty">
+    <div class="empty-icon">🔍</div>
+    <h3>No products found</h3>
+    <p>Try a different search or <a href="/shop">browse all products</a>.</p>
+  </div>
+  {% endif %}
+</div>
+
+{% else %}
+<!-- ── Home view: categories + featured ── -->
+<div class="section">
+  <div class="section-head"><span class="section-title">Browse Categories</span></div>
+  <div class="cat-grid">
+    {% for icon, label, sub_cats in cat_groups %}
+    <a class="cat-card" href="/shop?cat={{ sub_cats[0] | urlencode }}">
+      <span class="cat-icon">{{ icon }}</span>
+      <span class="cat-label">{{ label }}</span>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-head">
+    <span class="section-title">Featured Products</span>
+    <span class="results-count">{{ products|length }} items</span>
+  </div>
+  {% if products %}
+  <div class="grid" id="product-grid">
+    {% for p in products %}
+    <div class="card" data-price="{{ p.price }}" data-rating="{{ p.avg_rating or 0 }}">
+      <div class="card-img-wrap" onclick="location.href='/product/{{ p.id }}'">
+        {% if p.image_path %}
+        <img class="card-img" src="/uploads/{{ p.image_path }}" alt="{{ p.name }}" loading="lazy"/>
+        {% else %}
+        <div class="card-img-ph">{% if p.product_type == 'digital' %}🖼️{% else %}📦{% endif %}</div>
+        {% endif %}
+        <div class="badge-overlay">
+          {% if p.product_type == 'digital' %}
+          <span class="badge-dig">🖼️ Digital</span>
+          {% elif p.stock_qty == 0 %}
+          <span class="badge-oos">Out of Stock</span>
+          {% elif p.stock_qty <= 5 %}
+          <span class="badge-low">Only {{ p.stock_qty }} left</span>
+          {% endif %}
+        </div>
+      </div>
+      <div class="card-body" onclick="location.href='/product/{{ p.id }}'">
+        <div class="card-cat">{{ p.category }}</div>
+        <div class="card-name">{{ p.name }}</div>
+        <div class="card-price">${{ "%.2f"|format(p.price) }}</div>
+        {% if p.avg_rating and p.avg_rating > 0 %}
+        <div class="card-rating">⭐ {{ "%.1f"|format(p.avg_rating) }} <span>({{ p.review_count }})</span></div>
+        {% endif %}
+      </div>
+      <div class="card-footer">
+        {% if p.product_type == 'digital' or p.stock_qty > 0 %}
+        <button class="btn-cart" data-pid="{{ p.id }}" onclick="addToCart(event, {{ p.id }}, this)">
+          🛒 Add to Cart
+        </button>
+        {% else %}
+        <button class="btn-cart oos" disabled>Out of Stock</button>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty">
+    <div class="empty-icon">🏪</div>
+    <h3>No products yet</h3>
+    <p>Check back soon — sellers are listing products now.</p>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="toast" id="toast"></div>
+
+<!-- Bottom navigation -->
+<nav class="bottom-nav">
+  <a class="bnav-item active" href="/shop">
+    <span class="bnav-icon">🏪</span>
+    <span>Shop</span>
+  </a>
+  <a class="bnav-item" href="/cart">
+    <span class="bnav-icon">🛒</span>
+    <span>Cart</span>
+    {% if cart_count > 0 %}<span class="bnav-badge" id="bnav-badge">{{ cart_count }}</span>{% endif %}
+  </a>
+  <a class="bnav-item" href="/checkout">
+    <span class="bnav-icon">💳</span>
+    <span>Checkout</span>
+  </a>
+</nav>
+
+<script>
+  let cartCount = {{ cart_count }};
+
+  /* ── Search clear button ── */
+  const searchInput = document.getElementById('search-input');
+  const searchClear = document.getElementById('search-clear');
+  function updateClearBtn() {
+    searchClear.style.display = searchInput.value ? 'block' : 'none';
+  }
+  searchInput.addEventListener('input', updateClearBtn);
+  updateClearBtn();
+  function clearSearch() {
+    searchInput.value = '';
+    updateClearBtn();
+    searchInput.focus();
+  }
+
+  /* ── Cart count UI ── */
+  function updateCartUI(count) {
+    cartCount = count;
+    const badge  = document.getElementById('cart-badge');
+    const nbadge = document.getElementById('bnav-badge');
+    badge.textContent = count;
+    badge.style.display = count > 0 ? 'flex' : 'none';
+    if (nbadge) { nbadge.textContent = count; nbadge.style.display = count > 0 ? 'flex' : 'none'; }
+  }
+
+  /* ── Toast ── */
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(t._timer);
+    t._timer = setTimeout(() => t.classList.remove('show'), 2400);
+  }
+
+  /* ── Add to cart ── */
+  function addToCart(e, pid, btn) {
+    e.stopPropagation();
+    const orig = btn.innerHTML;
+    btn.innerHTML = '<span style="display:inline-block;animation:spin .6s linear infinite;font-size:14px">⏳</span>';
+    btn.disabled  = true;
+    fetch('/shop/api/cart/add', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({product_id: pid, qty: 1})
+    })
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) {
+        updateCartUI(d.cart_count);
+        showToast('✅ Added to cart!');
+        btn.innerHTML = '✓ Added';
+        btn.style.background = '#16a34a';
+        setTimeout(() => {
+          btn.innerHTML = orig;
+          btn.style.background = '';
+          btn.disabled = false;
+        }, 1800);
+      } else {
+        showToast('❌ ' + (d.error || 'Could not add'));
+        btn.innerHTML = orig;
+        btn.disabled  = false;
+      }
+    })
+    .catch(() => {
+      showToast('⚠️ Network error — try again');
+      btn.innerHTML = orig;
+      btn.disabled  = false;
+    });
+  }
+
+  /* ── Client-side sort ── */
+  function sortProducts(val) {
+    const grid  = document.getElementById('product-grid');
+    if (!grid) return;
+    const cards = Array.from(grid.querySelectorAll('.card'));
+    if (val === 'price-asc')  cards.sort((a,b) => parseFloat(a.dataset.price) - parseFloat(b.dataset.price));
+    if (val === 'price-desc') cards.sort((a,b) => parseFloat(b.dataset.price) - parseFloat(a.dataset.price));
+    if (val === 'rating')     cards.sort((a,b) => parseFloat(b.dataset.rating) - parseFloat(a.dataset.rating));
+    cards.forEach(c => grid.appendChild(c));
+  }
+
+  /* ── Spin keyframe for loading ── */
+  const style = document.createElement('style');
+  style.textContent = '@keyframes spin{to{transform:rotate(360deg)}}';
+  document.head.appendChild(style);
+</script>
+
+</body>
+</html>
