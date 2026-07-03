@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/png" href="/uploads/welcome_banner.png"/>
+  <link rel="apple-touch-icon" href="/uploads/welcome_banner.png"/>
   <title>Checkout — T-Tech Connect</title>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
@@ -176,7 +178,7 @@
 <!-- Step 3: Review & Place -->
 <div class="panel" id="panel-3">
   <div class="panel-title">Review & Place Order</div>
-  <div class="panel-sub">Check your details below — you'll receive payment instructions after placing.</div>
+  <div class="panel-sub">Check your details — payment instructions are sent via WhatsApp after placing.</div>
 
   <!-- Order summary -->
   <div class="order-card">
@@ -188,10 +190,25 @@
       <span class="item-amount">${{ "%.2f"|format(item.price * item.quantity) }}</span>
     </div>
     {% endfor %}
-    <div class="summary-total">
+    <div class="summary-total" id="summary-total-row">
       <span>Total</span>
-      <span>${{ "%.2f"|format(total) }}</span>
+      <span id="total-display">${{ "%.2f"|format(total) }}</span>
     </div>
+  </div>
+
+  <!-- Promo code -->
+  <div style="margin-bottom:14px">
+    <div style="display:flex;gap:8px">
+      <input type="text" id="promo-input" placeholder="Promo / coupon code"
+             style="flex:1;padding:11px 14px;border:1.5px solid #d1d5db;border-radius:10px;font-size:14px;outline:none"
+             oninput="document.getElementById('promo-error').style.display='none'"/>
+      <button onclick="applyPromo()" id="promo-btn"
+              style="padding:11px 16px;background:#f3f4f6;border:1.5px solid #d1d5db;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;color:#374151;white-space:nowrap">
+        Apply
+      </button>
+    </div>
+    <div id="promo-error"   style="display:none;color:#dc2626;font-size:12px;margin-top:4px"></div>
+    <div id="promo-success" style="display:none;color:#16a34a;font-size:12px;margin-top:4px"></div>
   </div>
 
   <!-- Contact + delivery confirm -->
@@ -199,6 +216,30 @@
     <div class="confirm-row"><span class="confirm-lbl">Name</span><span id="confirm-name">—</span></div>
     <div class="confirm-row"><span class="confirm-lbl">Phone</span><span id="confirm-phone">—</span></div>
     <div class="confirm-row"><span class="confirm-lbl">Delivery</span><span id="confirm-delivery">—</span></div>
+  </div>
+
+  <!-- Payment method -->
+  <div style="margin-bottom:14px">
+    <div style="font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Payment Method</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <label id="pm-ecocash" class="pm-card selected" onclick="selectPM(this,'EcoCash')" style="display:flex;align-items:center;gap:8px;padding:11px;background:#fff;border:1.5px solid #075e54;border-radius:10px;cursor:pointer">
+        <input type="radio" name="pm" value="EcoCash" checked style="display:none"/>
+        <span style="font-size:18px">📱</span><span style="font-size:13px;font-weight:700">EcoCash</span>
+      </label>
+      <label id="pm-innbucks" class="pm-card" onclick="selectPM(this,'InnBucks')" style="display:flex;align-items:center;gap:8px;padding:11px;background:#fff;border:1.5px solid #e5e7eb;border-radius:10px;cursor:pointer">
+        <input type="radio" name="pm" value="InnBucks" style="display:none"/>
+        <span style="font-size:18px">💚</span><span style="font-size:13px;font-weight:700">InnBucks</span>
+      </label>
+      <label id="pm-onemoney" class="pm-card" onclick="selectPM(this,'OneMoney')" style="display:flex;align-items:center;gap:8px;padding:11px;background:#fff;border:1.5px solid #e5e7eb;border-radius:10px;cursor:pointer">
+        <input type="radio" name="pm" value="OneMoney" style="display:none"/>
+        <span style="font-size:18px">🟠</span><span style="font-size:13px;font-weight:700">OneMoney</span>
+      </label>
+      <label id="pm-cash" class="pm-card" onclick="selectPM(this,'Cash')" style="display:flex;align-items:center;gap:8px;padding:11px;background:#fff;border:1.5px solid #e5e7eb;border-radius:10px;cursor:pointer">
+        <input type="radio" name="pm" value="Cash" style="display:none"/>
+        <span style="font-size:18px">💵</span><span style="font-size:13px;font-weight:700">Cash</span>
+      </label>
+    </div>
+    <p style="font-size:11px;color:#6b7280;margin-top:8px">💬 Payment instructions will be sent via WhatsApp after placing your order.</p>
   </div>
 
   <!-- Trust strip -->
@@ -211,6 +252,12 @@
 
   <button class="btn-next" id="place-btn" onclick="placeOrder()">✅ Place Order — ${{ "%.2f"|format(total) }}</button>
   <button class="btn-back" onclick="goStep(2)">← Back</button>
+
+  <p style="text-align:center;font-size:11px;color:#9ca3af;margin-top:12px">
+    By placing your order you agree to our
+    <a href="/terms" style="color:#075e54">Terms &amp; Conditions</a> and
+    <a href="/privacy" style="color:#075e54">Privacy Policy</a>.
+  </p>
 </div>
 
 <div class="overlay" id="overlay">
@@ -220,12 +267,52 @@
 
 <script>
   let state = {
-    step:     1,
-    name:     '{{ buyer_name | e }}',
-    phone:    '{{ buyer_phone | e }}',
-    delivery: 'self_collect',
-    address:  '',
+    step:           1,
+    name:           '{{ buyer_name | e }}',
+    phone:          '{{ buyer_phone | e }}',
+    delivery:       'self_collect',
+    address:        '',
+    payment_method: 'EcoCash',
+    promo_code:     '',
+    discount:       0,
+    base_total:     {{ total }},
+    final_total:    {{ total }},
   };
+
+  function selectPM(el, method) {
+    document.querySelectorAll('.pm-card').forEach(c => {
+      c.style.borderColor = '#e5e7eb'; c.style.background = '#fff';
+    });
+    el.style.borderColor = '#075e54'; el.style.background = '#f0fdf4';
+    state.payment_method = method;
+  }
+
+  function applyPromo() {
+    const code = document.getElementById('promo-input').value.trim().toUpperCase();
+    if (!code) return;
+    document.getElementById('promo-btn').textContent = '…';
+    fetch('/shop/api/promo/apply', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({code, total: state.base_total})
+    }).then(r => r.json()).then(d => {
+      document.getElementById('promo-btn').textContent = 'Apply';
+      if (d.ok) {
+        state.promo_code  = code;
+        state.discount    = d.discount;
+        state.final_total = d.new_total;
+        document.getElementById('total-display').textContent =
+          '$' + d.new_total.toFixed(2) + ' (save $' + d.discount.toFixed(2) + ')';
+        document.getElementById('place-btn').textContent =
+          '✅ Place Order — $' + d.new_total.toFixed(2);
+        document.getElementById('promo-success').style.display = 'block';
+        document.getElementById('promo-success').textContent = '🎉 ' + code + ' applied — $' + d.discount.toFixed(2) + ' off!';
+      } else {
+        document.getElementById('promo-error').style.display = 'block';
+        document.getElementById('promo-error').textContent = '❌ ' + d.error;
+      }
+    }).catch(() => { document.getElementById('promo-btn').textContent = 'Apply'; });
+  }
 
   /* ── Phone formatting helper ── */
   function formatPhone(input) {
@@ -316,6 +403,9 @@
         phone:            state.phone,
         delivery_type:    state.delivery,
         delivery_address: state.address,
+        payment_method:   state.payment_method,
+        promo_code:       state.promo_code,
+        discount:         state.discount,
       })
     })
     .then(r => r.json())

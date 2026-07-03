@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/png" href="/uploads/welcome_banner.png"/>
+  <link rel="apple-touch-icon" href="/uploads/welcome_banner.png"/>
+  <title>Seller Portal — T-Tech Connect</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Segoe UI',sans-serif;background:linear-gradient(135deg,#064e44 0%,#0a7c6b 100%);
+         min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+    .card{background:#fff;border-radius:20px;box-shadow:0 20px 60px rgba(0,0,0,.25);
+          width:100%;max-width:420px;padding:40px 36px}
+    .logo{text-align:center;margin-bottom:28px}
+    .logo-icon{font-size:40px;margin-bottom:8px}
+    .logo h1{font-size:22px;font-weight:800;color:#075e54}
+    .logo p{font-size:13px;color:#6b7280;margin-top:4px}
+    .step-title{font-size:18px;font-weight:700;color:#111827;margin-bottom:6px}
+    .step-sub{font-size:13px;color:#6b7280;margin-bottom:24px;line-height:1.5}
+    label{display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:6px}
+    input{width:100%;padding:12px 14px;border:1.5px solid #e5e7eb;border-radius:10px;
+          font-size:15px;color:#111;outline:none;transition:border-color .2s}
+    input:focus{border-color:#075e54}
+    .btn{width:100%;padding:13px;background:#075e54;color:#fff;border:none;border-radius:10px;
+         font-size:15px;font-weight:700;cursor:pointer;margin-top:18px;transition:background .2s}
+    .btn:hover{background:#064e44}
+    .error{background:#fef2f2;border:1px solid #fecaca;color:#dc2626;padding:11px 14px;
+           border-radius:9px;font-size:13px;margin-bottom:18px}
+    .otp-hint{background:#f0fdf9;border:1px solid #a7f3d0;color:#065f46;padding:11px 14px;
+              border-radius:9px;font-size:13px;margin-bottom:20px;line-height:1.5}
+    .back-link{display:block;text-align:center;margin-top:16px;font-size:13px;color:#6b7280;
+               text-decoration:none}
+    .back-link:hover{color:#075e54}
+    .register-link{text-align:center;margin-top:24px;padding-top:20px;border-top:1px solid #f3f4f6;
+                   font-size:13px;color:#6b7280}
+    .register-link a{color:#075e54;font-weight:600;text-decoration:none}
+    .otp-input{letter-spacing:8px;font-size:24px;font-weight:700;text-align:center}
+  </style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">
+    <div class="logo-icon">🛍️</div>
+    <h1>T-Tech Connect</h1>
+    <p>Seller Portal</p>
+  </div>
+
+  {% if error %}
+    <div class="error">⚠️ {{ error }}</div>
+  {% endif %}
+
+  {% if step == "phone" %}
+    <div class="step-title">Sign in to your store</div>
+    <p class="step-sub">Enter your registered WhatsApp number and we'll send you a one-time code.</p>
+    <form method="POST" action="/seller/login">
+      <label for="phone">WhatsApp Number</label>
+      <input type="tel" id="phone" name="phone" placeholder="e.g. 0774128219"
+             autocomplete="tel" required autofocus/>
+      <button class="btn" type="submit">Send Code →</button>
+    </form>
+    <div class="register-link">
+      Not a seller yet? <a href="/register">Apply here</a>
+    </div>
+
+  {% elif step == "otp" %}
+    <div class="step-title">Enter your code</div>
+    <div class="otp-hint">
+      📱 A 6-digit code has been sent to your WhatsApp number <strong>+{{ phone }}</strong>.
+    </div>
+    <form method="POST" action="/seller/verify-otp">
+      <label for="code">One-Time Code</label>
+      <input type="text" id="code" name="code" class="otp-input"
+             placeholder="••••••" maxlength="6" pattern="\d{6}"
+             inputmode="numeric" autocomplete="one-time-code" required autofocus/>
+      <button class="btn" type="submit">Verify & Sign In</button>
+    </form>
+    <a class="back-link" href="/seller/login">← Use a different number</a>
+  {% endif %}
+</div>
+</body>
+</html>

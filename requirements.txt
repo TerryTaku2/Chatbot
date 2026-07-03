@@ -5,3 +5,4 @@ python-dotenv==1.0.1
 filetype==1.2.0
 gunicorn==21.2.0
 paynow==1.0.5
+psycopg2-binary==2.9.9

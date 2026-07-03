@@ -1,0 +1,1008 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/png" href="/uploads/welcome_banner.png"/>
+  <link rel="apple-touch-icon" href="/uploads/welcome_banner.png"/>
+  <title>Seller Portal — {{ seller.business_name }}</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;color:#111827;min-height:100vh}
+
+    /* ── Layout ── */
+    .layout{display:flex;min-height:100vh}
+    .sidebar{width:230px;background:#064e44;color:#fff;flex-shrink:0;display:flex;flex-direction:column;position:fixed;top:0;bottom:0;left:0;z-index:100;overflow-y:auto}
+    .main{margin-left:230px;flex:1;display:flex;flex-direction:column;min-height:100vh}
+    @media(max-width:768px){
+      .sidebar{transform:translateX(-100%);transition:transform .3s}
+      .sidebar.open{transform:translateX(0)}
+      .main{margin-left:0}
+      .topbar{padding-left:56px}
+    }
+
+    /* ── Sidebar ── */
+    .sb-brand{padding:22px 20px 16px;border-bottom:1px solid rgba(255,255,255,.1)}
+    .sb-brand h2{font-size:15px;font-weight:800;letter-spacing:.3px}
+    .sb-brand p{font-size:11px;opacity:.65;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .sb-nav{padding:12px 0;flex:1}
+    .sb-link{display:flex;align-items:center;gap:10px;padding:11px 20px;font-size:13.5px;
+             color:rgba(255,255,255,.8);cursor:pointer;transition:background .15s;border:none;
+             background:none;width:100%;text-align:left}
+    .sb-link:hover{background:rgba(255,255,255,.1);color:#fff}
+    .sb-link.active{background:rgba(255,255,255,.18);color:#fff;font-weight:600}
+    .sb-link .icon{font-size:16px;width:20px;text-align:center}
+    .sb-footer{padding:16px 20px;border-top:1px solid rgba(255,255,255,.1)}
+    .sb-footer a{font-size:12px;color:rgba(255,255,255,.6);text-decoration:none;display:block;margin-bottom:6px}
+    .sb-footer a:hover{color:#fff}
+
+    /* ── Topbar ── */
+    .topbar{background:#fff;border-bottom:1px solid #e5e7eb;padding:0 24px;height:56px;
+            display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50}
+    .topbar-title{font-size:16px;font-weight:700;color:#111}
+    .topbar-right{display:flex;align-items:center;gap:14px}
+    .topbar-phone{font-size:12px;color:#6b7280;font-family:monospace}
+    .hamburger{display:none;background:none;border:none;font-size:22px;cursor:pointer;color:#374151}
+    @media(max-width:768px){.hamburger{display:block}}
+
+    /* ── Page content ── */
+    .content{padding:24px;flex:1}
+    .section-page{display:none}.section-page.active{display:block}
+
+    /* ── Stat cards ── */
+    .stat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:14px;margin-bottom:24px}
+    .stat-card{background:#fff;border-radius:12px;padding:18px 16px;box-shadow:0 1px 6px rgba(0,0,0,.07)}
+    .stat-card .val{font-size:26px;font-weight:800;color:#075e54}
+    .stat-card .lbl{font-size:12px;color:#6b7280;margin-top:4px}
+
+    /* ── Tables ── */
+    .table-wrap{background:#fff;border-radius:12px;box-shadow:0 1px 6px rgba(0,0,0,.07);overflow:hidden}
+    table{width:100%;border-collapse:collapse;font-size:13px}
+    th{background:#f9fafb;padding:10px 14px;text-align:left;font-weight:600;color:#374151;
+       border-bottom:1px solid #f3f4f6;white-space:nowrap}
+    td{padding:10px 14px;border-bottom:1px solid #f9fafb;color:#374151;vertical-align:middle}
+    tr:last-child td{border-bottom:none}
+    tr:hover td{background:#fafafa}
+
+    /* ── Badges ── */
+    .badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600}
+    .badge-pending{background:#fef3c7;color:#92400e}
+    .badge-approved{background:#d1fae5;color:#065f46}
+    .badge-rejected{background:#fee2e2;color:#991b1b}
+    .badge-confirmed{background:#dbeafe;color:#1e40af}
+    .badge-fulfilled{background:#d1fae5;color:#065f46}
+    .badge-cancelled{background:#f3f4f6;color:#6b7280}
+    .badge-fixed{background:#ede9fe;color:#5b21b6}
+    .badge-hourly{background:#fce7f3;color:#9d174d}
+    .badge-quote{background:#f0fdf4;color:#166534}
+
+    /* ── Forms ── */
+    .form-card{background:#fff;border-radius:12px;box-shadow:0 1px 6px rgba(0,0,0,.07);padding:24px;max-width:640px}
+    .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    @media(max-width:540px){.form-grid{grid-template-columns:1fr}}
+    .form-group{display:flex;flex-direction:column;gap:6px}
+    .form-group.full{grid-column:1/-1}
+    .form-group label{font-size:13px;font-weight:600;color:#374151}
+    .form-group input,.form-group select,.form-group textarea{
+      padding:10px 12px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:14px;
+      color:#111;outline:none;transition:border-color .2s;font-family:inherit}
+    .form-group input:focus,.form-group select:focus,.form-group textarea:focus{border-color:#075e54}
+    .form-group textarea{min-height:90px;resize:vertical}
+    .form-group .hint{font-size:11px;color:#9ca3af}
+
+    /* ── Buttons ── */
+    .btn-primary{background:#075e54;color:#fff;border:none;padding:10px 20px;border-radius:8px;
+                 font-size:13px;font-weight:700;cursor:pointer;transition:background .2s}
+    .btn-primary:hover{background:#064e44}
+    .btn-secondary{background:#f3f4f6;color:#374151;border:none;padding:10px 18px;border-radius:8px;
+                   font-size:13px;font-weight:600;cursor:pointer}
+    .btn-secondary:hover{background:#e5e7eb}
+    .btn-danger{background:#fee2e2;color:#dc2626;border:none;padding:6px 12px;border-radius:6px;
+                font-size:12px;font-weight:600;cursor:pointer}
+    .btn-danger:hover{background:#fecaca}
+    .btn-sm{padding:5px 11px;font-size:12px;border-radius:6px}
+    .btn-confirm{background:#dbeafe;color:#1e40af;border:none;padding:5px 10px;border-radius:6px;
+                 font-size:12px;font-weight:600;cursor:pointer}
+    .btn-confirm:hover{background:#bfdbfe}
+    .btn-fulfill{background:#d1fae5;color:#065f46;border:none;padding:5px 10px;border-radius:6px;
+                 font-size:12px;font-weight:600;cursor:pointer}
+    .btn-fulfill:hover{background:#a7f3d0}
+
+    /* ── Section header ── */
+    .sec-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px}
+    .sec-header h2{font-size:17px;font-weight:700}
+    .sec-header p{font-size:13px;color:#6b7280;margin-top:2px}
+
+    /* ── Toast ── */
+    #toast{position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:10px;
+           font-size:13px;font-weight:600;opacity:0;transition:opacity .3s;z-index:999;max-width:320px}
+    #toast.show{opacity:1}
+    #toast.ok{background:#065f46;color:#fff}
+    #toast.err{background:#dc2626;color:#fff}
+
+    /* ── Add-product toggle ── */
+    .add-panel{display:none;margin-top:18px}
+    .add-panel.open{display:block}
+    .earnings-row{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px;margin-bottom:24px}
+    .earn-card{background:#fff;border-radius:12px;padding:18px 16px;box-shadow:0 1px 6px rgba(0,0,0,.07);border-left:4px solid #075e54}
+    .earn-card.warn{border-left-color:#f59e0b}
+    .earn-card .ev{font-size:22px;font-weight:800;color:#075e54}
+    .earn-card.warn .ev{color:#b45309}
+    .earn-card .el{font-size:12px;color:#6b7280;margin-top:4px}
+    .loading{color:#9ca3af;font-size:13px;padding:20px 0}
+    .empty-state{text-align:center;padding:40px 20px;color:#9ca3af;font-size:14px}
+    .payout-row td:first-child{font-family:monospace;font-size:12px}
+  </style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sb-brand">
+      <h2>🛍️ {{ seller.business_name }}</h2>
+      <p>{{ seller.name }}</p>
+    </div>
+    <nav class="sb-nav">
+      <button class="sb-link active" onclick="showSection('overview')" id="nav-overview">
+        <span class="icon">📊</span> Overview
+      </button>
+      <button class="sb-link" onclick="showSection('products')" id="nav-products">
+        <span class="icon">📦</span> Products
+      </button>
+      <button class="sb-link" onclick="showSection('services')" id="nav-services">
+        <span class="icon">🔧</span> Services
+      </button>
+      <button class="sb-link" onclick="showSection('orders')" id="nav-orders">
+        <span class="icon">🛒</span> Orders
+      </button>
+      <button class="sb-link" onclick="showSection('inventory')" id="nav-inventory">
+        <span class="icon">📋</span> Inventory
+      </button>
+      <button class="sb-link" onclick="showSection('earnings')" id="nav-earnings">
+        <span class="icon">💰</span> Earnings
+      </button>
+    </nav>
+    <div class="sb-footer">
+      <a href="/shop" target="_blank">🏪 View Storefront</a>
+      <a href="/seller/{{ seller.phone }}" target="_blank">👤 My Public Page</a>
+      <a href="/seller/logout">🚪 Sign Out</a>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="main">
+    <div class="topbar">
+      <div style="display:flex;align-items:center;gap:12px">
+        <button class="hamburger" onclick="toggleSidebar()">☰</button>
+        <span class="topbar-title" id="topbar-title">Overview</span>
+      </div>
+      <div class="topbar-right">
+        <span class="topbar-phone">{{ seller.phone }}</span>
+      </div>
+    </div>
+
+    <div class="content">
+
+      <!-- Overview -->
+      <div class="section-page active" id="page-overview">
+        <div class="sec-header">
+          <div><h2>Dashboard Overview</h2><p>Your store at a glance</p></div>
+          <button class="btn-secondary" onclick="loadSection('overview')">↻ Refresh</button>
+        </div>
+        <div class="stat-grid" id="stat-grid"><div class="loading">Loading stats…</div></div>
+      </div>
+
+      <!-- Products -->
+      <div class="section-page" id="page-products">
+        <div class="sec-header">
+          <div><h2>My Products</h2><p>Manage your product listings</p></div>
+          <button class="btn-primary" onclick="toggleAddProduct()">+ Add Product</button>
+        </div>
+
+        <!-- Add product form -->
+        <div class="add-panel" id="add-product-panel">
+          <div class="form-card" style="margin-bottom:20px">
+            <h3 style="font-size:15px;font-weight:700;margin-bottom:18px">New Product</h3>
+            <form id="add-product-form" enctype="multipart/form-data">
+              <div class="form-grid">
+                <div class="form-group">
+                  <label>Product Name *</label>
+                  <input type="text" name="name" required placeholder="e.g. Fresh Tomatoes"/>
+                </div>
+                <div class="form-group">
+                  <label>Category *</label>
+                  <input type="text" name="category" required placeholder="e.g. Groceries"/>
+                </div>
+                <div class="form-group">
+                  <label>Price (USD) *</label>
+                  <input type="number" name="price" step="0.01" min="0.01" required placeholder="0.00"/>
+                </div>
+                <div class="form-group">
+                  <label>Stock Quantity *</label>
+                  <input type="number" name="stock_qty" min="0" required placeholder="0"/>
+                </div>
+                <div class="form-group">
+                  <label>Unit</label>
+                  <select name="stock_unit">
+                    <option value="pcs">Pieces</option>
+                    <option value="kg">Kilograms</option>
+                    <option value="g">Grams</option>
+                    <option value="L">Litres</option>
+                    <option value="pack">Packs</option>
+                    <option value="box">Boxes</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Type</label>
+                  <select name="product_type">
+                    <option value="physical">Physical</option>
+                    <option value="digital">Digital</option>
+                  </select>
+                </div>
+                <div class="form-group full">
+                  <label>Description</label>
+                  <textarea name="description" placeholder="Describe your product…"></textarea>
+                </div>
+                <div class="form-group">
+                  <label>Product Image</label>
+                  <input type="file" name="image" accept="image/*"/>
+                  <span class="hint">JPG/PNG, max 5MB</span>
+                </div>
+                <div class="form-group" style="align-self:end">
+                  <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                    <input type="checkbox" name="offers_delivery" style="width:auto"/>
+                    Offers delivery
+                  </label>
+                </div>
+              </div>
+              <div style="margin-top:18px;display:flex;gap:10px">
+                <button class="btn-primary" type="submit">Submit for Approval</button>
+                <button class="btn-secondary" type="button" onclick="toggleAddProduct()">Cancel</button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Product</th><th>Category</th><th>Price</th><th>Stock</th><th>Status</th><th>Action</th></tr></thead>
+            <tbody id="products-body"><tr><td colspan="6" class="loading">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Services -->
+      <div class="section-page" id="page-services">
+        <div class="sec-header">
+          <div><h2>My Services</h2><p>Manage your service listings</p></div>
+          <button class="btn-primary" onclick="toggleAddService()">+ Add Service</button>
+        </div>
+
+        <div class="add-panel" id="add-service-panel">
+          <div class="form-card" style="margin-bottom:20px">
+            <h3 style="font-size:15px;font-weight:700;margin-bottom:18px">New Service</h3>
+            <form id="add-service-form">
+              <div class="form-grid">
+                <div class="form-group full">
+                  <label>Service Title *</label>
+                  <input type="text" name="title" required placeholder="e.g. Plumbing Repairs"/>
+                </div>
+                <div class="form-group">
+                  <label>Category *</label>
+                  <input type="text" name="category" required placeholder="e.g. Home Services"/>
+                </div>
+                <div class="form-group">
+                  <label>Pricing Type</label>
+                  <select name="price_type">
+                    <option value="fixed">Fixed</option>
+                    <option value="hourly">Hourly</option>
+                    <option value="quote">Quote / Negotiate</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Price (USD)</label>
+                  <input type="number" name="price" step="0.01" min="0" placeholder="0.00"/>
+                </div>
+                <div class="form-group">
+                  <label>Service Area *</label>
+                  <input type="text" name="service_area" required placeholder="e.g. Harare CBD"/>
+                </div>
+                <div class="form-group full">
+                  <label>Description</label>
+                  <textarea name="description" placeholder="Describe what you offer…"></textarea>
+                </div>
+              </div>
+              <div style="margin-top:18px;display:flex;gap:10px">
+                <button class="btn-primary" type="submit">Submit for Approval</button>
+                <button class="btn-secondary" type="button" onclick="toggleAddService()">Cancel</button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Title</th><th>Category</th><th>Price</th><th>Area</th><th>Status</th><th>Action</th></tr></thead>
+            <tbody id="services-body"><tr><td colspan="6" class="loading">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Orders -->
+      <div class="section-page" id="page-orders">
+        <div class="sec-header">
+          <div><h2>Incoming Orders</h2><p>Orders placed for your products</p></div>
+          <div style="display:flex;gap:8px">
+            <button class="btn-secondary" onclick="fetchOrders()">↻ Refresh</button>
+            <a class="btn-secondary" href="/seller/api/orders/export" download style="text-decoration:none;display:inline-flex;align-items:center;gap:4px">⬇ Export CSV</a>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Ref</th><th>Product</th><th>Buyer</th><th>Qty</th><th>Total</th><th>Status</th><th>Date</th><th>Action</th></tr></thead>
+            <tbody id="orders-body"><tr><td colspan="8" class="loading">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Inventory -->
+      <div class="section-page" id="page-inventory">
+        <div class="sec-header">
+          <div><h2>Inventory & Profit</h2><p>Track stock levels, costs, and profit per product</p></div>
+          <button class="btn-secondary" onclick="fetchInventory()">↻ Refresh</button>
+        </div>
+
+        <!-- Profit summary cards -->
+        <div class="earnings-row" id="profit-cards" style="margin-bottom:20px">
+          <div class="loading">Loading…</div>
+        </div>
+
+        <!-- Product inventory table -->
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Product</th>
+                <th>Sell Price</th>
+                <th>Cost Price</th>
+                <th>In Stock</th>
+                <th>Sold</th>
+                <th>Revenue</th>
+                <th>Connect Fee</th>
+                <th>Profit</th>
+                <th>Margin</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="inventory-body">
+              <tr><td colspan="10" class="loading">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Stock adjustment modal -->
+        <div id="adj-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:200;align-items:center;justify-content:center">
+          <div style="background:#fff;border-radius:16px;padding:28px 24px;max-width:400px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+            <h3 style="font-size:16px;font-weight:700;margin-bottom:4px" id="adj-title">Adjust Stock</h3>
+            <p style="font-size:13px;color:#6b7280;margin-bottom:18px" id="adj-sub"></p>
+            <div class="form-group" style="margin-bottom:14px">
+              <label>Change (+add / −remove)</label>
+              <input type="number" id="adj-change" placeholder="e.g. 10 or -3" style="padding:10px 12px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:15px;width:100%"/>
+            </div>
+            <div class="form-group" style="margin-bottom:14px">
+              <label>Reason</label>
+              <select id="adj-reason" style="padding:10px 12px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:14px;width:100%">
+                <option value="restock">📦 Restock / New supply</option>
+                <option value="adjustment">✏️ Manual correction</option>
+                <option value="damaged">💔 Damaged / Lost</option>
+                <option value="returned">↩️ Customer return</option>
+                <option value="correction">🔧 Inventory correction</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin-bottom:18px">
+              <label>Note (optional)</label>
+              <input type="text" id="adj-note" placeholder="e.g. received from supplier" style="padding:10px 12px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:14px;width:100%"/>
+            </div>
+            <div style="display:flex;gap:10px">
+              <button class="btn-primary" onclick="submitAdjustment()">Save</button>
+              <button class="btn-secondary" onclick="closeAdjModal()">Cancel</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Cost price edit modal -->
+        <div id="cost-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:200;align-items:center;justify-content:center">
+          <div style="background:#fff;border-radius:16px;padding:28px 24px;max-width:380px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+            <h3 style="font-size:16px;font-weight:700;margin-bottom:4px">Set Cost Price</h3>
+            <p style="font-size:13px;color:#6b7280;margin-bottom:18px" id="cost-sub">What did this product cost you to acquire or produce?</p>
+            <div class="form-group" style="margin-bottom:18px">
+              <label>Cost Price (USD)</label>
+              <input type="number" id="cost-input" step="0.01" min="0" placeholder="0.00" style="padding:10px 12px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:18px;font-weight:700;width:100%"/>
+              <span style="font-size:11px;color:#9ca3af;margin-top:4px;display:block">Profit = Revenue − Cost − Connect Fee</span>
+            </div>
+            <div style="display:flex;gap:10px">
+              <button class="btn-primary" onclick="submitCost()">Save</button>
+              <button class="btn-secondary" onclick="closeCostModal()">Cancel</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Expenses panel -->
+        <div style="margin-top:28px">
+          <div class="sec-header">
+            <div><h2 style="font-size:16px">📋 Business Expenses</h2><p style="font-size:13px;color:#6b7280">Record costs like rent, transport, packaging — deducted from profit above</p></div>
+            <button class="btn-primary" onclick="toggleExpenseForm()">+ Add Expense</button>
+          </div>
+
+          <!-- Add expense form -->
+          <div class="add-panel" id="add-expense-panel">
+            <div class="form-card" style="margin-bottom:16px">
+              <h3 style="font-size:14px;font-weight:700;margin-bottom:16px">New Expense</h3>
+              <div class="form-grid">
+                <div class="form-group">
+                  <label>Amount (USD) *</label>
+                  <input type="number" id="exp-amount" step="0.01" min="0.01" placeholder="0.00"/>
+                </div>
+                <div class="form-group">
+                  <label>Date *</label>
+                  <input type="date" id="exp-date"/>
+                </div>
+                <div class="form-group">
+                  <label>Category *</label>
+                  <select id="exp-category">
+                    <option value="Rent / Utilities">🏢 Rent / Utilities</option>
+                    <option value="Transport / Delivery">🚛 Transport / Delivery</option>
+                    <option value="Packaging / Materials">📦 Packaging / Materials</option>
+                    <option value="Marketing / Advertising">📢 Marketing / Advertising</option>
+                    <option value="Supplier / Restocking">🛒 Supplier / Restocking</option>
+                    <option value="Salaries / Labour">👷 Salaries / Labour</option>
+                    <option value="Equipment / Repairs">🔧 Equipment / Repairs</option>
+                    <option value="Licences / Permits">📋 Licences / Permits</option>
+                    <option value="Other">💼 Other</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Description</label>
+                  <input type="text" id="exp-desc" placeholder="e.g. Monthly shop rent"/>
+                </div>
+              </div>
+              <div style="margin-top:14px;display:flex;gap:10px">
+                <button class="btn-primary" onclick="submitExpense()">Save Expense</button>
+                <button class="btn-secondary" onclick="toggleExpenseForm()">Cancel</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Filter bar -->
+          <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
+            <input type="month" id="exp-month-filter" onchange="fetchExpenses()"
+                   style="padding:8px 12px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:13px"/>
+            <button class="btn-secondary" onclick="document.getElementById('exp-month-filter').value='';fetchExpenses()">Show All</button>
+            <span id="exp-total-label" style="font-size:13px;color:#6b7280;margin-left:auto"></span>
+          </div>
+
+          <!-- Expenses table -->
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Date</th><th>Category</th><th>Description</th><th>Amount</th><th></th></tr></thead>
+              <tbody id="expenses-body"><tr><td colspan="5" class="loading">Loading…</td></tr></tbody>
+            </table>
+          </div>
+
+          <!-- Category breakdown -->
+          <div id="expense-breakdown" style="margin-top:16px;display:none">
+            <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:10px">Breakdown by category</div>
+            <div id="expense-bars"></div>
+          </div>
+        </div>
+
+        <!-- Movement log panel -->
+        <div id="movement-panel" style="display:none;margin-top:20px">
+          <div class="sec-header" style="margin-top:0">
+            <div><h2 style="font-size:15px">Stock Movement Log — <span id="movement-name"></span></h2></div>
+            <button class="btn-secondary" onclick="document.getElementById('movement-panel').style.display='none'">✕ Close</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Date</th><th>Change</th><th>Reason</th><th>Note</th></tr></thead>
+              <tbody id="movement-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Earnings -->
+      <div class="section-page" id="page-earnings">
+        <div class="sec-header">
+          <div><h2>Earnings</h2><p>Revenue and payout history</p></div>
+          <button class="btn-secondary" onclick="fetchEarnings()">↻ Refresh</button>
+        </div>
+        <div class="earnings-row" id="earnings-cards"><div class="loading">Loading…</div></div>
+        <div class="sec-header" style="margin-top:8px">
+          <div><h2 style="font-size:15px">Payout History</h2></div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Amount</th><th>Method</th><th>Status</th><th>Note</th></tr></thead>
+            <tbody id="payouts-body"><tr><td colspan="5" class="loading">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div><!-- /content -->
+  </div><!-- /main -->
+</div><!-- /layout -->
+
+<div id="toast"></div>
+
+<script>
+let currentSection = 'overview';
+
+function showSection(name) {
+  document.querySelectorAll('.section-page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.sb-link').forEach(l => l.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  const nav = document.getElementById('nav-' + name);
+  if (nav) nav.classList.add('active');
+  const titles = {overview:'Overview',products:'My Products',services:'My Services',orders:'Incoming Orders',inventory:'Inventory & Profit',earnings:'Earnings'};
+  document.getElementById('topbar-title').textContent = titles[name] || name;
+  currentSection = name;
+  loadSection(name);
+  // Close sidebar on mobile
+  document.getElementById('sidebar').classList.remove('open');
+}
+
+function loadSection(name) {
+  if (name === 'overview')  { fetchStats(); return; }
+  if (name === 'products')  { fetchProducts(); return; }
+  if (name === 'services')  { fetchServices(); return; }
+  if (name === 'orders')    { fetchOrders(); return; }
+  if (name === 'inventory') { fetchInventory(); return; }
+  if (name === 'earnings')  { fetchEarnings(); return; }
+}
+
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('open');
+}
+
+/* ── API helpers ── */
+async function api(url, method='GET', body=null) {
+  const opts = {method, headers:{}};
+  if (body instanceof FormData) {
+    opts.body = body;
+  } else if (body) {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(body);
+  }
+  const r = await fetch(url, opts);
+  if (r.status === 401) { window.location='/seller/login'; return {ok:false}; }
+  return r.json();
+}
+
+function toast(msg, ok=true) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'show ' + (ok ? 'ok' : 'err');
+  setTimeout(() => { el.className = ''; }, 3500);
+}
+
+function badge(status) {
+  const map = {
+    pending:'badge-pending', approved:'badge-approved', rejected:'badge-rejected',
+    confirmed:'badge-confirmed', fulfilled:'badge-fulfilled', cancelled:'badge-cancelled',
+    fixed:'badge-fixed', hourly:'badge-hourly', quote:'badge-quote',
+  };
+  return `<span class="badge ${map[status]||'badge-pending'}">${status}</span>`;
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = (s == null ? '' : String(s));
+  return d.innerHTML;
+}
+
+/* ── Overview ── */
+async function fetchStats() {
+  document.getElementById('stat-grid').innerHTML = '<div class="loading">Loading…</div>';
+  const s = await api('/seller/api/stats');
+  const items = [
+    {val: s.total_orders,      lbl: 'Total Orders'},
+    {val: s.pending_orders,    lbl: 'Pending Orders'},
+    {val: s.fulfilled_orders,  lbl: 'Fulfilled Orders'},
+    {val: `$${(+s.total_revenue).toFixed(2)}`,  lbl: 'Total Revenue'},
+    {val: `$${(+s.this_month).toFixed(2)}`,     lbl: 'This Month'},
+    {val: s.active_listings,   lbl: 'Active Listings'},
+    {val: s.pending_listings,  lbl: 'Pending Approval'},
+    {val: s.open_disputes,     lbl: 'Open Disputes'},
+  ];
+  document.getElementById('stat-grid').innerHTML = items.map(i =>
+    `<div class="stat-card"><div class="val">${esc(String(i.val))}</div><div class="lbl">${esc(i.lbl)}</div></div>`
+  ).join('');
+}
+
+/* ── Products ── */
+async function fetchProducts() {
+  document.getElementById('products-body').innerHTML = '<tr><td colspan="6" class="loading">Loading…</td></tr>';
+  const rows = await api('/seller/api/products');
+  if (!rows.length) {
+    document.getElementById('products-body').innerHTML = '<tr><td colspan="6"><div class="empty-state">No products yet. Click "+ Add Product" to get started.</div></td></tr>';
+    return;
+  }
+  document.getElementById('products-body').innerHTML = rows.map(p => `
+    <tr>
+      <td><strong>${esc(p.name)}</strong></td>
+      <td>${esc(p.category)}</td>
+      <td>$${(+p.price).toFixed(2)}</td>
+      <td>${esc(p.stock_qty)}</td>
+      <td>${badge(p.status)}</td>
+      <td>
+        ${p.status !== 'approved' ? '' : `<a href="/product/${p.id}" target="_blank" class="btn-secondary btn-sm" style="text-decoration:none;display:inline-block">👁 View</a> `}
+        <button class="btn-danger btn-sm" onclick="removeProduct(${p.id}, '${esc(p.name)}')">🗑 Remove</button>
+      </td>
+    </tr>`).join('');
+}
+
+function toggleAddProduct() {
+  const panel = document.getElementById('add-product-panel');
+  panel.classList.toggle('open');
+}
+
+document.getElementById('add-product-form').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const btn = e.target.querySelector('[type=submit]');
+  btn.disabled = true; btn.textContent = 'Submitting…';
+  const res = await api('/seller/api/products/add', 'POST', new FormData(this));
+  btn.disabled = false; btn.textContent = 'Submit for Approval';
+  toast(res.message, res.ok);
+  if (res.ok) { this.reset(); toggleAddProduct(); fetchProducts(); }
+});
+
+async function removeProduct(id, name) {
+  if (!confirm(`Remove product "${name}"? This cannot be undone.`)) return;
+  const res = await api(`/seller/api/products/${id}/remove`, 'POST');
+  toast(res.message, res.ok);
+  if (res.ok) fetchProducts();
+}
+
+/* ── Services ── */
+async function fetchServices() {
+  document.getElementById('services-body').innerHTML = '<tr><td colspan="6" class="loading">Loading…</td></tr>';
+  const rows = await api('/seller/api/services');
+  if (!rows.length) {
+    document.getElementById('services-body').innerHTML = '<tr><td colspan="6"><div class="empty-state">No services yet. Click "+ Add Service" to get started.</div></td></tr>';
+    return;
+  }
+  document.getElementById('services-body').innerHTML = rows.map(s => {
+    const price = s.price_type === 'quote' ? 'Quote' : `$${(+s.price).toFixed(2)}${s.price_type==='hourly'?'/hr':''}`;
+    return `<tr>
+      <td><strong>${esc(s.title)}</strong></td>
+      <td>${esc(s.category)}</td>
+      <td>${price}</td>
+      <td>${esc(s.service_area||'—')}</td>
+      <td>${badge(s.status)}</td>
+      <td><button class="btn-danger btn-sm" onclick="removeService(${s.id}, '${esc(s.title)}')">🗑 Remove</button></td>
+    </tr>`;
+  }).join('');
+}
+
+function toggleAddService() {
+  document.getElementById('add-service-panel').classList.toggle('open');
+}
+
+document.getElementById('add-service-form').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const btn = e.target.querySelector('[type=submit]');
+  btn.disabled = true; btn.textContent = 'Submitting…';
+  const fd = new FormData(this);
+  // FormData → JSON for services (no file upload)
+  const body = Object.fromEntries(fd.entries());
+  const res  = await fetch('/seller/api/services/add', {
+    method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+    body: new URLSearchParams(body)
+  }).then(r=>r.json());
+  btn.disabled = false; btn.textContent = 'Submit for Approval';
+  toast(res.message, res.ok);
+  if (res.ok) { this.reset(); toggleAddService(); fetchServices(); }
+});
+
+async function removeService(id, title) {
+  if (!confirm(`Remove service "${title}"?`)) return;
+  const res = await api(`/seller/api/services/${id}/remove`, 'POST');
+  toast(res.message, res.ok);
+  if (res.ok) fetchServices();
+}
+
+/* ── Orders ── */
+async function fetchOrders() {
+  document.getElementById('orders-body').innerHTML = '<tr><td colspan="8" class="loading">Loading…</td></tr>';
+  const rows = await api('/seller/api/orders');
+  if (!rows.length) {
+    document.getElementById('orders-body').innerHTML = '<tr><td colspan="8"><div class="empty-state">No orders yet.</div></td></tr>';
+    return;
+  }
+  document.getElementById('orders-body').innerHTML = rows.map(o => `
+    <tr>
+      <td style="font-family:monospace;font-size:11px">${esc(o.reference||o.id)}</td>
+      <td>${esc(o.name)}</td>
+      <td style="font-size:12px">${esc(o.buyer_phone)}</td>
+      <td>${esc(o.quantity)}</td>
+      <td>$${(+o.total_price).toFixed(2)}</td>
+      <td>${badge(o.status)}</td>
+      <td style="font-size:11px;white-space:nowrap">${(o.created_at||'').slice(0,10)}</td>
+      <td>
+        ${o.status==='pending' ? `<button class="btn-confirm btn-sm" onclick="setOrderStatus(${o.id},'confirmed')">✅ Confirm</button> ` : ''}
+        ${o.status==='confirmed' ? `<button class="btn-fulfill btn-sm" onclick="setOrderStatus(${o.id},'fulfilled')">📦 Fulfill</button> ` : ''}
+        ${o.status!=='fulfilled'&&o.status!=='cancelled' ? `<button class="btn-danger btn-sm" onclick="setOrderStatus(${o.id},'cancelled')">✕</button>` : ''}
+      </td>
+    </tr>`).join('');
+}
+
+async function setOrderStatus(id, status) {
+  if (!confirm(`Mark order #${id} as ${status}?`)) return;
+  const res = await api(`/seller/api/orders/${id}/status`, 'POST', {status});
+  toast(res.message, res.ok);
+  if (res.ok) fetchOrders();
+}
+
+/* ── Earnings ── */
+async function fetchEarnings() {
+  document.getElementById('earnings-cards').innerHTML = '<div class="loading">Loading…</div>';
+  document.getElementById('payouts-body').innerHTML = '<tr><td colspan="5" class="loading">Loading…</td></tr>';
+  const data = await api('/seller/api/earnings');
+  const s    = data.summary || {};
+  document.getElementById('earnings-cards').innerHTML = [
+    {val:`$${(+s.total_revenue).toFixed(2)}`, lbl:'Total Revenue', warn:false},
+    {val:`$${(+s.commission_owed).toFixed(2)}`, lbl:'Connect Fee Owed', warn:true},
+    {val:`$${(+s.paid_out).toFixed(2)}`, lbl:'Paid Out', warn:false},
+    {val:`$${(+s.balance_due).toFixed(2)}`, lbl:'Balance Due', warn:true},
+  ].map(c => `<div class="earn-card ${c.warn?'warn':''}"><div class="ev">${esc(c.val)}</div><div class="el">${esc(c.lbl)}</div></div>`).join('');
+
+  const payouts = data.payouts || [];
+  document.getElementById('payouts-body').innerHTML = payouts.length
+    ? payouts.map(p => `<tr class="payout-row">
+        <td>${(p.created_at||'').slice(0,10)}</td>
+        <td>$${(+p.amount).toFixed(2)}</td>
+        <td>${esc(p.method||'—')}</td>
+        <td>${badge(p.status||'pending')}</td>
+        <td style="font-size:12px;color:#6b7280">${esc(p.notes||'—')}</td>
+      </tr>`).join('')
+    : '<tr><td colspan="5"><div class="empty-state">No payouts recorded yet.</div></td></tr>';
+}
+
+// Load overview on page load
+loadSection('overview');
+
+/* ── Inventory & Profit ── */
+let _adjProductId = null;
+let _costProductId = null;
+
+async function fetchInventory() {
+  document.getElementById('profit-cards').innerHTML = '<div class="loading">Loading…</div>';
+  document.getElementById('inventory-body').innerHTML = '<tr><td colspan="10" class="loading">Loading…</td></tr>';
+
+  const [rows, summary] = await Promise.all([
+    api('/seller/api/inventory'),
+    api('/seller/api/inventory/summary'),
+  ]);
+
+  // Profit summary cards — includes expenses for net profit
+  const s = summary;
+  document.getElementById('profit-cards').innerHTML = [
+    {val:`$${(+s.total_revenue).toFixed(2)}`,    lbl:'Revenue',          warn:false},
+    {val:`$${(+s.total_cost).toFixed(2)}`,       lbl:'Product Cost',     warn:false},
+    {val:`$${(+s.total_fee).toFixed(2)}`,        lbl:'Connect Fee',      warn:true},
+    {val:`$${(+s.gross_profit).toFixed(2)}`,     lbl:'Gross Profit',     warn:s.gross_profit < 0},
+    {val:`$${(+s.total_expenses).toFixed(2)}`,   lbl:'Total Expenses',   warn:s.total_expenses > 0},
+    {val:`$${(+s.net_profit).toFixed(2)}`,       lbl:'Net Profit',       warn:s.net_profit < 0},
+    {val:`${s.net_margin}%`,                     lbl:'Net Margin',       warn:s.net_margin < 10},
+    {val:`$${(+s.stock_value).toFixed(2)}`,      lbl:'Stock Value',      warn:false},
+  ].map(c => `<div class="earn-card ${c.warn?'warn':''}"><div class="ev">${esc(c.val)}</div><div class="el">${esc(c.lbl)}</div></div>`).join('');
+
+  if (!rows.length) {
+    document.getElementById('inventory-body').innerHTML = '<tr><td colspan="10"><div class="empty-state">No products yet.</div></td></tr>';
+    return;
+  }
+
+  document.getElementById('inventory-body').innerHTML = rows.map(p => {
+    const profitColor = p.gross_profit > 0 ? '#065f46' : p.gross_profit < 0 ? '#dc2626' : '#374151';
+    const stockColor  = p.stock_qty === 0 ? '#dc2626' : p.stock_qty <= 3 ? '#d97706' : '#065f46';
+    const costSet     = p.cost_price > 0;
+    return `<tr>
+      <td>
+        <strong>${esc(p.name)}</strong>
+        <div style="font-size:11px;color:#9ca3af">${esc(p.category)}</div>
+      </td>
+      <td>$${(+p.selling_price).toFixed(2)}</td>
+      <td>
+        <span style="cursor:pointer;color:#1d4ed8;font-weight:600" onclick="openCostModal(${p.id},'${esc(p.name)}',${p.cost_price})">
+          ${costSet ? `$${(+p.cost_price).toFixed(2)}` : '<span style="color:#9ca3af">Set →</span>'}
+        </span>
+      </td>
+      <td>
+        <span style="font-weight:700;color:${stockColor}">${p.stock_qty} ${esc(p.stock_unit||'pcs')}</span>
+        ${p.stock_qty === 0 ? '<span class="badge badge-cancelled" style="margin-left:4px;font-size:10px">OOS</span>' : ''}
+        ${p.stock_qty > 0 && p.stock_qty <= 3 ? '<span class="badge badge-pending" style="margin-left:4px;font-size:10px">Low</span>' : ''}
+      </td>
+      <td>${p.units_sold}</td>
+      <td>$${(+p.total_revenue).toFixed(2)}</td>
+      <td style="color:#b45309">$${(+p.connect_fee).toFixed(2)}</td>
+      <td style="font-weight:700;color:${profitColor}">
+        ${costSet ? `$${(+p.gross_profit).toFixed(2)}` : '<span style="color:#9ca3af;font-size:12px">Set cost →</span>'}
+      </td>
+      <td>${costSet ? `<span style="color:${profitColor}">${p.profit_margin}%</span>` : '—'}</td>
+      <td>
+        <button class="btn-secondary btn-sm" onclick="openAdjModal(${p.id},'${esc(p.name)}',${p.stock_qty})" title="Adjust stock">±</button>
+        <button class="btn-secondary btn-sm" style="margin-left:4px" onclick="showMovements(${p.id},'${esc(p.name)}')" title="History">📋</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+/* Stock adjustment modal */
+function openAdjModal(id, name, currentQty) {
+  _adjProductId = id;
+  document.getElementById('adj-title').textContent = `Adjust Stock — ${name}`;
+  document.getElementById('adj-sub').textContent   = `Current stock: ${currentQty}`;
+  document.getElementById('adj-change').value      = '';
+  document.getElementById('adj-note').value        = '';
+  document.getElementById('adj-reason').value      = 'restock';
+  const m = document.getElementById('adj-modal');
+  m.style.display = 'flex';
+}
+function closeAdjModal() { document.getElementById('adj-modal').style.display = 'none'; }
+
+async function submitAdjustment() {
+  const change = parseInt(document.getElementById('adj-change').value);
+  if (!change) { toast('Enter a non-zero change.', false); return; }
+  const res = await api(`/seller/api/inventory/${_adjProductId}/adjust`, 'POST', {
+    change,
+    reason: document.getElementById('adj-reason').value,
+    note:   document.getElementById('adj-note').value,
+  });
+  toast(res.message, res.ok);
+  if (res.ok) { closeAdjModal(); fetchInventory(); }
+}
+
+/* Cost price modal */
+function openCostModal(id, name, currentCost) {
+  _costProductId = id;
+  document.getElementById('cost-sub').textContent = `${name} — What did this cost you to buy or make?`;
+  document.getElementById('cost-input').value     = currentCost > 0 ? currentCost : '';
+  const m = document.getElementById('cost-modal');
+  m.style.display = 'flex';
+}
+function closeCostModal() { document.getElementById('cost-modal').style.display = 'none'; }
+
+async function submitCost() {
+  const cost = parseFloat(document.getElementById('cost-input').value);
+  if (isNaN(cost) || cost < 0) { toast('Enter a valid cost price.', false); return; }
+  const res = await api(`/seller/api/inventory/${_costProductId}/cost`, 'POST', {cost_price: cost});
+  toast(res.message, res.ok);
+  if (res.ok) { closeCostModal(); fetchInventory(); }
+}
+
+/* Movement log */
+async function showMovements(id, name) {
+  const panel = document.getElementById('movement-panel');
+  document.getElementById('movement-name').textContent = name;
+  document.getElementById('movement-body').innerHTML   = '<tr><td colspan="4" class="loading">Loading…</td></tr>';
+  panel.style.display = 'block';
+  panel.scrollIntoView({behavior:'smooth', block:'start'});
+  const rows = await api(`/seller/api/inventory/${id}/movements`);
+  if (!rows.length) {
+    document.getElementById('movement-body').innerHTML = '<tr><td colspan="4"><div class="empty-state">No movements recorded yet.</div></td></tr>';
+    return;
+  }
+  document.getElementById('movement-body').innerHTML = rows.map(r => {
+    const sign  = r.change_qty > 0 ? '+' : '';
+    const color = r.change_qty > 0 ? '#065f46' : '#dc2626';
+    return `<tr>
+      <td style="font-size:12px;white-space:nowrap">${(r.created_at||'').slice(0,16)}</td>
+      <td style="font-weight:700;color:${color}">${sign}${r.change_qty}</td>
+      <td>${esc(r.reason)}</td>
+      <td style="font-size:12px;color:#6b7280">${esc(r.note||'—')}</td>
+    </tr>`;
+  }).join('');
+}
+
+// Close modals on outside click
+document.getElementById('adj-modal').addEventListener('click',  e => { if (e.target === e.currentTarget) closeAdjModal(); });
+document.getElementById('cost-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeCostModal(); });
+
+/* ── Expenses ── */
+function toggleExpenseForm() {
+  const panel = document.getElementById('add-expense-panel');
+  panel.classList.toggle('open');
+  if (panel.classList.contains('open')) {
+    // Default date to today
+    if (!document.getElementById('exp-date').value) {
+      document.getElementById('exp-date').value = new Date().toISOString().slice(0,10);
+    }
+  }
+}
+
+async function submitExpense() {
+  const amount = parseFloat(document.getElementById('exp-amount').value);
+  if (!amount || amount <= 0) { toast('Enter a valid amount.', false); return; }
+  const res = await api('/seller/api/expenses/add', 'POST', {
+    amount,
+    category:    document.getElementById('exp-category').value,
+    description: document.getElementById('exp-desc').value,
+    date:        document.getElementById('exp-date').value,
+  });
+  toast(res.message, res.ok);
+  if (res.ok) {
+    document.getElementById('exp-amount').value = '';
+    document.getElementById('exp-desc').value   = '';
+    toggleExpenseForm();
+    fetchExpenses();
+    fetchInventory();   // refresh profit cards
+  }
+}
+
+async function fetchExpenses() {
+  const month = document.getElementById('exp-month-filter').value;
+  const url   = '/seller/api/expenses' + (month ? `?month=${month}` : '');
+  document.getElementById('expenses-body').innerHTML = '<tr><td colspan="5" class="loading">Loading…</td></tr>';
+
+  const [rows, summary] = await Promise.all([api(url), api('/seller/api/expenses/summary')]);
+
+  // Total label
+  const shown = rows.reduce((s, r) => s + r.amount, 0);
+  document.getElementById('exp-total-label').textContent =
+    month ? `${month} total: $${shown.toFixed(2)}` : `All-time total: $${summary.all_time.toFixed(2)}  |  This month: $${summary.this_month.toFixed(2)}`;
+
+  if (!rows.length) {
+    document.getElementById('expenses-body').innerHTML = '<tr><td colspan="5"><div class="empty-state">No expenses recorded yet.</div></td></tr>';
+    document.getElementById('expense-breakdown').style.display = 'none';
+    return;
+  }
+
+  // Table rows
+  document.getElementById('expenses-body').innerHTML = rows.map(e => `
+    <tr>
+      <td style="white-space:nowrap">${e.expense_date||''}</td>
+      <td>${esc(e.category)}</td>
+      <td style="color:#6b7280;font-size:13px">${esc(e.description||'—')}</td>
+      <td style="font-weight:700;color:#b45309">$${(+e.amount).toFixed(2)}</td>
+      <td><button class="btn-danger btn-sm" onclick="deleteExpense(${e.id})">🗑</button></td>
+    </tr>`).join('');
+
+  // Category breakdown bars
+  if (summary.by_category && summary.by_category.length) {
+    const max  = Math.max(...summary.by_category.map(c => c.total));
+    const total = summary.all_time || 1;
+    document.getElementById('expense-breakdown').style.display = 'block';
+    document.getElementById('expense-bars').innerHTML = summary.by_category.map(c => {
+      const pct = Math.round(c.total / total * 100);
+      const w   = Math.round(c.total / max * 100);
+      return `<div style="margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
+          <span style="font-weight:600">${esc(c.category)}</span>
+          <span style="color:#6b7280">$${(+c.total).toFixed(2)} (${pct}%)</span>
+        </div>
+        <div style="background:#f3f4f6;border-radius:4px;height:8px">
+          <div style="background:#075e54;height:8px;border-radius:4px;width:${w}%;transition:width .4s"></div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+}
+
+async function deleteExpense(id) {
+  if (!confirm('Delete this expense?')) return;
+  const res = await api(`/seller/api/expenses/${id}/delete`, 'POST');
+  toast(res.message, res.ok);
+  if (res.ok) { fetchExpenses(); fetchInventory(); }
+}
+
+// Auto-load expenses when inventory section opens
+const _origFetchInventory = fetchInventory;
+fetchInventory = async function() {
+  await _origFetchInventory();
+  fetchExpenses();
+};
+</script>
+</body>
+</html>

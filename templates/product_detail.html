@@ -3,12 +3,35 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>{{ product.name }} — T-Tech Connect</title>
+  <link rel="icon" type="image/png" href="/uploads/welcome_banner.png"/>
+  <link rel="apple-touch-icon" href="/uploads/welcome_banner.png"/>
+  <title>{{ product.name }} — T-Tech Connect Zimbabwe</title>
+  <meta name="description" content="{{ (product.description or product.name)[:155] }} | Buy on T-Tech Connect Zimbabwe."/>
+  <meta name="keywords"    content="{{ product.name }}, {{ product.category }}, buy Zimbabwe, T-Tech Connect"/>
   <meta property="og:title"       content="{{ product.name }} — T-Tech Connect"/>
   <meta property="og:description" content="{{ (product.description or '')[:120] }}"/>
+  <meta property="og:type"        content="product"/>
+  <meta property="og:url"         content="{{ request.url }}"/>
   {% if image_url %}
   <meta property="og:image" content="{{ request.host_url.rstrip('/') }}{{ image_url }}"/>
   {% endif %}
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org/",
+    "@type": "Product",
+    "name": "{{ product.name | e }}",
+    "description": "{{ (product.description or '') | e | truncate(200) }}",
+    "category": "{{ product.category | e }}",
+    {% if image_url %}"image": "{{ request.host_url.rstrip('/') }}{{ image_url }}",{% endif %}
+    "offers": {
+      "@type": "Offer",
+      "priceCurrency": "USD",
+      "price": "{{ product.price }}",
+      "availability": "{% if product.stock_qty > 0 or product.product_type == 'digital' %}https://schema.org/InStock{% else %}https://schema.org/OutOfStock{% endif %}",
+      "seller": { "@type": "Organization", "name": "T-Tech Connect" }
+    }
+  }
+  </script>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
     body{font-family:'Segoe UI',system-ui,sans-serif;background:#f0f2f5;min-height:100vh;padding-bottom:80px}
@@ -182,6 +205,7 @@
 
     <div class="price-row">
       <span class="price">${{ "%.2f"|format(product.price) }}</span>
+      {% if zig_price %}<span style="font-size:13px;color:#6b7280;margin-left:6px">≈ ZiG {{ "{:,.0f}".format(zig_price) }}</span>{% endif %}
       {% set unit = product.stock_unit or 'pcs' %}
       {% if unit not in ('pcs','units','piece') %}
       <span class="price-unit">per {{ unit }}</span>
@@ -250,6 +274,25 @@
   </div>
   {% endif %}
 
+  <!-- Product variants -->
+  {% if variants %}
+  <div style="background:#fff;border-radius:12px;border:1px solid #e5e7eb;padding:14px;margin-bottom:12px">
+    <div class="section-label" style="margin-bottom:10px">Options / Variants</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px">
+      {% for v in variants %}
+      <button onclick="selectVariant(this,'{{ v.id }}',{{ v.price_adj }},{{ v.stock_qty }})"
+              class="variant-btn"
+              style="padding:8px 14px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:13px;font-weight:600;background:#fff;cursor:pointer;color:#374151;transition:all .15s"
+              {% if v.stock_qty == 0 %}disabled style="opacity:.5;cursor:default"{% endif %}>
+        {{ v.label }}{% if v.price_adj != 0 %} ({% if v.price_adj > 0 %}+{% endif %}${{ "%.2f"|format(v.price_adj) }}){% endif %}
+        {% if v.stock_qty == 0 %} — Out of Stock{% endif %}
+      </button>
+      {% endfor %}
+    </div>
+    <p id="variant-note" style="font-size:12px;color:#6b7280;margin-top:8px">Select an option above.</p>
+  </div>
+  {% endif %}
+
   <!-- Seller info -->
   {% if product.listed_by %}
   <div class="seller-box">
@@ -257,13 +300,19 @@
     <div class="seller-row">
       <div class="seller-avatar">🏪</div>
       <div class="seller-info">
-        <div class="seller-name">{{ product.business_name or product.seller_name or 'Verified Seller' }}</div>
+        <div class="seller-name">{{ (seller.business_name if seller else None) or product.business_name or product.seller_name or 'Verified Seller' }}</div>
         {% if product.seller_location %}
         <div class="seller-loc">📍 {{ product.seller_location }}</div>
         {% endif %}
         <span class="seller-badge">✅ Verified</span>
       </div>
     </div>
+    {% if seller_phone %}
+    <a href="/seller/{{ seller_phone }}"
+       style="display:inline-block;margin-top:10px;font-size:12px;color:#075e54;font-weight:700;text-decoration:none">
+      View all products from this seller →
+    </a>
+    {% endif %}
   </div>
   {% endif %}
 
@@ -338,6 +387,26 @@
     document.getElementById('qty-plus').disabled  = qty >= maxQty;
   }
 
+  /* ── Variant selection ── */
+  let selectedVariantAdj = 0;
+  const basePrice = {{ product.price }};
+  {% if zig_rate %}const zigRate = {{ zig_rate }};{% else %}const zigRate = null;{% endif %}
+
+  function selectVariant(el, variantId, priceAdj, stock) {
+    document.querySelectorAll('.variant-btn').forEach(b => {
+      b.style.borderColor = '#e5e7eb'; b.style.background = '#fff'; b.style.color = '#374151';
+    });
+    el.style.borderColor = '#075e54'; el.style.background = '#f0fdf4'; el.style.color = '#075e54';
+    selectedVariantAdj = priceAdj;
+    const newPrice = basePrice + priceAdj;
+    const priceEl  = document.querySelector('.price');
+    if (priceEl) priceEl.textContent = '$' + newPrice.toFixed(2);
+    const zigEl = document.querySelector('.price-row span[style*="ZiG"]');
+    if (zigEl && zigRate) zigEl.textContent = '≈ ZiG ' + Math.round(newPrice * zigRate).toLocaleString();
+    document.getElementById('variant-note').textContent =
+      stock > 0 ? `✅ In stock (${stock} available)` : '❌ Out of stock';
+  }
+
   function addToCart() {
     const btn  = document.getElementById('add-cart-btn');
     const orig = btn.innerHTML;
@@ -408,6 +477,14 @@
     }
   }
 </script>
+
+<!-- Footer links -->
+<div style="text-align:center;padding:12px 16px;font-size:11px;color:#9ca3af;border-top:1px solid #e5e7eb;background:#fff;margin-top:8px">
+  <a href="/track" style="color:#075e54">Track Order</a> &nbsp;·&nbsp;
+  <a href="/terms" style="color:#075e54">Terms</a> &nbsp;·&nbsp;
+  <a href="/privacy" style="color:#075e54">Privacy</a> &nbsp;·&nbsp;
+  <a href="/shop" style="color:#075e54">Shop</a>
+</div>
 
 </body>
 </html>

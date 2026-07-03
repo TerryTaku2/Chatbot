@@ -23,6 +23,9 @@ from db import (
     get_waitlist_for_product, clear_waitlist_for_product,
     create_order, get_order, get_buyer_orders, get_seller_orders, update_order_status,
     log_property_enquiry, get_property_enquiries, update_enquiry_status,
+    create_property_viewing, confirm_property_viewing, has_paid_viewing_fee,
+    add_to_shortlist, remove_from_shortlist, get_shortlist, shortlist_count, in_shortlist,
+    create_viewing_appointment, get_viewing_appointments,
     get_admin_stats, get_all_sellers_admin, get_all_products_admin,
     get_recent_orders_admin, get_all_user_phones, get_seller_phone_list,
     add_service, get_service, get_services_by_category, search_services,
@@ -43,25 +46,73 @@ from db import (
     get_featured_products, get_distinct_categories,
     create_quotation, get_quotation_by_ref, get_buyer_quotations,
     get_seller_quote_requests, respond_to_quotation,
+    # promo codes
+    create_promo_code, get_promo_code, use_promo_code, apply_promo_discount,
+    get_all_promo_codes, deactivate_promo_code,
+    # refund requests
+    create_refund_request, get_refund_requests, update_refund_status, get_buyer_refunds,
+    # product variants
+    add_product_variant, get_product_variants, update_variant_stock,
+    # seller payouts
+    create_seller_payout, get_seller_payouts, mark_payout_paid,
+    get_seller_earnings_summary, get_seller_dashboard_stats,
+    # exchange rates / ZiG
+    get_exchange_rate, set_exchange_rate,
+    # cancellations & order helpers
+    get_order_by_reference, log_cancellation,
+    # low stock
+    get_low_stock_products, get_out_of_stock_products,
+    # abandoned cart
+    get_nonempty_carts,
+    # seller portal
+    create_seller_otp, verify_seller_otp,
+    delete_product_by_seller, delete_service_by_seller,
+    # viewing stats
+    get_viewing_stats,
+    # inventory & profit
+    adjust_stock, update_product_cost,
+    get_stock_movements, get_seller_inventory, get_seller_profit_summary,
+    # expenses
+    add_expense, get_seller_expenses, delete_expense,
+    get_expense_summary, EXPENSE_CATEGORIES,
+    # referrals & re-engagement
+    create_referral, get_referral_by_referred, complete_referral, get_referral_count,
+    get_inactive_users,
+    # buyer profiles
+    save_buyer_profile, get_buyer_profile, get_message_count,
+    # live stats & featured picks
+    get_live_stats, set_product_featured, get_featured_admin_picks,
 )
 
 load_dotenv()
 
+_missing_env = [k for k in ("FLASK_SECRET_KEY", "ADMIN_PASSWORD", "VERIFY_TOKEN") if not os.getenv(k)]
+if _missing_env:
+    raise RuntimeError(
+        "Missing required environment variables: "
+        + ", ".join(_missing_env)
+        + ". Set them in your .env file before starting the server."
+    )
+
 app = Flask(__name__)
-app.secret_key = os.getenv("FLASK_SECRET_KEY", "change-this-in-production")
+app.secret_key = os.getenv("FLASK_SECRET_KEY")
 init_db()
 
 # Clean up stale sessions on startup
 cleanup_expired_sessions(max_age_minutes=60)
 
-VERIFY_TOKEN        = os.getenv("VERIFY_TOKEN", "my_secure_token_0304")
+VERIFY_TOKEN        = os.getenv("VERIFY_TOKEN")
 WHATSAPP_TOKEN      = os.getenv("WHATSAPP_TOKEN")
 WHATSAPP_APP_SECRET = os.getenv("WHATSAPP_APP_SECRET", "")
 PHONE_NUMBER_ID     = os.getenv("PHONE_NUMBER_ID")
 BASE_URL            = os.getenv("BASE_URL", "http://localhost:5000")
 ADMIN_PHONE         = os.getenv("ADMIN_PHONE", "")
-TTECH_CONNECT_URL       = os.getenv("TTECH_CONNECT_URL", "http://localhost:8000")
-UPLOAD_FOLDER           = os.path.join(os.path.dirname(__file__), "static", "uploads")
+TTECH_CONNECT_URL        = os.getenv("TTECH_CONNECT_URL", "http://localhost:8000")
+TTECH_API_KEY            = os.getenv("TTECH_API_KEY", "")
+TTECH_WEBHOOK_SECRET     = os.getenv("TTECH_WEBHOOK_SECRET", "")
+DATA_DIR                = os.getenv("DATA_DIR", os.path.join(os.path.dirname(__file__), "static"))
+UPLOAD_FOLDER           = os.path.join(DATA_DIR, "uploads")
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 ALLOWED_EXT             = {"jpg", "jpeg", "png", "webp"}
 ALLOWED_MEDIA_EXT       = {"jpg", "jpeg", "png", "webp", "mp4", "mov", "avi", "mkv", "pdf"}
 MAX_IMAGE_BYTES         = 5 * 1024 * 1024    # 5 MB
@@ -76,6 +127,39 @@ ZIM_CITIES = [
     "Harare", "Bulawayo", "Mutare", "Gweru",
     "Masvingo", "Chinhoyi", "Victoria Falls",
 ]
+
+# ── Zimbabwe-specific payment channels ────────────────────────────────────────
+ZW_PAYMENT_METHODS = {
+    "1": ("EcoCash",      "📱", "Econet mobile money — most widely used"),
+    "2": ("InnBucks",     "💚", "InnoFinancial mobile money — growing fast"),
+    "3": ("OneMoney",     "🟠", "NetOne mobile money"),
+    "4": ("Cash",         "💵", "USD cash on collection / delivery"),
+    "5": ("Bank Transfer","🏦", "ZIPIT or bank deposit (larger orders)"),
+}
+
+LOW_STOCK_THRESHOLD = 3   # alert seller when stock ≤ this
+
+
+def _zig_price(usd_amount):
+    """Return a ZiG equivalent string alongside USD, e.g. '($5.00 / ZiG 130.00)'."""
+    rate = get_exchange_rate("USD", "ZiG")
+    if not rate:
+        return f"*${usd_amount:.2f}*"
+    zig = round(usd_amount * rate, 2)
+    return f"*${usd_amount:.2f}* (≈ ZiG {zig:,.0f})"
+
+
+def _payment_menu(total):
+    """Build the WhatsApp payment method selection menu."""
+    lines = [
+        f"💳 *Choose Payment Method*\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🧾 Amount: {_zig_price(total)}\n"
+    ]
+    for key, (name, icon, desc) in ZW_PAYMENT_METHODS.items():
+        lines.append(f"{key}️⃣  — {icon} {name}")
+    lines.append("\n_Reply *1–5* to select | *0* to go back_")
+    return "\n".join(lines)
 
 VENDOR_NUMBERS = set(
     n.strip() for n in os.getenv("VENDOR_NUMBERS", "").split(",") if n.strip()
@@ -164,26 +248,38 @@ SERVICE_CATEGORIES = [
 SERVICE_PRICE_TYPES = ["Hourly rate", "Fixed price", "Get a quote"]
 
 WELCOME = (
-    "👋 Welcome to *T-Tech Connect!*\n"
-    "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-    "Your all-in-one digital marketplace 🇿🇼\n\n"
-    "Please select an option:\n\n"
-    "1️⃣  — 🛒 *Buy* a product\n"
-    "2️⃣  — 🔧 *Find* a service\n"
-    "3️⃣  — 💼 *Sell* / offer a service\n"
-    "4️⃣  — 🏠 Find *Accommodation*\n"
-    "5️⃣  — 📬 *Contact* T-Tech Connect\n\n"
-    "_Reply with *1–5* to select_"
+    "🌟 *Welcome to T-Tech Connect!* 🌟\n"
+    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    "Zimbabwe's all-in-one digital marketplace 🇿🇼\n"
+    "Shop, sell, find services & accommodation — right here on WhatsApp!\n\n"
+    "━━━━━━ 🛍️ *WHAT WE OFFER* ━━━━━━\n\n"
+    "1️⃣  🛒 *Buy Products*\n"
+    "   Electronics, fashion, food, stationery & more\n\n"
+    "2️⃣  🔧 *Find a Service*\n"
+    "   Plumbing, tutoring, photography, IT support & more\n\n"
+    "3️⃣  💼 *Become a Vendor*\n"
+    "   List your products or services and grow your business\n\n"
+    "4️⃣  🏠 *Find Accommodation*\n"
+    "   Flats, rooms & student housing across Zimbabwe\n\n"
+    "5️⃣  📬 *Contact & Support*\n"
+    "   Reach our team any time\n\n"
+    "━━━━━━ 🌐 *OTHER WAYS TO ACCESS US* ━━━━━━\n"
+    "🌍 Website      : https://t-techsolutions.co.zw\n"
+    f"🛒 Online Shop  : {BASE_URL}/shop\n"
+    f"💼 Seller Portal: {BASE_URL}/seller/login\n"
+    "📱 WhatsApp     : wa.me/263774128219\n\n"
+    "_Reply *1–5* to get started_"
 )
 
 ACCOMMODATION_MENU = (
     "🏠 *Find Accommodation*\n"
     "━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-    "1️⃣  — Search properties\n"
-    "2️⃣  — Browse by city\n"
-    "3️⃣  — Student-friendly only\n"
-    "4️⃣  — All available properties\n\n"
-    "_Reply *1–4* to select | *0* for main menu_"
+    "1️⃣  — 🔍 Search properties\n"
+    "2️⃣  — 🏙️ Browse by city\n"
+    "3️⃣  — 🎓 Student-friendly only\n"
+    "4️⃣  — 🏠 All available properties\n"
+    "5️⃣  — ❤️ My shortlist\n\n"
+    "_Reply *1–5* to select | *0* for main menu_"
 )
 
 CITIES_MENU = (
@@ -217,7 +313,7 @@ SELLER_MENU = (
     "2️⃣  — 🗂️ List a *product or service*\n"
     "3️⃣  — 📋 My listings & services\n"
     "4️⃣  — 🛒 My orders & bookings\n\n"
-    "💰 10% commission on approved listings\n\n"
+    "💰 Connect Fee applies on approved listings (rate varies by category)\n\n"
     "_Reply *1–4* | *0* for main menu_"
 )
 
@@ -468,8 +564,11 @@ def _make_download_token(buyer_phone, product_id):
 
 # ── Context-setting helpers ───────────────────────────────────────────────────
 
-def go_welcome(phone):
+def go_welcome(phone, with_image=False):
     clear_session(phone)
+    if with_image:
+        banner_url = get_setting("welcome_banner_url", "") or f"{BASE_URL}/uploads/welcome_banner.png"
+        send_whatsapp_image(phone, banner_url, caption="T-Tech Connect — Zimbabwe's Digital Marketplace 🇿🇼")
     return WELCOME
 
 def go_buyer_menu(phone):
@@ -509,7 +608,8 @@ def format_numbered_products(results, title="🔍 *Results:*"):
     has_seller_info = any(r.get("seller_name") or r.get("business_name") for r in rows)
     lines = [f"{title}\n"]
     for i, row in enumerate(rows):
-        is_digital = row.get("product_type") == "digital"
+        is_digital  = row.get("product_type") == "digital"
+        is_featured = row.get("featured", 0)
         if is_digital:
             status = "🖼️ Digital"
         else:
@@ -518,6 +618,7 @@ def format_numbered_products(results, title="🔍 *Results:*"):
         city   = row.get("seller_city") or row.get("seller_location") or ""
         rating = row.get("avg_rating") or 0
         category    = row.get("category") or ""
+        feat_badge  = "⭐ *Featured* | " if is_featured else ""
         cat_line    = f"    📁 {category}\n" if category else ""
         seller_line = ""
         if seller:
@@ -526,7 +627,7 @@ def format_numbered_products(results, title="🔍 *Results:*"):
             seller_line = f"    🏪 {seller}{loc_part}{rating_part}\n"
         lines.append(
             f"{NUM_EMOJI[i]}  *{row['name']}*\n"
-            f"    💰 *${row['price']:.2f}*  |  {status}\n"
+            f"    {feat_badge}💰 *${row['price']:.2f}*  |  {status}\n"
             + cat_line
             + seller_line
         )
@@ -560,12 +661,14 @@ def format_buyer_orders(orders):
         del_icon = "🚚 Delivery" if delivery == "delivery" else "🏪 Self-collect"
         status   = o.get("status", "pending")
         s_icon   = STATUS_ICON.get(status, "•")
+        track_url = f"{BASE_URL}/track/{o['reference']}"
         lines.append(
             f"📌 *{o['reference']}*\n"
             f"   {o['name']}\n"
             f"   Qty: {o['quantity']}  ·  *${o['total_price']:.2f}*\n"
             f"   {del_icon}  ·  {s_icon} {status.title()}\n"
             f"   🏪 {seller}\n"
+            f"   🔗 {track_url}\n"
             "─────────────────"
         )
     lines.append(
@@ -713,8 +816,8 @@ def auto_post_service(service):
 
 # ── Paynow / EcoCash payment ──────────────────────────────────────────────────
 
-def initiate_ecocash_payment(phone_number, amount, reference, buyer_email="buyer@ttech.co.zw"):
-    """Initiate EcoCash payment via Paynow. Returns dict with success/poll_url."""
+def initiate_ecocash_payment(phone_number, amount, reference, buyer_email="buyer@ttech.co.zw", mobile_method="ecocash"):
+    """Initiate mobile money payment via Paynow. mobile_method: ecocash | onemoney | innbucks"""
     if not PAYNOW_INTEGRATION_ID or not PAYNOW_INTEGRATION_KEY:
         return {"success": False, "error": "Payment gateway not configured."}
     try:
@@ -727,11 +830,11 @@ def initiate_ecocash_payment(phone_number, amount, reference, buyer_email="buyer
         )
         payment = pn.create_payment(reference, buyer_email)
         payment.add(f"T-Tech Connect Order {reference}", amount)
-        # Normalize phone: 07x → 07x (Paynow wants local format)
+        # Normalize phone: 263XXXXXXXXX → 07XXXXXXXXX (Paynow wants local format)
         local_phone = phone_number.lstrip("+")
         if local_phone.startswith("263"):
             local_phone = "0" + local_phone[3:]
-        response = pn.send_mobile(payment, local_phone, "ecocash")
+        response = pn.send_mobile(payment, local_phone, mobile_method)
         if response.success:
             return {"success": True, "poll_url": response.poll_url, "reference": reference}
         return {"success": False, "error": str(getattr(response, "errors", "Payment failed"))}
@@ -866,6 +969,54 @@ def format_service_detail(s, reviews):
     )
 
 
+# ── T-Tech Connect1 API helpers ───────────────────────────────────────────────
+
+def _ttech_headers():
+    """Auth + content headers for all T-Tech Connect1 API calls."""
+    h = {"Content-Type": "application/json"}
+    if TTECH_API_KEY:
+        h["X-API-Key"] = TTECH_API_KEY
+    return h
+
+
+def _ttech_post(endpoint, payload):
+    """
+    Fire-and-forget POST to T-Tech Connect1.
+    Never crashes the main flow — logs errors only.
+    """
+    if not TTECH_CONNECT_URL:
+        return
+    try:
+        resp = requests.post(
+            f"{TTECH_CONNECT_URL}{endpoint}",
+            json=payload,
+            headers=_ttech_headers(),
+            timeout=8,
+        )
+        if resp.status_code not in (200, 201):
+            print(f"[TTECH POST] {endpoint} → {resp.status_code}: {resp.text[:200]}")
+    except Exception as e:
+        print(f"[TTECH POST ERROR] {endpoint}: {e}")
+
+
+def fetch_property_by_id(prop_id):
+    """
+    Fetch a single property from T-Tech Connect1 for fresh data (e.g. after fee payment).
+    Returns the property dict or None on failure.
+    """
+    try:
+        resp = requests.get(
+            f"{TTECH_CONNECT_URL}/api/properties/{prop_id}",
+            headers=_ttech_headers(),
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            return resp.json()
+    except Exception as e:
+        print(f"[TTECH GET /api/properties/{prop_id}] {e}")
+    return None
+
+
 # ── Accommodation: API caller & formatters ────────────────────────────────────
 
 def fetch_properties(city=None, student_friendly=False, search=None, status="available"):
@@ -880,6 +1031,7 @@ def fetch_properties(city=None, student_friendly=False, search=None, status="ava
             resp = requests.get(
                 f"{TTECH_CONNECT_URL}/api/properties",
                 params=params,
+                headers=_ttech_headers(),
                 timeout=30,   # generous — Render cold-start can be ~20-30s
             )
             if resp.status_code != 200:
@@ -905,12 +1057,30 @@ def fetch_properties(city=None, student_friendly=False, search=None, status="ava
     return None
 
 
+def _prop_area(p):
+    """Return suburb/area for display — never full street address."""
+    suburb = p.get("suburb") or p.get("area") or p.get("neighborhood") or ""
+    city   = p.get("city", "")
+    if suburb and city:
+        return f"{suburb}, {city}"
+    return city or suburb or "Zimbabwe"
+
+
+def _prop_verified(p):
+    return "✅ Verified Landlord  " if p.get("landlord_verified") or p.get("is_verified") else ""
+
+
+def _prop_avail(p):
+    avail = p.get("available_from") or p.get("availability_date") or p.get("available") or ""
+    return f"🗓️ Available: {avail}  " if avail else ""
+
+
 def format_property_list(props, title="🏠 *Available Properties:*"):
-    """Numbered list of up to 5 properties."""
+    """Numbered list of up to 5 properties — suburb only, no street."""
     if props is None:
         return (
             "⚠️ Could not reach the accommodation service right now.\n\n"
-            "Please try again shortly or reply *4* to contact us directly.\n\n"
+            "Please try again shortly.\n\n"
             "_Reply *0* to go back._"
         )
     if not props:
@@ -921,53 +1091,267 @@ def format_property_list(props, title="🏠 *Available Properties:*"):
         )
     lines = [f"{title} ({len(props)} found)\n"]
     for i, p in enumerate(props[:5]):
-        rooms = p.get("available_rooms", 0)
-        price = p.get("price_per_month", 0)
-        city  = p.get("city", "")
-        sf    = "🎓 Student-friendly  " if p.get("student_friendly") else ""
+        rooms   = p.get("available_rooms", 0)
+        price   = p.get("price_per_month", 0)
+        area    = _prop_area(p)
+        sf      = "🎓 " if p.get("student_friendly") else ""
+        vbadge  = "✅ " if p.get("landlord_verified") or p.get("is_verified") else ""
+        avail   = _prop_avail(p)
         lines.append(
-            f"{NUM_EMOJI[i]}  *{p['title']}*\n"
-            f"    📍 {city}\n"
-            f"    💰 ${price:.2f}/month  |  🛏️ {rooms} room(s) available\n"
-            f"    {sf}"
+            f"{NUM_EMOJI[i]}  {vbadge}{sf}*{p['title']}*\n"
+            f"    📍 {area}\n"
+            f"    💰 ${price:.2f}/month  |  🛏️ {rooms} room(s)\n"
+            f"    {avail}"
         )
-    lines.append("\n_Reply *1–5* to view details | *0* to go back_")
+    lines.append("\n_Reply *1–5* to view | *0* to go back_")
     return "\n".join(lines)
 
 
-def format_property_detail(p):
-    """Full detail card for a single property."""
+def format_property_detail(p, already_paid=False, in_shortlist_flag=False):
+    """
+    Teaser (free): suburb, price, rooms, services, description + fee gate notice.
+    Full view (after fee): complete address, Maps link, landlord contact, WA link.
+    """
+    # ── shared computed values ────────────────────────────────────────────────
     services = p.get("services", [])
     if isinstance(services, str):
         try:
             services = json.loads(services)
         except Exception:
             services = []
-    svc_str   = ", ".join(s.title() for s in services) if services else "Not listed"
-    sf        = "✅ Yes" if p.get("student_friendly") else "❌ No"
-    shared    = "Yes" if p.get("is_shared") else "No"
-    price     = p.get("price_per_month", 0)
+    svc_str    = ", ".join(s.title() for s in services) if services else "Not listed"
+    sf         = "✅ Yes" if p.get("student_friendly") else "❌ No"
+    shared     = "Yes" if p.get("is_shared") else "No"
+    price      = p.get("price_per_month", 0)
     accom_rate = float(get_setting("accommodation_commission_rate", "5")) / 100
     commission = round(price * accom_rate, 2)
-    desc      = (p.get("description") or "")[:200]
-    rooms     = p.get("available_rooms", 0)
-    bathrooms = p.get("bathrooms", 1)
-    web_link  = f"{TTECH_CONNECT_URL}/landlord/property/{p['id']}"
+    desc       = (p.get("description") or "")[:240]
+    rooms      = p.get("available_rooms", 0)
+    bathrooms  = p.get("bathrooms", 1)
+    area       = _prop_area(p)
+    vbadge     = _prop_verified(p)
+    avail      = _prop_avail(p)
+    web_link   = f"{TTECH_CONNECT_URL}/landlord/property/{p['id']}"
 
+    # ── FULL VIEW (after fee paid) ────────────────────────────────────────────
+    if already_paid:
+        address     = p.get("address") or "See full listing on website"
+        city        = p.get("city", "")
+        landlord_ph = p.get("landlord_phone") or p.get("contact_phone") or ""
+        landlord_nm = p.get("landlord_name")  or p.get("contact_name")  or "Landlord"
+
+        maps_link = (
+            f"https://maps.google.com/?q={address.replace(' ', '+')}"
+            f"%2C+{city.replace(' ', '+')}"
+        )
+        contact_line = f"📞 Landlord : *{landlord_nm}*"
+        if landlord_ph:
+            contact_line += f"  ·  {landlord_ph}"
+        wa_line = ""
+        if landlord_ph:
+            clean   = landlord_ph.lstrip("+").replace(" ", "")
+            wa_text = (f"Hi%2C+I+paid+the+viewing+fee+via+T-Tech+Connect+for+"
+                       f"*{p.get('title','').replace(' ','+')}*."
+                       f"+I%27d+like+to+arrange+a+viewing.")
+            wa_line = f"\n💬 WA Landlord: https://wa.me/{clean}?text={wa_text}"
+
+        return (
+            f"🏠 *{p['title']}*  🔓 Full Details\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"{vbadge}"
+            f"📍 *{address}*, {city}\n"
+            f"📌 Maps: {maps_link}\n"
+            f"💰 ${price:.2f}/month  |  🛏️ {rooms} room(s)  |  🚿 {bathrooms} bath\n"
+            f"👥 Shared: {shared}  |  🎓 Student-friendly: {sf}\n"
+            f"{avail}"
+            f"🔧 Services: {svc_str}\n\n"
+            f"📝 _{desc}_\n\n"
+            f"{contact_line}{wa_line}\n"
+            f"🌐 {web_link}\n\n"
+            f"1️⃣  — 📅 Book a viewing appointment\n"
+            f"0️⃣  — Back to results"
+        )
+
+    # ── TEASER VIEW (before fee) ──────────────────────────────────────────────
+    shortlist_emoji = "❤️" if in_shortlist_flag else "🤍"
+    shortlist_label = "Remove from shortlist" if in_shortlist_flag else "Save to shortlist"
     return (
         f"🏠 *{p['title']}*\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📍 {p.get('address', '')} , {p.get('city', '')}\n"
+        f"{vbadge}"
+        f"📍 {area}  _(full address after fee)_\n"
         f"💰 ${price:.2f}/month  |  🛏️ {rooms} room(s)  |  🚿 {bathrooms} bath\n"
         f"👥 Shared: {shared}  |  🎓 Student-friendly: {sf}\n"
+        f"{avail}"
         f"🔧 Services: {svc_str}\n\n"
-        f"📝 {desc}\n\n"
-        f"💸 *Viewing commission: ${commission:.2f}* (5% of rent)\n\n"
-        f"1️⃣  — Enquire about this property\n"
-        f"2️⃣  — View full listing on web\n"
+        f"📝 _{desc}_\n\n"
+        f"🔒 *Pay ${commission:.2f} viewing fee to unlock:*\n"
+        f"   • Full street address\n"
+        f"   • Google Maps pin\n"
+        f"   • Landlord name & WhatsApp number\n\n"
+        f"1️⃣  — 💳 Pay viewing fee (${commission:.2f})\n"
+        f"2️⃣  — {shortlist_emoji} {shortlist_label}\n"
+        f"3️⃣  — 🌐 View on website\n"
         f"0️⃣  — Back to results\n\n"
-        f"_Link: {web_link}_"
+        f"_🌐 {web_link}_"
     )
+
+
+# ── Accommodation fee helpers ─────────────────────────────────────────────────
+
+def _confirm_viewing_fee(phone, data, payment_method):
+    """Record fee as paid in local DB, notify admin, and sync both enquiry + viewing to T-Tech Connect1."""
+    prop    = data.get("prop", {})
+    fee     = data.get("fee", 0)
+    name    = data.get("tenant_name", "Tenant")
+    prop_id = prop.get("id", 0)
+
+    # Local DB records
+    create_property_viewing(phone, prop_id, prop.get("title", ""), fee, payment_method)
+    confirm_property_viewing(phone, prop_id, payment_method)
+    log_property_enquiry(
+        phone=phone,
+        name=name,
+        property_id=prop_id,
+        property_title=prop.get("title", ""),
+        property_city=prop.get("city", ""),
+        price_per_month=prop.get("price_per_month", 0),
+    )
+
+    # ── Sync enquiry to T-Tech Connect1 ──────────────────────────────────────
+    _ttech_post("/api/enquiries", {
+        "property_id":  prop_id,
+        "tenant_name":  name,
+        "tenant_phone": phone,
+        "source":       "whatsapp",
+    })
+
+    # ── Sync confirmed viewing fee to T-Tech Connect1 ─────────────────────────
+    _ttech_post("/api/viewings", {
+        "property_id":    prop_id,
+        "tenant_name":    name,
+        "tenant_phone":   phone,
+        "fee_amount":     fee,
+        "payment_method": payment_method,
+        "status":         "paid",
+    })
+
+    notify_admin(
+        f"🏠 *Viewing Fee Paid — {prop.get('title')}*\n\n"
+        f"Tenant  : {name}\n"
+        f"Phone   : {phone}\n"
+        f"City    : {prop.get('city', '')}\n"
+        f"Rent    : ${prop.get('price_per_month', 0):.2f}/month\n"
+        f"Fee     : ${fee:.2f}\n"
+        f"Via     : {payment_method}\n\n"
+        f"Link: {TTECH_CONNECT_URL}/landlord/property/{prop_id}"
+    )
+
+
+def _viewing_fee_success(phone, data, payment_label):
+    """
+    After fee confirmed: fetch fresh property data from T-Tech Connect1 (so landlord
+    contact is always current), then send full unlocked card to tenant.
+    """
+    prop = data.get("prop", {})
+    fee  = data.get("fee", 0)
+    name = data.get("tenant_name", "Tenant")
+
+    # Try to refresh from T-Tech Connect1 — if offline, fall back to session data
+    prop_id   = prop.get("id", 0)
+    fresh     = fetch_property_by_id(prop_id)
+    live_prop = fresh if fresh else prop
+
+    # Keep session so tenant can immediately book a viewing (option 1 on the full card)
+    set_session(phone, "ctx_prop_detail", {
+        "prop":        live_prop,
+        "props":       data.get("props", []),
+        "tenant_name": name,
+    })
+
+    full_detail = format_property_detail(live_prop, already_paid=True)
+    return (
+        f"✅ *Payment Received — Thank you, {name}!*\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"Fee paid : *${fee:.2f}* via {payment_label}\n\n"
+        f"🔓 *Full details unlocked:*\n\n"
+        + full_detail
+    )
+
+
+# Paynow method names per provider
+_PAYNOW_METHOD = {"ecocash": "ecocash", "innbucks": "innbucks", "onemoney": "onemoney"}
+_PAYNOW_LABEL  = {"ecocash": "EcoCash", "innbucks": "InnBucks", "onemoney": "OneMoney"}
+
+
+def _initiate_mobile_viewing_fee(phone, data, payment_phone, provider):
+    """Push a Paynow mobile-money request and store a pending viewing fee record.
+
+    provider: "ecocash" | "innbucks" | "onemoney"
+    Returns a WhatsApp reply string.
+    """
+    prop    = data.get("prop", {})
+    fee     = data.get("fee", 0)
+    name    = data.get("tenant_name", "Tenant")
+    prop_id = prop.get("id", 0)
+    label   = _PAYNOW_LABEL.get(provider, provider.title())
+
+    reference = f"FEE-{prop_id}-{uuid.uuid4().hex[:8].upper()}"
+
+    result = initiate_ecocash_payment(
+        payment_phone, fee, reference,
+        mobile_method=_PAYNOW_METHOD.get(provider, provider)
+    )
+
+    # Store the Paynow reference in payment_method so the webhook can look it up
+    payment_method_str = f"{provider}:{payment_phone}:{reference}"
+    create_property_viewing(phone, prop_id, prop.get("title", ""), fee, payment_method_str)
+
+    if not result["success"]:
+        # Gateway unavailable — fall back to manual admin confirmation
+        notify_admin(
+            f"⚠️ *Paynow {label} failed — Manual confirm needed*\n\n"
+            f"Tenant : {name}\nPhone  : {phone}\n"
+            f"Fee    : ${fee:.2f}\nError  : {result.get('error', 'Unknown')}\n\n"
+            f"Reply: *confirm fee {phone}*"
+        )
+        return (
+            f"⚠️ *Automatic payment is temporarily unavailable.*\n\n"
+            f"Your request has been logged. An admin will contact you shortly to "
+            f"arrange payment of *${fee:.2f}*.\n\n"
+            f"_Reply *0* to go back._"
+        )
+
+    return (
+        f"📱 *{label} Payment Request Sent*\n\n"
+        f"A payment request of *${fee:.2f}* has been sent to *{payment_phone}*.\n\n"
+        f"✅ *Please approve it on your phone by entering your {label} PIN.*\n\n"
+        f"You will automatically receive the full property details once payment is confirmed.\n\n"
+        f"_If you don't receive a prompt within 2 minutes, reply *0* and try a "
+        f"different payment method._"
+    )
+
+
+def _format_shortlist(props):
+    """Format the shortlist for display."""
+    if not props:
+        return (
+            "❤️ *Your Shortlist is Empty*\n\n"
+            "Browse properties and press *2* on any listing to save it here.\n\n"
+            "_Reply *0* to go back._"
+        )
+    lines = [f"❤️ *Your Shortlist ({len(props)} properties):*\n"]
+    for i, p in enumerate(props[:5]):
+        price  = p.get("price_per_month", 0)
+        area   = _prop_area(p)
+        rooms  = p.get("available_rooms", 0)
+        vbadge = "✅ " if p.get("landlord_verified") or p.get("is_verified") else ""
+        lines.append(
+            f"{NUM_EMOJI[i]}  {vbadge}*{p['title']}*\n"
+            f"    📍 {area}  |  💰 ${price:.2f}/month  |  🛏️ {rooms} room(s)\n"
+        )
+    lines.append("\n_Reply a number to view | *C* to clear shortlist | *0* to go back_")
+    return "\n".join(lines)
 
 
 # ── Session handler ───────────────────────────────────────────────────────────
@@ -981,13 +1365,16 @@ def handle_session(phone, msg_text, session):
         if state == "ctx_cat_group":
             set_session(phone, "ctx_categories")
             return CATEGORIES_MENU
-        if state in ("ctx_buyer", "ctx_categories", "ctx_search", "ctx_results",
+        if state == "ctx_buyer":
+            return go_welcome(phone)
+        if state in ("ctx_categories", "ctx_search", "ctx_results",
                      "buy_qty", "buy_confirm", "ctx_buy_or_cart"):
             return go_buyer_menu(phone)
         if state == "ctx_seller":
             return go_welcome(phone)
-        if state in ("ctx_accommodation", "ctx_city_select",
-                     "ctx_prop_search", "ctx_prop_results"):
+        if state == "ctx_accommodation":
+            return go_welcome(phone)
+        if state in ("ctx_city_select", "ctx_prop_search", "ctx_prop_results"):
             return go_accommodation_menu(phone)
         if state == "ctx_prop_detail":
             # Go back to the property list stored in session
@@ -995,6 +1382,54 @@ def handle_session(phone, msg_text, session):
             if props:
                 set_session(phone, "ctx_prop_results", {"props": props})
                 return format_property_list(props, title="🏠 *Properties:*")
+            return go_accommodation_menu(phone)
+        if state == "prop_fee_name":
+            # Back to the property detail card
+            prop = data.get("prop", {})
+            already_paid = has_paid_viewing_fee(phone, prop.get("id", 0))
+            set_session(phone, "ctx_prop_detail", {
+                "prop":  prop,
+                "props": data.get("props", []),
+            })
+            return format_property_detail(prop, already_paid=already_paid)
+        if state == "prop_fee_payment":
+            # Back to name entry
+            set_session(phone, "prop_fee_name", data)
+            fee  = data.get("fee", 0)
+            prop = data.get("prop", {})
+            return (
+                f"💳 *Pay Viewing Fee — {prop.get('title')}*\n\n"
+                f"💸 Fee: *${fee:.2f}*\n\n"
+                "What is your *full name*?\n\n"
+                "_Reply *0* to go back._"
+            )
+        if state in ("prop_fee_ecocash", "prop_fee_innbucks",
+                     "prop_fee_onemoney", "prop_fee_bank"):
+            set_session(phone, "prop_fee_payment", data)
+            fee = data.get("fee", 0)
+            return (
+                f"💸 *Viewing fee: ${fee:.2f}*\n\n"
+                "1️⃣  EcoCash  2️⃣  InnBucks  3️⃣  OneMoney\n"
+                "4️⃣  Bank / ZIPIT  5️⃣  Cash\n\n"
+                "_Reply *0* to go back._"
+            )
+        if state == "prop_viewing_date":
+            # Back to full property card (already paid)
+            prop = data.get("prop", {})
+            set_session(phone, "ctx_prop_detail", {
+                "prop": prop, "props": data.get("props", []),
+                "tenant_name": data.get("tenant_name", ""),
+            })
+            return format_property_detail(prop, already_paid=True)
+        if state == "prop_viewing_time":
+            # Back to date entry
+            set_session(phone, "prop_viewing_date", data)
+            return (
+                "📅 *Preferred viewing date?*\n\n"
+                "_e.g. Mon 3 Feb, or 2025-02-03_\n\n"
+                "_Reply *0* to go back._"
+            )
+        if state == "ctx_prop_shortlist":
             return go_accommodation_menu(phone)
         if state == "prop_enquiry_name":
             return go_accommodation_menu(phone)
@@ -1018,21 +1453,17 @@ def handle_session(phone, msg_text, session):
                 f"2️⃣  — 🏪 Self-collect (I'll pick it up)\n"
                 f"0️⃣  — Back to cart"
             )
-        if state in ("ctx_checkout_ecocash", "ctx_checkout_pending"):
+        if state in ("ctx_checkout_ecocash", "ctx_checkout_pending",
+                     "ctx_checkout_innbucks", "ctx_checkout_onemoney"):
+            total = data.get("total", 0)
             set_session(phone, "ctx_checkout", {
-                "total": data.get("total", 0),
+                "total": total,
                 "delivery_type": data.get("delivery_type", "self_collect"),
                 "delivery_address": data.get("delivery_address", ""),
             })
-            delivery_line = (
-                f"\n📍 Delivering to: _{data.get('delivery_address')}_\n"
-                if data.get("delivery_type") == "delivery" else ""
-            )
-            return (
-                f"💳 *Checkout — ${data.get('total', 0):.2f}*"
-                f"{delivery_line}\n\n"
-                "1️⃣  — 📱 EcoCash\n2️⃣  — 💵 Cash on Delivery\n0️⃣  — Back"
-            )
+            if data.get("delivery_type") == "delivery" and data.get("delivery_address"):
+                return f"📍 Delivering to: _{data.get('delivery_address')}_\n\n" + _payment_menu(total)
+            return _payment_menu(total)
         if state in ("buy_delivery", "buy_delivery_addr"):
             set_session(phone, "buy_confirm", data)
             product = get_product_by_id(data.get("product_id"))
@@ -1089,6 +1520,9 @@ def handle_session(phone, msg_text, session):
                 "2️⃣  — 🔧 A service (choose from registered providers)\n\n"
                 "_Reply *0* to go back._"
             )
+        if state in ("cancel_order_reason", "refund_request_desc"):
+            clear_session(phone)
+            return WELCOME
         if state in ("reg_kyc", "reg_location", "reg_name", "reg_business"):
             clear_session(phone)
             return WELCOME
@@ -1099,7 +1533,9 @@ def handle_session(phone, msg_text, session):
             clear_session(phone)
             return WELCOME
         # Service browsing back-navigation
-        if state in ("ctx_find_service", "ctx_svc_cats", "ctx_svc_search", "ctx_svc_results"):
+        if state == "ctx_find_service":
+            return go_welcome(phone)
+        if state in ("ctx_svc_cats", "ctx_svc_search", "ctx_svc_results"):
             return go_find_service_menu(phone)
         if state == "ctx_svc_detail":
             services = data.get("services", [])
@@ -1129,8 +1565,12 @@ def handle_session(phone, msg_text, session):
         "ctx_categories", "ctx_cat_group", "ctx_city_select",
         "ctx_search", "ctx_results", "ctx_buy_or_cart",
         "ctx_prop_results", "ctx_prop_detail",
+        "prop_fee_name", "prop_fee_payment",
+        "prop_fee_ecocash", "prop_fee_innbucks", "prop_fee_onemoney", "prop_fee_bank",
+        "prop_viewing_date", "prop_viewing_time", "ctx_prop_shortlist",
         "ctx_cart", "ctx_cart_remove", "ctx_quote",
         "ctx_checkout", "ctx_checkout_ecocash", "ctx_checkout_pending",
+        "ctx_checkout_innbucks", "ctx_checkout_onemoney",
         "ctx_checkout_delivery", "ctx_checkout_delivery_addr",
         "buy_qty", "buy_confirm", "buy_delivery", "buy_delivery_addr",
         "del_reg_vehicle",
@@ -1138,6 +1578,7 @@ def handle_session(phone, msg_text, session):
         "ctx_quote_start", "ctx_quote_svc_cat", "ctx_quote_svc_list",
         "ctx_quote_desc", "ctx_quote_confirm",
         "ctx_admin_new_seller", "ctx_admin_new_seller_reject", "ctx_admin_new_seller_more_info",
+        "cancel_order_reason", "refund_request_desc",
     ) and not state.startswith("ctx_admin") \
       and not state.startswith("svc_") \
       and not state.startswith("prod_review"):
@@ -1372,11 +1813,38 @@ def handle_session(phone, msg_text, session):
             else:
                 pay_line = ""
 
+            # Check for active flash sale on this product
+            flash_price = None
+            flash_badge = ""
+            try:
+                from datetime import datetime as _dt
+                if get_setting("flash_product_id", "") == str(product["id"]):
+                    _exp = get_setting("flash_expires_at", "")
+                    if _exp and _dt.utcnow() < _dt.fromisoformat(_exp):
+                        flash_price = float(get_setting("flash_sale_price", "0") or 0)
+                        flash_pct   = get_setting("flash_discount_pct", "0")
+                        flash_badge = f"⚡ *FLASH SALE — {flash_pct}% OFF! Limited time only!* 🔥\n"
+                        # Store flash price in session for checkout
+                        sess_data = get_session(phone)
+                        if sess_data:
+                            sd = json.loads(sess_data["data"]) if isinstance(sess_data["data"], str) else sess_data["data"]
+                            sd["flash_price"] = flash_price
+                            set_session(phone, "buy_qty", sd)
+            except Exception:
+                pass
+
+            price_line = (
+                f"💰 Price    : ~~${product['price']:.2f}~~ → *${flash_price:.2f}* {price_unit} ⚡\n"
+                if flash_price else
+                f"💰 Price    : *${product['price']:.2f}* {price_unit}\n"
+            )
+
             return (
                 f"🛒 *{product['name']}*\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"{flash_badge}"
                 f"📦 Category : {product['category']}\n"
-                f"💰 Price    : *${product['price']:.2f}* {price_unit}\n"
+                f"{price_line}"
                 f"✅ In stock : {stock_label}\n"
                 f"{seller_line}"
                 f"{rating_line}"
@@ -1387,6 +1855,7 @@ def handle_session(phone, msg_text, session):
                 f"{ext_line}"
                 f"📝 _{desc[:120]}_\n\n"
                 f"🔗 Full details: {web_link}\n\n"
+                f"🔗 Share: {web_link}\n\n"
                 f"🔢 How many *{unit}* would you like?\n"
                 "_Type a number to order  |  reply *Q* for a custom quote  |  *0* to go back._"
             )
@@ -1397,7 +1866,12 @@ def handle_session(phone, msg_text, session):
     if state == "ctx_accommodation":
         if msg_text == "1":
             set_session(phone, "ctx_prop_search")
-            return "🔍 What are you looking for?\n\nType a keyword, area or property name:\n_e.g. Borrowdale, 2 bedroom, furnished_\n\n_Reply *0* to go back._"
+            return (
+                "🔍 *Search Properties*\n\n"
+                "Type a keyword, suburb, area or property name:\n"
+                "_e.g. Borrowdale, 2 bedroom, furnished, near UZ_\n\n"
+                "_Reply *0* to go back._"
+            )
         if msg_text == "2":
             set_session(phone, "ctx_city_select")
             return CITIES_MENU
@@ -1413,6 +1887,16 @@ def handle_session(phone, msg_text, session):
                 props = props[:5]
             set_session(phone, "ctx_prop_results", {"props": props or [], "label": "All Available"})
             return format_property_list(props, title="🏠 *All Available Properties:*")
+        if msg_text == "5":
+            shortlist = get_shortlist(phone)
+            if not shortlist:
+                return (
+                    "❤️ *Your Shortlist is Empty*\n\n"
+                    "Browse properties and press *2* on any listing to save it here.\n\n"
+                    "_Reply *0* to go back._"
+                )
+            set_session(phone, "ctx_prop_shortlist", {"props": shortlist})
+            return _format_shortlist(shortlist)
         return ACCOMMODATION_MENU
 
     # ── Accommodation: city select ────────────────────────────────────────────
@@ -1440,73 +1924,350 @@ def handle_session(phone, msg_text, session):
         props   = data.get("props", [])
         num_map = {str(i + 1): props[i] for i in range(len(props))}
         if msg_text in num_map:
-            prop = num_map[msg_text]
-            # Store selected prop + full list so we can go back
-            set_session(phone, "ctx_prop_detail", {
-                "prop": prop,
-                "props": props,
-            })
-            return format_property_detail(prop)
+            prop    = num_map[msg_text]
+            prop_id = prop.get("id", 0)
+            # Send up to 3 property photos before the text card
+            sent_imgs = 0
+            for img_key in ("images", "photos"):
+                imgs = prop.get(img_key)
+                if isinstance(imgs, list):
+                    for img_url in imgs[:3]:
+                        if img_url and sent_imgs < 3:
+                            send_whatsapp_image(phone, img_url,
+                                                caption=f"{prop.get('title','')} ({sent_imgs+1}/3)")
+                            sent_imgs += 1
+            if sent_imgs == 0:
+                for img_key in ("image_url", "thumbnail_url", "cover_image", "photo_url", "image"):
+                    img = prop.get(img_key)
+                    if img:
+                        send_whatsapp_image(phone, img, caption=prop.get("title", ""))
+                        break
+            already_paid    = has_paid_viewing_fee(phone, prop_id)
+            in_shortlist_fl = in_shortlist(phone, prop_id)
+            set_session(phone, "ctx_prop_detail", {"prop": prop, "props": props})
+            return format_property_detail(prop,
+                                          already_paid=already_paid,
+                                          in_shortlist_flag=in_shortlist_fl)
         return format_property_list(props, title="🏠 *Properties:*")
 
     # ── Accommodation: property detail ────────────────────────────────────────
     if state == "ctx_prop_detail":
-        prop = data.get("prop", {})
+        prop            = data.get("prop", {})
+        prop_id         = prop.get("id", 0)
+        already_paid    = has_paid_viewing_fee(phone, prop_id)
+        in_shortlist_fl = in_shortlist(phone, prop_id)
+
         if msg_text == "1":
-            # Start enquiry flow
-            set_session(phone, "prop_enquiry_name", {
-                "prop_id":    prop.get("id"),
-                "prop_title": prop.get("title"),
-                "prop_city":  prop.get("city", ""),
-                "prop_price": prop.get("price_per_month", 0),
-                "props":      data.get("props", []),
+            if already_paid:
+                # Start booking appointment flow
+                tenant_name = data.get("tenant_name", "")
+                set_session(phone, "prop_viewing_date", {
+                    "prop": prop, "props": data.get("props", []),
+                    "tenant_name": tenant_name,
+                })
+                return (
+                    f"📅 *Book a Viewing — {prop.get('title')}*\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    "What date would you like to view this property?\n\n"
+                    "_e.g. Mon 3 Feb, or 2025-02-03_\n\n"
+                    "_Reply *0* to go back._"
+                )
+            # Start fee-payment flow
+            price      = prop.get("price_per_month", 0)
+            accom_rate = float(get_setting("accommodation_commission_rate", "5")) / 100
+            commission = round(price * accom_rate, 2)
+            set_session(phone, "prop_fee_name", {
+                "prop":  prop,
+                "props": data.get("props", []),
+                "fee":   commission,
             })
             return (
-                f"📋 *Enquire: {prop.get('title')}*\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"💳 *Pay Viewing Fee — {prop.get('title')}*\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"💸 Fee: *${commission:.2f}*  _(5% of ${price:.2f}/month)_\n\n"
+                "✅ You will receive:\n"
+                "   • Full street address\n"
+                "   • Google Maps pin\n"
+                "   • Landlord name & WhatsApp number\n\n"
                 "What is your *full name*?\n\n"
-                "_Reply *0* to cancel._"
-            )
-        if msg_text == "2":
-            link = f"{TTECH_CONNECT_URL}/landlord/property/{prop.get('id')}"
-            return (
-                f"🌐 *View Full Listing:*\n\n"
-                f"{link}\n\n"
-                "Open the link to see all photos, reviews, and book a viewing.\n\n"
                 "_Reply *0* to go back._"
             )
-        return format_property_detail(prop)
 
-    # ── Accommodation: enquiry name collection ────────────────────────────────
-    if state == "prop_enquiry_name":
-        name = msg_text.title()
-        log_property_enquiry(
-            phone=phone,
-            name=name,
-            property_id=data.get("prop_id", 0),
-            property_title=data.get("prop_title", ""),
-            property_city=data.get("prop_city", ""),
-            price_per_month=data.get("prop_price", 0),
+        if msg_text == "2":
+            # Toggle shortlist
+            if in_shortlist_fl:
+                remove_from_shortlist(phone, prop_id)
+                action = "removed from"
+            else:
+                count = shortlist_count(phone)
+                if count >= 5:
+                    return (
+                        "❤️ *Shortlist Full* (max 5 properties)\n\n"
+                        "Reply *5* from the accommodation menu to manage your shortlist.\n\n"
+                        "_Reply *0* to go back._"
+                    )
+                add_to_shortlist(phone, prop_id, prop)
+                action = "added to"
+            in_shortlist_fl = not in_shortlist_fl
+            return (
+                f"{'❤️' if in_shortlist_fl else '🤍'} *{prop.get('title')}* "
+                f"{action} your shortlist.\n\n"
+                f"Reply *5* from the accommodation menu to view all saved properties.\n\n"
+                f"_Reply *0* to go back._"
+            )
+
+        if msg_text == "3":
+            link = f"{TTECH_CONNECT_URL}/landlord/property/{prop_id}"
+            return (
+                f"🌐 *View Full Listing Online:*\n\n"
+                f"{link}\n\n"
+                "Open the link to see all photos, landlord reviews and apply online.\n\n"
+                "_Reply *0* to go back._"
+            )
+
+        return format_property_detail(prop,
+                                      already_paid=already_paid,
+                                      in_shortlist_flag=in_shortlist_fl)
+
+    # ── Fee flow: collect name ────────────────────────────────────────────────
+    if state == "prop_fee_name":
+        data["tenant_name"] = msg_text.title()
+        set_session(phone, "prop_fee_payment", data)
+        fee  = data.get("fee", 0)
+        prop = data.get("prop", {})
+        return (
+            f"👋 Thanks, *{data['tenant_name']}*!\n\n"
+            f"💸 *Viewing fee: ${fee:.2f}*\n\n"
+            "How would you like to pay?\n\n"
+            "1️⃣  — 📱 EcoCash\n"
+            "2️⃣  — 💛 InnBucks\n"
+            "3️⃣  — 🟢 OneMoney\n"
+            "4️⃣  — 🏦 Bank Transfer / ZIPIT\n"
+            "5️⃣  — 💵 Cash (visit T-Tech office)\n\n"
+            "_Reply *0* to go back._"
         )
+
+    # ── Fee flow: payment method selection ────────────────────────────────────
+    if state == "prop_fee_payment":
+        prop = data.get("prop", {})
+        fee  = data.get("fee", 0)
+        contact_ph = get_setting("contact_phone", "+263 77 412 8219")
+        if msg_text == "1":   # EcoCash
+            set_session(phone, "prop_fee_ecocash", data)
+            return (
+                f"📱 *EcoCash Payment — ${fee:.2f}*\n\n"
+                f"Send *${fee:.2f}* to:\n"
+                f"📞 *{contact_ph}* (T-Tech Connect)\n\n"
+                "Once sent, enter your *EcoCash number* used to pay\n"
+                "(so we can verify the transaction):\n\n"
+                "_Reply *0* to go back._"
+            )
+        if msg_text == "2":   # InnBucks
+            set_session(phone, "prop_fee_innbucks", data)
+            return (
+                f"💛 *InnBucks Payment — ${fee:.2f}*\n\n"
+                f"Send *${fee:.2f}* to:\n"
+                f"📞 *{contact_ph}* (T-Tech Connect)\n\n"
+                "Once sent, enter your *InnBucks number* used to pay:\n\n"
+                "_Reply *0* to go back._"
+            )
+        if msg_text == "3":   # OneMoney
+            set_session(phone, "prop_fee_onemoney", data)
+            return (
+                f"🟢 *OneMoney Payment — ${fee:.2f}*\n\n"
+                f"Send *${fee:.2f}* to:\n"
+                f"📞 *{contact_ph}* (T-Tech Connect)\n\n"
+                "Once sent, enter your *OneMoney number* used to pay:\n\n"
+                "_Reply *0* to go back._"
+            )
+        if msg_text == "4":   # Bank / ZIPIT
+            set_session(phone, "prop_fee_bank", data)
+            return (
+                f"🏦 *Bank Transfer / ZIPIT — ${fee:.2f}*\n\n"
+                "Transfer to:\n"
+                "Bank     : *CBZ Bank*\n"
+                "Acc Name : *T-Tech Connect*\n"
+                "Acc No   : _(contact admin for details)_\n\n"
+                f"📞 {contact_ph}\n\n"
+                "Once transferred, type your *bank reference number* to confirm:\n\n"
+                "_Reply *0* to go back._"
+            )
+        if msg_text == "5":   # Cash — requires admin verification
+            prop    = data.get("prop", {})
+            fee     = data.get("fee", 0)
+            name    = data.get("tenant_name", "Tenant")
+            prop_id = prop.get("id", 0)
+            create_property_viewing(phone, prop_id, prop.get("title", ""), fee, "cash:pending")
+            notify_admin(
+                f"💵 *Pending Cash Payment — {prop.get('title')}*\n\n"
+                f"Tenant  : {name}\n"
+                f"Phone   : {phone}\n"
+                f"City    : {prop.get('city', '')}\n"
+                f"Fee     : ${fee:.2f}\n\n"
+                f"⚠️ Cash payment — verify before confirming.\n"
+                f"Reply: *confirm fee {phone}*"
+            )
+            return (
+                f"💵 *Cash Payment — Pending Verification*\n\n"
+                f"Hi {name}, your request has been received.\n\n"
+                f"Please visit the T-Tech office to pay *${fee:.2f}* in cash. "
+                f"An admin will send you the property details once your payment is confirmed.\n\n"
+                f"_This usually takes a few minutes during business hours._\n\n"
+                f"_Reply *0* to go back._"
+            )
+        return (
+            "Please reply *1–5* to choose a payment method.\n\n"
+            "1️⃣ EcoCash  2️⃣ InnBucks  3️⃣ OneMoney  4️⃣ Bank  5️⃣ Cash"
+        )
+
+    # ── Fee flow: EcoCash number confirmation ─────────────────────────────────
+    if state == "prop_fee_ecocash":
+        num = msg_text.strip().replace(" ", "")
+        if not (num.isdigit() and len(num) >= 9):
+            return "❌ Please enter a valid EcoCash number, e.g. *0774128219*"
+        return _initiate_mobile_viewing_fee(phone, data, num, "ecocash")
+
+    # ── Fee flow: InnBucks number confirmation ────────────────────────────────
+    if state == "prop_fee_innbucks":
+        num = msg_text.strip().replace(" ", "")
+        if not (num.isdigit() and len(num) >= 9):
+            return "❌ Please enter a valid InnBucks number, e.g. *0716123456*"
+        return _initiate_mobile_viewing_fee(phone, data, num, "innbucks")
+
+    # ── Fee flow: OneMoney number confirmation ────────────────────────────────
+    if state == "prop_fee_onemoney":
+        num = msg_text.strip().replace(" ", "")
+        if not (num.isdigit() and len(num) >= 9):
+            return "❌ Please enter a valid OneMoney number, e.g. *0712123456*"
+        return _initiate_mobile_viewing_fee(phone, data, num, "onemoney")
+
+    # ── Fee flow: Bank / ZIPIT reference ──────────────────────────────────────
+    if state == "prop_fee_bank":
+        ref = msg_text.strip()
+        if len(ref) < 3:
+            return "❌ Please enter your bank reference number."
+        prop    = data.get("prop", {})
+        fee     = data.get("fee", 0)
+        name    = data.get("tenant_name", "Tenant")
+        prop_id = prop.get("id", 0)
+        create_property_viewing(phone, prop_id, prop.get("title", ""), fee, f"bank:{ref}:pending")
         notify_admin(
-            f"🏠 *New Property Enquiry*\n\n"
-            f"Property : {data.get('prop_title')}\n"
-            f"City     : {data.get('prop_city')}\n"
-            f"Price    : ${data.get('prop_price', 0):.2f}/month\n"
-            f"Enquirer : {name}\n"
-            f"Phone    : {phone}\n\n"
-            f"Link: {TTECH_CONNECT_URL}/landlord/property/{data.get('prop_id')}"
+            f"🏦 *Pending Bank Transfer — {prop.get('title')}*\n\n"
+            f"Tenant : {name}\nPhone  : {phone}\n"
+            f"Fee    : ${fee:.2f}\nRef    : {ref}\n\n"
+            f"Verify transfer then reply: *confirm fee {phone}*"
+        )
+        return (
+            f"🏦 *Bank Transfer — Pending Verification*\n\n"
+            f"Thanks {name}! Your reference *{ref}* has been logged.\n\n"
+            f"An admin will verify your transfer and send the full property details "
+            f"once confirmed.\n\n"
+            f"_This usually takes a few minutes during business hours._\n\n"
+            f"_Reply *0* to go back._"
+        )
+
+    # ── Viewing appointment: after fee paid, option 1 ─────────────────────────
+    if state == "prop_viewing_date":
+        prop = data.get("prop", {})
+        raw  = msg_text.strip()
+        if len(raw) < 3:
+            return "❌ Please enter a date, e.g. *Mon 3 Feb* or *2025-02-03*"
+        set_session(phone, "prop_viewing_time", {**data, "preferred_date": raw})
+        return (
+            f"🕐 *Preferred time on {raw}?*\n\n"
+            "1️⃣  — 🌅 Morning   (8am – 12pm)\n"
+            "2️⃣  — ☀️ Afternoon (12pm – 5pm)\n"
+            "3️⃣  — 🌆 Evening   (5pm – 7pm)\n\n"
+            "_Reply *0* to go back._"
+        )
+
+    if state == "prop_viewing_time":
+        prop           = data.get("prop", {})
+        preferred_date = data.get("preferred_date", "")
+        time_map       = {"1": "Morning (8am–12pm)", "2": "Afternoon (12pm–5pm)",
+                          "3": "Evening (5pm–7pm)"}
+        if msg_text not in time_map:
+            return "Please reply *1*, *2*, or *3* to select a time."
+        preferred_time  = time_map[msg_text]
+        landlord_ph     = prop.get("landlord_phone") or prop.get("contact_phone") or ""
+        tenant_name     = data.get("tenant_name", "Tenant")
+        prop_id = prop.get("id", 0)
+        create_viewing_appointment(
+            phone=phone,
+            tenant_name=tenant_name,
+            property_id=prop_id,
+            property_title=prop.get("title", ""),
+            landlord_phone=landlord_ph,
+            preferred_date=preferred_date,
+            preferred_time=preferred_time,
+        )
+
+        # ── Sync appointment to T-Tech Connect1 dashboard ────────────────────
+        _ttech_post("/api/appointments", {
+            "property_id":    prop_id,
+            "tenant_name":    tenant_name,
+            "tenant_phone":   phone,
+            "preferred_date": preferred_date,
+            "preferred_time": preferred_time,
+            "source":         "whatsapp",
+        })
+
+        # Notify landlord on WhatsApp if we have their number
+        if landlord_ph:
+            send_whatsapp_message(
+                landlord_ph,
+                f"📅 *New Viewing Request — {prop.get('title')}*\n\n"
+                f"Tenant : {tenant_name}\n"
+                f"Phone  : {phone}\n"
+                f"Date   : {preferred_date}\n"
+                f"Time   : {preferred_time}\n\n"
+                "This tenant paid the T-Tech Connect viewing fee. "
+                "Please confirm or suggest another time by replying here *or* "
+                "via your T-Tech Connect dashboard."
+            )
+        notify_admin(
+            f"📅 *Viewing Appointment*\n"
+            f"Property: {prop.get('title')}\n"
+            f"Tenant  : {tenant_name} ({phone})\n"
+            f"Date    : {preferred_date}  ·  {preferred_time}"
         )
         clear_session(phone)
         return (
-            f"✅ *Enquiry Sent!*\n\n"
-            f"Thank you, *{name}*!\n\n"
-            f"Your enquiry for *{data.get('prop_title')}* has been received.\n\n"
-            "Our team will contact you within *24 hours* to arrange a viewing. 🕐\n\n"
-            f"💸 Viewing commission: *${round(data.get('prop_price', 0) * 0.05, 2):.2f}*\n"
-            f"Pay via EcoCash or at {TTECH_CONNECT_URL}\n\n"
+            f"✅ *Viewing Request Sent!*\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"🏠 {prop.get('title')}\n"
+            f"📅 {preferred_date}  ·  {preferred_time}\n\n"
+            "The landlord has been notified on WhatsApp and will confirm with you directly. 📲\n\n"
+            "💡 *Tip:* Save the landlord's number and reach out if you don't hear back within 24 hours.\n\n"
             "_Reply *0* for the main menu._"
         )
+
+    # ── Shortlist view ────────────────────────────────────────────────────────
+    if state == "ctx_prop_shortlist":
+        props   = data.get("props", [])
+        num_map = {str(i + 1): props[i] for i in range(len(props))}
+        if msg_text in num_map:
+            prop            = num_map[msg_text]
+            prop_id         = prop.get("id", 0)
+            already_paid    = has_paid_viewing_fee(phone, prop_id)
+            in_shortlist_fl = in_shortlist(phone, prop_id)
+            # Send photo(s)
+            for img_key in ("image_url", "thumbnail_url", "cover_image", "photo_url", "image"):
+                img = prop.get(img_key)
+                if img:
+                    send_whatsapp_image(phone, img, caption=prop.get("title", ""))
+                    break
+            set_session(phone, "ctx_prop_detail", {"prop": prop, "props": props})
+            return format_property_detail(prop,
+                                          already_paid=already_paid,
+                                          in_shortlist_flag=in_shortlist_fl)
+        if msg_text.upper() == "C":
+            # Clear the entire shortlist
+            for p in props:
+                remove_from_shortlist(phone, p.get("id", 0))
+            clear_session(phone)
+            return "🗑️ Shortlist cleared.\n\n_Reply *0* for the main menu._"
+        return _format_shortlist(props)
 
     # ── Find a service: top menu ──────────────────────────────────────────────
     if state == "ctx_find_service":
@@ -1992,15 +2753,15 @@ def handle_session(phone, msg_text, session):
             accom_rate = get_setting("accommodation_commission_rate", "5")
             set_session(phone, "ctx_admin_commission", {})
             return (
-                f"⚙️ *Commission Settings*\n"
+                f"⚙️ *Connect Fee Settings*\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
                 f"Current rates:\n"
                 f"• 📦 Products      : *{prod_rate}%*\n"
                 f"• 🔧 Services      : *{svc_rate}%*\n"
                 f"• 🏠 Accommodation : *{accom_rate}%*\n\n"
-                f"1️⃣  — Change product commission\n"
-                f"2️⃣  — Change service commission\n"
-                f"3️⃣  — Change accommodation commission\n"
+                f"1️⃣  — Change product Connect Fee\n"
+                f"2️⃣  — Change service Connect Fee\n"
+                f"3️⃣  — Change accommodation Connect Fee\n"
                 f"0️⃣  — Back to admin panel"
             )
         return build_admin_dashboard(phone)
@@ -2219,7 +2980,7 @@ def handle_session(phone, msg_text, session):
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"Category  : {product['category']}\n"
                 f"Price     : ${product['price']:.2f}\n"
-                f"Commission: ${product['commission']:.2f}\n"
+                f"Connect Fee: ${product['commission']:.2f}\n"
                 f"Seller    : {product.get('business_name') or product.get('listed_by', 'N/A')}\n"
                 f"Status    : {product.get('status','').title()}\n\n"
                 f"1️⃣  — ✅ Approve listing\n"
@@ -2376,14 +3137,20 @@ def handle_session(phone, msg_text, session):
                     "⭐ Reply *rate product* to leave a review."
                 )
             else:
-                # Physical product: standard fulfillment message
+                # Physical product: fulfillment + review nudge + share link + upsell
+                product_url = f"{BASE_URL}/product/{order['product_id']}"
                 send_whatsapp_message(
                     order["buyer_phone"],
                     f"📦 *Order Delivered!*\n\n"
                     f"Your order *{ref}* for *{order['product_name']}* has been fulfilled. 🎉\n\n"
-                    "Thank you for shopping with T-Tech Connect!\n\n"
-                    "⭐ *How was your experience?*\n"
-                    "Reply *rate product* to leave a quick review — it helps other buyers!"
+                    "Thank you for shopping with *T-Tech Connect!*\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "⭐ *Leave a review* — help other buyers:\n"
+                    "   Reply *rate product*\n\n"
+                    "🔗 *Share this product* with friends:\n"
+                    f"   {product_url}\n\n"
+                    "🛒 *Shop more great deals:*\n"
+                    "   Reply *1* to browse or *0* for the main menu"
                 )
             # Notify seller
             if order.get("seller_phone"):
@@ -2393,6 +3160,33 @@ def handle_session(phone, msg_text, session):
                     f"Product : {order['product_name']}\n"
                     f"Buyer   : {order['buyer_phone']}\n\n"
                     "This order has been marked as delivered by admin.\n\n"
+                    "_Reply *0* for the main menu._"
+                )
+            # Referral reward — check if buyer was referred; reward on first fulfilled order
+            buyer_ph = order["buyer_phone"]
+            referral = get_referral_by_referred(buyer_ph)
+            if referral and referral["status"] == "pending":
+                reward_code = f"REF{buyer_ph[-4:]}{order['id']}"
+                create_promo_code(reward_code, "fixed", 1.0, min_order=2, max_uses=1)
+                complete_referral(buyer_ph, reward_code)
+                # Reward the referrer
+                send_whatsapp_message(
+                    referral["referrer_phone"],
+                    f"🎉 *Referral Reward!*\n\n"
+                    f"Someone you referred just completed their first order!\n\n"
+                    f"Your $1 discount code: *{reward_code}*\n"
+                    "Use it on your next order with *promo " + reward_code + "*\n\n"
+                    "_Reply *0* for the main menu._"
+                )
+                # Reward the referred buyer too
+                buyer_reward = f"WELCOME{buyer_ph[-4:]}"
+                create_promo_code(buyer_reward, "fixed", 1.0, min_order=2, max_uses=1)
+                send_whatsapp_message(
+                    buyer_ph,
+                    f"🎁 *Welcome Bonus!*\n\n"
+                    f"Thanks for joining via a referral! Here's your $1 welcome code:\n"
+                    f"*{buyer_reward}*\n"
+                    "Use it on your next order with *promo " + buyer_reward + "*\n\n"
                     "_Reply *0* for the main menu._"
                 )
             log_admin_action(phone, "fulfill_order", "order", ref)
@@ -2450,7 +3244,7 @@ def handle_session(phone, msg_text, session):
         if msg_text == "1":
             set_session(phone, "ctx_admin_set_commission", {"type": "product"})
             return (
-                f"📦 *Product Commission Rate*\n\n"
+                f"📦 *Product Connect Fee Rate*\n\n"
                 f"Current rate: *{prod_rate}%*\n\n"
                 "Enter the new rate (0–100):\n"
                 "_e.g. type *10* for 10%_\n\n"
@@ -2459,7 +3253,7 @@ def handle_session(phone, msg_text, session):
         if msg_text == "2":
             set_session(phone, "ctx_admin_set_commission", {"type": "service"})
             return (
-                f"🔧 *Service Commission Rate*\n\n"
+                f"🔧 *Service Connect Fee Rate*\n\n"
                 f"Current rate: *{svc_rate}%*\n\n"
                 "Enter the new rate (0–100):\n"
                 "_e.g. type *10* for 10%_\n\n"
@@ -2468,14 +3262,14 @@ def handle_session(phone, msg_text, session):
         if msg_text == "3":
             set_session(phone, "ctx_admin_set_commission", {"type": "accommodation"})
             return (
-                f"🏠 *Accommodation Commission Rate*\n\n"
+                f"🏠 *Accommodation Connect Fee Rate*\n\n"
                 f"Current rate: *{accom_rate}%*\n\n"
                 "Enter the new rate (0–100):\n"
                 "_e.g. type *5* for 5%_\n\n"
                 "_Reply *0* to cancel._"
             )
         return (
-            f"⚙️ *Commission Settings*\n\n"
+            f"⚙️ *Connect Fee Settings*\n\n"
             f"• 📦 Products      : *{prod_rate}%*\n"
             f"• 🔧 Services      : *{svc_rate}%*\n"
             f"• 🏠 Accommodation : *{accom_rate}%*\n\n"
@@ -2510,7 +3304,7 @@ def handle_session(phone, msg_text, session):
         set_setting(setting_key, str(int(new_rate) if new_rate == int(new_rate) else new_rate))
         clear_session(phone)
         return (
-            f"✅ *{label} Commission Updated*\n\n"
+            f"✅ *{label} Connect Fee Rate Updated*\n\n"
             f"Old rate : {old_rate}%\n"
             f"New rate : *{new_rate:.0f}%*\n\n"
             "All new listings will use this rate going forward.\n\n"
@@ -2579,10 +3373,11 @@ def handle_session(phone, msg_text, session):
         target  = data.get("target", "")
         message = data.get("message", "")
         if msg_text == "1":
+            footer  = "\n\n_Reply *unsubscribe* to opt out of future messages._" if target == "all" else ""
             sent = 0
             for p in phones:
                 if p != phone:
-                    send_whatsapp_message(p, message)
+                    send_whatsapp_message(p, message + footer)
                     sent += 1
             _log("broadcast", target, "", f"Sent to {sent} recipients")
             clear_session(phone)
@@ -2656,8 +3451,14 @@ def handle_session(phone, msg_text, session):
         total = data.get("total", 0)
         if msg_text == "1":   # Delivery
             set_session(phone, "ctx_checkout_delivery_addr", {"total": total})
+            profile = get_buyer_profile(phone)
+            saved   = profile.get("address") if profile else ""
+            addr_hint = (
+                f"\n💾 Saved address: _{saved}_\nReply *saved* to use it, or type a new one below.\n"
+                if saved else ""
+            )
             return (
-                "📍 *Your Delivery Address*\n\n"
+                f"📍 *Your Delivery Address*\n{addr_hint}\n"
                 "Please enter your delivery address:\n\n"
                 "_e.g. 123 Main Street, Harare CBD_\n\n"
                 "_Reply *0* to cancel._"
@@ -2668,14 +3469,7 @@ def handle_session(phone, msg_text, session):
                 "delivery_type": "self_collect",
                 "delivery_address": "",
             })
-            return (
-                f"💳 *Checkout — ${total:.2f}*\n\n"
-                "🏪 You will collect your order from the seller.\n\n"
-                "Choose payment method:\n\n"
-                "1️⃣  — 📱 EcoCash (pay now)\n"
-                "2️⃣  — 💵 Cash on Delivery\n"
-                "0️⃣  — Back"
-            )
+            return _payment_menu(total)
         return (
             f"🚚 *Delivery Options*\n\n"
             f"Order total: *${total:.2f}*\n\n"
@@ -2688,20 +3482,24 @@ def handle_session(phone, msg_text, session):
     if state == "ctx_checkout_delivery_addr":
         total = data.get("total", 0)
         delivery_address = msg_text.strip()
+        # Let buyer use saved address
+        if msg_text.lower() in ("saved", "use saved", "my address"):
+            profile = get_buyer_profile(phone)
+            if profile and profile.get("address"):
+                delivery_address = profile["address"]
+            else:
+                return "📭 No saved address found. Please type your delivery address.\n\n_e.g. 123 Main Street, Harare CBD_"
         if len(delivery_address) < 5:
             return "Please provide a valid delivery address (at least 5 characters).\n\n_e.g. 123 Main Street, Harare CBD_"
+        save_buyer_profile(phone, address=delivery_address)
         set_session(phone, "ctx_checkout", {
             "total": total,
             "delivery_type": "delivery",
             "delivery_address": delivery_address,
         })
         return (
-            f"💳 *Checkout — ${total:.2f}*\n\n"
-            f"📍 Delivering to: _{delivery_address}_\n\n"
-            "Choose payment method:\n\n"
-            "1️⃣  — 📱 EcoCash (pay now)\n"
-            "2️⃣  — 💵 Cash on Delivery\n"
-            "0️⃣  — Back"
+            f"📍 Delivering to: _{delivery_address}_ ✅ (address saved for next time)\n\n"
+            + _payment_menu(total)
         )
 
     # ── Checkout: payment method ──────────────────────────────────────────────
@@ -2709,63 +3507,144 @@ def handle_session(phone, msg_text, session):
         total            = data.get("total", 0)
         delivery_type    = data.get("delivery_type", "self_collect")
         delivery_address = data.get("delivery_address", "")
-        if msg_text == "1":   # EcoCash
+
+        # EcoCash → ask for phone number
+        if msg_text == "1":
             set_session(phone, "ctx_checkout_ecocash", {
-                "total": total,
-                "delivery_type": delivery_type,
+                "total": total, "delivery_type": delivery_type,
                 "delivery_address": delivery_address,
             })
             return (
                 f"📱 *EcoCash Payment*\n\n"
-                f"Amount: *${total:.2f}*\n\n"
-                "Enter your EcoCash phone number:\n"
+                f"Amount: {_zig_price(total)}\n\n"
+                "Enter your EcoCash number:\n"
                 "_e.g. 0774128219_\n\n"
                 "_Reply *0* to cancel._"
             )
-        if msg_text == "2":   # Cash on Delivery
-            items = get_cart(phone)
+
+        # InnBucks → ask for InnBucks number
+        if msg_text == "2":
+            set_session(phone, "ctx_checkout_innbucks", {
+                "total": total, "delivery_type": delivery_type,
+                "delivery_address": delivery_address,
+            })
+            return (
+                f"💚 *InnBucks Payment*\n\n"
+                f"Amount: {_zig_price(total)}\n\n"
+                "Enter your InnBucks number:\n"
+                "_e.g. 0713456789_\n\n"
+                "You will receive a payment prompt on your phone.\n\n"
+                "_Reply *0* to cancel._"
+            )
+
+        # OneMoney → ask for OneMoney number
+        if msg_text == "3":
+            set_session(phone, "ctx_checkout_onemoney", {
+                "total": total, "delivery_type": delivery_type,
+                "delivery_address": delivery_address,
+            })
+            return (
+                f"🟠 *OneMoney Payment*\n\n"
+                f"Amount: {_zig_price(total)}\n\n"
+                "Enter your OneMoney (NetOne) number:\n"
+                "_e.g. 0712345678_\n\n"
+                "_Reply *0* to cancel._"
+            )
+
+        # Cash on Delivery / Collection
+        if msg_text == "4":
+            items  = get_cart(phone)
             placed = []
             for item in items:
                 product = get_product_by_id(item["product_id"])
-                if product and product["stock_qty"] >= item["quantity"]:
+                if product and (product.get("product_type") == "digital" or
+                                product["stock_qty"] >= item["quantity"]):
                     order_id, order_ref, order_total = create_order(
                         phone, item["product_id"], item["quantity"], item["price"],
                         delivery_type=delivery_type,
                         delivery_address=delivery_address,
                     )
-                    update_stock(item["product_id"], product["stock_qty"] - item["quantity"])
+                    if product.get("product_type") != "digital":
+                        update_stock(item["product_id"], product["stock_qty"] - item["quantity"])
+                        # low-stock alert
+                        new_qty = product["stock_qty"] - item["quantity"]
+                        if 0 < new_qty <= LOW_STOCK_THRESHOLD and product.get("listed_by"):
+                            send_whatsapp_message(
+                                product["listed_by"],
+                                f"⚠️ *Low Stock Alert!*\n\n"
+                                f"*{product['name']}* — only *{new_qty} {product.get('stock_unit','pcs')}* left.\n"
+                                "Reply *2* from the Sell menu to update your stock.\n\n"
+                                "_Reply *0* for the main menu._"
+                            )
                     placed.append(f"• {item['name']} × {item['quantity']}")
                     if product["listed_by"]:
                         d_note = (f"\n📍 Deliver to: {delivery_address}"
                                   if delivery_type == "delivery" else "\n🏪 Buyer will self-collect.")
                         send_whatsapp_message(
                             product["listed_by"],
-                            f"🛒 *New COD Order!*\n\nRef: *{order_ref}*\n"
+                            f"🛒 *New Cash Order!*\n\nRef: *{order_ref}*\n"
                             f"Item: {item['name']} × {item['quantity']}\n"
-                            f"Buyer: {phone}\nPayment: Cash on Delivery{d_note}"
+                            f"Buyer: {phone}\nPayment: Cash{d_note}"
                         )
             clear_cart(phone)
             clear_session(phone)
-            items_str = "\n".join(placed) if placed else "No items could be processed."
+            items_str  = "\n".join(placed) if placed else "No items could be processed."
             buyer_note = (
-                "📍 A delivery agent will contact you to arrange delivery. 🚚"
+                "📍 A delivery agent will contact you. 🚚"
                 if delivery_type == "delivery"
-                else "🏪 Please collect your order from the seller."
+                else "🏪 Please collect from the seller."
             )
             return (
-                f"✅ *Order Placed — Cash on Delivery!*\n"
+                f"✅ *Order Placed — Cash!*\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                f"Items ordered:\n{items_str}\n\n"
-                f"💵 Pay *${total:.2f}* on collection/delivery.\n\n"
+                f"Items:\n{items_str}\n\n"
+                f"💵 Pay *{_zig_price(total)}* on collection/delivery.\n\n"
                 f"{buyer_note}\n\n"
-                f"💾 Save this message for your records.\n"
-                f"Reply *my orders* to track  |  *dispute* for issues\n\n"
-                "_Reply *0* for the main menu._"
+                f"🔗 Track your orders:\n" +
+                "\n".join(f"{BASE_URL}/track/{r}" for r, _ in placed) +
+                "\n\n_Reply *0* for the main menu._"
             )
-        return (
-            f"💳 *Checkout — ${total:.2f}*\n\n"
-            f"1️⃣  — 📱 EcoCash\n2️⃣  — 💵 Cash on Delivery\n0️⃣  — Back"
-        )
+
+        # Bank Transfer
+        if msg_text == "5":
+            bank_details = get_setting("bank_details",
+                "FBC Bank\nAccount: 1234567890\nBranch: Harare Main\nRef: your order reference")
+            items  = get_cart(phone)
+            placed = []
+            for item in items:
+                product = get_product_by_id(item["product_id"])
+                if product and (product.get("product_type") == "digital" or
+                                product["stock_qty"] >= item["quantity"]):
+                    order_id, order_ref, _ = create_order(
+                        phone, item["product_id"], item["quantity"], item["price"],
+                        delivery_type=delivery_type, delivery_address=delivery_address,
+                    )
+                    if product.get("product_type") != "digital":
+                        update_stock(item["product_id"], product["stock_qty"] - item["quantity"])
+                    placed.append((order_ref, item["name"]))
+                    if product["listed_by"]:
+                        send_whatsapp_message(
+                            product["listed_by"],
+                            f"🏦 *New Bank Transfer Order!*\nRef: *{order_ref}*\n"
+                            f"Item: {item['name']}\nBuyer: {phone}\n"
+                            "Awaiting proof of payment."
+                        )
+            clear_cart(phone)
+            clear_session(phone)
+            refs_str = "\n".join(f"• {r} — {n}" for r, n in placed) if placed else "None"
+            return (
+                f"🏦 *Bank Transfer Instructions*\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"Orders:\n{refs_str}\n\n"
+                f"Amount: {_zig_price(total)}\n\n"
+                f"{bank_details}\n\n"
+                "📸 Send proof of payment to us on WhatsApp after transferring.\n\n"
+                "🔗 Track your orders:\n" +
+                "\n".join(f"{BASE_URL}/track/{r}" for r, _ in placed) +
+                "\n\n_Reply *0* for main menu_"
+            )
+
+        return _payment_menu(total)
 
     # ── Checkout: EcoCash phone number ────────────────────────────────────────
     if state == "ctx_checkout_ecocash":
@@ -2779,26 +3658,87 @@ def handle_session(phone, msg_text, session):
         result = initiate_ecocash_payment(ec_phone, total, ref)
         if result["success"]:
             set_session(phone, "ctx_checkout_pending", {
-                "poll_url": result["poll_url"],
-                "reference": ref,
-                "total": total,
-                "ec_phone": ec_phone,
-                "delivery_type": delivery_type,
+                "poll_url":       result["poll_url"],
+                "reference":      ref,
+                "total":          total,
+                "ec_phone":       ec_phone,
+                "payment_method": "EcoCash",
+                "delivery_type":  delivery_type,
                 "delivery_address": delivery_address,
             })
             return (
                 f"📱 *EcoCash Payment Initiated!*\n\n"
                 f"Reference : *{ref}*\n"
-                f"Amount    : *${total:.2f}*\n"
+                f"Amount    : {_zig_price(total)}\n"
                 f"Phone     : {ec_phone}\n\n"
                 "✅ Check your phone for the EcoCash prompt and enter your PIN.\n\n"
                 "Once paid, reply *paid* to confirm your order.\n\n"
                 "_Reply *0* to cancel._"
             )
         return (
-            f"❌ EcoCash payment could not be initiated.\n\n"
+            f"❌ EcoCash could not be initiated.\n\n"
             f"Reason: {result.get('error', 'Unknown error')}\n\n"
-            "Try *2* for Cash on Delivery instead, or *0* to go back."
+            "Try option *4* for Cash or *0* to go back."
+        )
+
+    # ── Checkout: InnBucks phone number ───────────────────────────────────────
+    if state == "ctx_checkout_innbucks":
+        total            = data.get("total", 0)
+        delivery_type    = data.get("delivery_type", "self_collect")
+        delivery_address = data.get("delivery_address", "")
+        ib_phone = msg_text.strip().replace(" ", "")
+        if not (ib_phone.isdigit() and len(ib_phone) >= 9):
+            return "❌ Please enter a valid InnBucks number, e.g. *0713456789*"
+        ref = f"TTC-{__import__('uuid').uuid4().hex[:6].upper()}"
+        # Normalise to local format
+        local = "0" + ib_phone[3:] if ib_phone.startswith("263") else ib_phone
+        set_session(phone, "ctx_checkout_pending", {
+            "reference":      ref,
+            "total":          total,
+            "ec_phone":       ib_phone,
+            "payment_method": "InnBucks",
+            "delivery_type":  delivery_type,
+            "delivery_address": delivery_address,
+        })
+        wa_number = WA_BUSINESS_NUMBER or ADMIN_PHONE
+        return (
+            f"💚 *InnBucks Payment Instructions*\n\n"
+            f"Amount    : {_zig_price(total)}\n"
+            f"Reference : *{ref}*\n\n"
+            f"📲 *Send payment to:*\n"
+            f"   InnBucks No: {wa_number}\n"
+            f"   Reference : {ref}\n\n"
+            "Once you have paid, reply *paid* to confirm your order.\n\n"
+            "_Reply *0* to cancel._"
+        )
+
+    # ── Checkout: OneMoney phone number ───────────────────────────────────────
+    if state == "ctx_checkout_onemoney":
+        total            = data.get("total", 0)
+        delivery_type    = data.get("delivery_type", "self_collect")
+        delivery_address = data.get("delivery_address", "")
+        om_phone = msg_text.strip().replace(" ", "")
+        if not (om_phone.isdigit() and len(om_phone) >= 9):
+            return "❌ Please enter a valid OneMoney number, e.g. *0712345678*"
+        ref = f"TTC-{__import__('uuid').uuid4().hex[:6].upper()}"
+        wa_number = WA_BUSINESS_NUMBER or ADMIN_PHONE
+        set_session(phone, "ctx_checkout_pending", {
+            "reference":      ref,
+            "total":          total,
+            "ec_phone":       om_phone,
+            "payment_method": "OneMoney",
+            "delivery_type":  delivery_type,
+            "delivery_address": delivery_address,
+        })
+        return (
+            f"🟠 *OneMoney Payment Instructions*\n\n"
+            f"Amount    : {_zig_price(total)}\n"
+            f"Reference : *{ref}*\n\n"
+            f"📲 *Send payment to:*\n"
+            f"   OneMoney No: {wa_number}\n"
+            f"   Reference  : {ref}\n\n"
+            "Once paid, reply *paid* to confirm.\n\n"
+            "_Reply *0* to cancel._"
         )
 
     # ── Checkout: payment confirmation ────────────────────────────────────────
@@ -2809,50 +3749,68 @@ def handle_session(phone, msg_text, session):
             total            = data.get("total", 0)
             delivery_type    = data.get("delivery_type", "self_collect")
             delivery_address = data.get("delivery_address", "")
+            pay_method       = data.get("payment_method", "Mobile Money")
             placed = []
             for item in items:
                 product = get_product_by_id(item["product_id"])
-                if product and product["stock_qty"] >= item["quantity"]:
+                if product and (product.get("product_type") == "digital" or
+                                product["stock_qty"] >= item["quantity"]):
                     _, order_ref, _ = create_order(
                         phone, item["product_id"], item["quantity"], item["price"],
                         delivery_type=delivery_type,
                         delivery_address=delivery_address,
                     )
-                    update_stock(item["product_id"], product["stock_qty"] - item["quantity"])
+                    if product.get("product_type") != "digital":
+                        new_qty = product["stock_qty"] - item["quantity"]
+                        update_stock(item["product_id"], new_qty)
+                        if 0 < new_qty <= LOW_STOCK_THRESHOLD and product.get("listed_by"):
+                            send_whatsapp_message(
+                                product["listed_by"],
+                                f"⚠️ *Low Stock Alert!* — *{product['name']}* has only "
+                                f"*{new_qty} {product.get('stock_unit','pcs')}* remaining."
+                            )
                     placed.append(item["name"])
                     if product["listed_by"]:
                         d_note = (f"\n📍 Deliver to: {delivery_address}"
                                   if delivery_type == "delivery" else "\n🏪 Buyer will self-collect.")
                         send_whatsapp_message(
                             product["listed_by"],
-                            f"💰 *New Paid Order!* (EcoCash)\n\n"
+                            f"💰 *New Paid Order!* ({pay_method})\n\n"
                             f"Ref: *{order_ref}*\n"
                             f"Item: {item['name']} × {item['quantity']}\n"
-                            f"Buyer: {phone}{d_note}"
+                            f"Buyer: {phone}{d_note}\n\n"
+                            "⚠️ Please verify payment before dispatching."
                         )
             clear_cart(phone)
             clear_session(phone)
             d_admin = (f"\n📍 Deliver to: {delivery_address}" if delivery_type == "delivery" else "")
             notify_admin(
-                f"💰 *EcoCash Order* {ref}\n"
-                f"Buyer: {phone}\nTotal: ${total:.2f}\n"
-                f"Items: {', '.join(placed)}{d_admin}"
+                f"💰 *{pay_method} Order* {ref}\n"
+                f"Buyer: {phone}\nTotal: {_zig_price(total)}\n"
+                f"Items: {', '.join(placed)}{d_admin}\n"
+                "⚠️ Verify payment before releasing order."
             )
             buyer_note = (
-                "📍 A delivery agent will contact you to arrange delivery. 🚚"
+                "📍 A delivery agent will contact you. 🚚"
                 if delivery_type == "delivery"
-                else "🏪 Please collect your order from the seller."
+                else "🏪 Please collect from the seller."
             )
             return (
-                f"✅ *Payment Confirmed!*\n"
+                f"✅ *Payment Confirmation Received!*\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"📌 Ref  : *{ref}*\n"
-                f"Total: *${total:.2f}*\n\n"
+                f"📌 Ref    : *{ref}*\n"
+                f"💳 Method : {pay_method}\n"
+                f"Total  : {_zig_price(total)}\n\n"
                 f"{buyer_note}\n\n"
-                f"Reply *my orders* to track  |  *dispute* for issues\n"
+                "⏳ Admin will verify your payment and confirm your order.\n\n"
+                f"🔗 Track your order:\n{BASE_URL}/track/{ref}\n\n"
                 "_Reply *0* for the main menu._"
             )
-        return "Reply *paid* once you've completed the EcoCash payment, or *0* to cancel."
+        return (
+            f"Reply *paid* once payment is complete, or *0* to cancel.\n\n"
+            f"_If you are having trouble, contact us on WhatsApp:_\n"
+            f"_{get_setting('contact_phone', '+263 77 412 8219')}_"
+        )
 
     # ── Dispute flow ──────────────────────────────────────────────────────────
     if state == "ctx_dispute_type":
@@ -3184,15 +4142,21 @@ def handle_session(phone, msg_text, session):
             if qty > product["stock_qty"]:
                 return f"❌ Only *{product['stock_qty']} {unit}* available. Please try again."
 
+        unit_price    = data.get("flash_price") or product["price"]
         data["qty"]   = qty
-        data["total"] = round(product["price"] * qty, 2)
+        data["total"] = round(unit_price * qty, 2)
         set_session(phone, "ctx_buy_or_cart", data)
-        qty_line = "" if is_digital else f"Qty    : *{qty} {unit}*\n"
+        qty_line   = "" if is_digital else f"Qty    : *{qty} {unit}*\n"
+        flash_note = (
+            f"⚡ Flash price: *${unit_price:.2f}* (was ${product['price']:.2f})\n"
+            if unit_price != product["price"] else
+            f"Price  : ${product['price']:.2f} per {unit}\n"
+        )
         return (
             f"🛍️ *{product['name']}*\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             f"{qty_line}"
-            f"Price  : ${product['price']:.2f} per {unit}\n"
+            f"{flash_note}"
             f"*Total : ${data['total']:.2f}*\n\n"
             f"1️⃣  — 🛒 Add to Cart (keep shopping)\n"
             f"2️⃣  — ⚡ Buy Now (checkout now)\n"
@@ -3352,6 +4316,60 @@ def handle_session(phone, msg_text, session):
             "_Reply *0* for the main menu._"
         )
 
+    # ── Order cancellation: reason collection ────────────────────────────────
+    if state == "cancel_order_reason":
+        order     = data.get("order", {})
+        order_ref = data.get("order_ref", "")
+        reason    = "" if msg_text.lower() == "skip" else msg_text
+        update_order_status(order["id"], "cancelled")
+        log_cancellation(order_ref, phone, reason)
+        product = get_product_by_id(order.get("product_id"))
+        if product and product.get("product_type") != "digital":
+            update_stock(product["id"], product["stock_qty"] + order.get("quantity", 1))
+        if product and product.get("listed_by"):
+            send_whatsapp_message(
+                product["listed_by"],
+                f"🚫 *Order Cancelled — {order_ref}*\n\n"
+                f"Item  : {product['name']}\n"
+                f"Buyer : {phone}\n"
+                + (f"Reason: {reason}" if reason else "")
+            )
+        notify_admin(
+            f"🚫 *Buyer Cancelled* {order_ref} — {phone}"
+            + (f" — {reason}" if reason else "")
+        )
+        clear_session(phone)
+        return (
+            f"✅ *Order {order_ref} Cancelled*\n\n"
+            "Your order has been cancelled. If you already paid, contact us to arrange a refund:\n"
+            f"📞 {get_setting('contact_phone', '+263 77 412 8219')}\n\n"
+            "Reply *refund {order_ref}* to submit a formal refund request.\n\n"
+            "_Reply *0* for the main menu._"
+        )
+
+    # ── Refund request: reason collection ────────────────────────────────────
+    if state == "refund_request_desc":
+        order_ref = data.get("order_ref", "")
+        amount    = data.get("amount", 0)
+        ref       = create_refund_request(order_ref, phone, msg_text, amount)
+        notify_admin(
+            f"💸 *Refund Request — {ref}*\n\n"
+            f"Order  : {order_ref}\n"
+            f"Buyer  : {phone}\n"
+            f"Amount : {_zig_price(amount)}\n"
+            f"Reason : {msg_text}\n\n"
+            f"➡ *approve refund {ref}* or *reject refund {ref} <reason>*"
+        )
+        clear_session(phone)
+        return (
+            f"✅ *Refund Request Submitted — {ref}*\n\n"
+            f"Order : {order_ref}\n"
+            f"Amount: {_zig_price(amount)}\n\n"
+            "Our team will review and respond within *48 hours*. 🕐\n\n"
+            f"📞 {get_setting('contact_phone', '+263 77 412 8219')}\n\n"
+            "_Reply *0* for the main menu._"
+        )
+
     clear_session(phone)
     return DEFAULT_RESPONSE
 
@@ -3430,7 +4448,24 @@ def _place_single_order(phone, data, delivery_type, delivery_address):
     )
     # Only decrement stock for physical products
     if not is_digital:
-        update_stock(product["id"], product["stock_qty"] - data["qty"])
+        new_qty_ = product["stock_qty"] - data["qty"]
+        update_stock(product["id"], new_qty_)
+        if 0 < new_qty_ <= LOW_STOCK_THRESHOLD and product.get("listed_by"):
+            send_whatsapp_message(
+                product["listed_by"],
+                f"⚠️ *Low Stock Alert — {product['name']}*\n\n"
+                f"Only *{new_qty_} {product.get('stock_unit','pcs')}* remaining after this order.\n"
+                "Top up your stock now — reply *3* from the main menu → Manage Listings.\n\n"
+                "_Reply *0* for the main menu._"
+            )
+        elif new_qty_ == 0 and product.get("listed_by"):
+            send_whatsapp_message(
+                product["listed_by"],
+                f"❌ *Out of Stock — {product['name']}*\n\n"
+                "Your last unit just sold! Update stock to keep selling.\n"
+                "Reply *3* from the main menu → Manage Listings.\n\n"
+                "_Reply *0* for the main menu._"
+            )
 
     # Third-party seller orders auto-confirm — admin only approves T-Tech Connect's own services
     is_seller_product = bool(product.get("listed_by"))
@@ -3500,8 +4535,7 @@ def _place_single_order(phone, data, delivery_type, delivery_address):
         f"{qty_line}Total: *${total:.2f}*\n\n"
         f"{pay_block}"
         f"{buyer_note}\n\n"
-        f"💾 Save your ref number!\n"
-        f"Reply *my orders* to track  |  *dispute* for issues\n\n"
+        f"🔗 Track your order:\n{BASE_URL}/track/{ref}\n\n"
         "_Reply *0* for the main menu._"
     )
 
@@ -3520,7 +4554,7 @@ def _handle_sell_product(phone):
         "🔧 *Service* → choose your rate (per hour, per visit, etc.)\n"
         "🖼️ *Digital* → upload file (photo, video, PDF)\n\n"
         "📌 Add a clear photo for faster approval.\n"
-        "💰 10% commission charged on approval.\n"
+        "💰 Connect Fee charged on approval (rate applies).\n"
         "⏱️ Link expires in *30 minutes* (one use only).\n\n"
         "_Reply *0* to go back._"
     )
@@ -3567,7 +4601,7 @@ def _approve_seller(seller_phone):
         "2️⃣  Reply *3* from the main menu → *Sell / Offer Services*\n"
         "3️⃣  Reply *2* to get your listing link (products, services & digital)\n"
         "4️⃣  Fill in the form and your listing goes live after review!\n\n"
-        "💰 Commission: 10% on each approved listing.\n\n"
+        f"💰 Connect Fee: {get_setting('commission_rate', '10')}% on each approved listing.\n\n"
         "_Reply *0* for the main menu._"
     )
     return f"✅ *{seller['name']}* ({seller['business_name']}) approved. Seller notified."
@@ -3643,7 +4677,7 @@ def _approve_product(product_id):
             f"💵 Unit price : *${product['price']:.2f}* per {unit}\n"
             f"{stock_line}"
             f"{total_line}"
-            f"💰 Commission ({rate_pct}% of total): *${product['commission']:.2f}*\n"
+            f"💰 Connect Fee ({rate_pct}% of total): *${product['commission']:.2f}*\n"
             f"Pay via EcoCash to 📞 {contact_ph} and send proof of payment.\n"
             f"{digital_note}\n"
             f"🔗 Live listing:\n{listing_url}\n\n"
@@ -3709,7 +4743,7 @@ def build_admin_dashboard(phone):
         f"• 💰 Total revenue     : ${s['total_revenue']:.2f}\n"
         f"• 🏠 New enquiries     : {s['new_enquiries']}\n"
         f"• 👥 Unique users      : {s['unique_users']}\n\n"
-        f"⚙️ *Commission Rates:*\n"
+        f"⚙️ *Connect Fee Rates:*\n"
         f"• Products : *{prod_rate}%*\n"
         f"• Services : *{svc_rate}%*\n\n"
         f"*Select an action:*\n\n"
@@ -3719,8 +4753,14 @@ def build_admin_dashboard(phone):
         f"4️⃣  — 🛒 View Orders\n"
         f"5️⃣  — 🏠 Enquiries\n"
         f"6️⃣  — 📢 Broadcast Message\n"
-        f"7️⃣  — ⚙️ Commission Settings\n"
+        f"7️⃣  — ⚙️ Connect Fee Settings\n"
         f"0️⃣  — Exit admin panel\n\n"
+        f"📣 *Marketing shortcuts:*\n"
+        f"• `remind carts`          — nudge abandoned carts\n"
+        f"• `re-engage <days>`      — message inactive users (default 7 days)\n"
+        f"• `flash <id> <pct> <h>`  — start a flash sale (e.g. flash 5 20 6)\n"
+        f"• `end flash`             — cancel active flash sale\n"
+        f"• `newsletter <message>`  — send to all subscribers\n\n"
         f"_Reply *1–7* to select_"
     )
     set_session(phone, "ctx_admin", {})
@@ -3777,23 +4817,47 @@ def handle_admin(msg_text, phone):
             "Send *admin* to return to the panel."
         )
 
-    if msg_text in ("commission", "rates", "commission rate"):
+    if msg_text in ("commission", "rates", "commission rate", "connect fee", "connect fee rates"):
         prod_rate  = get_setting("commission_rate", "10")
         svc_rate   = get_setting("service_commission_rate", "10")
         accom_rate = get_setting("accommodation_commission_rate", "5")
         set_session(phone, "ctx_admin_commission", {})
         return (
-            f"💰 *Commission Rates*\n"
+            f"💰 *Connect Fee Rates*\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
             f"Current rates:\n"
             f"• 📦 Products      : *{prod_rate}%*\n"
             f"• 🔧 Services      : *{svc_rate}%*\n"
             f"• 🏠 Accommodation : *{accom_rate}%*\n\n"
-            f"1️⃣  — Change product rate\n"
-            f"2️⃣  — Change service rate\n"
-            f"3️⃣  — Change accommodation rate\n"
+            f"1️⃣  — Change product Connect Fee\n"
+            f"2️⃣  — Change service Connect Fee\n"
+            f"3️⃣  — Change accommodation Connect Fee\n"
             f"0️⃣  — Back to admin panel"
         )
+
+    if msg_text.startswith("confirm fee "):
+        tenant_phone = msg_text[12:].strip()
+        from db import get_connection as _gc
+        conn = _gc()
+        viewing = conn.execute(
+            "SELECT * FROM property_viewings WHERE phone=? AND status='pending' ORDER BY created_at DESC LIMIT 1",
+            (tenant_phone,)
+        ).fetchone()
+        conn.close()
+        if not viewing:
+            return f"❌ No pending cash viewing fee found for *{tenant_phone}*."
+        confirm_property_viewing(tenant_phone, viewing["property_id"], "cash")
+        fresh = fetch_property_by_id(viewing["property_id"])
+        prop  = dict(fresh) if fresh else {"title": viewing["property_title"], "id": viewing["property_id"]}
+        full_detail = format_property_detail(prop, already_paid=True)
+        send_whatsapp_message(
+            tenant_phone,
+            f"✅ *Cash Payment Confirmed — {prop.get('title', viewing['property_title'])}*\n\n"
+            f"🔓 *Full details unlocked:*\n\n"
+            + full_detail
+        )
+        log_admin_action(phone, "confirm_viewing_fee", "viewing", tenant_phone)
+        return f"✅ Viewing fee confirmed for *{tenant_phone}*. Tenant has been sent the property details."
 
     if msg_text in ("analytics", "stats", "report"):
         s    = get_analytics_summary(days=7)
@@ -3943,6 +5007,257 @@ def handle_admin(msg_text, phone):
                 )
             return f"❌ *{svc['title']}* rejected. Provider notified."
 
+    # ── Refund management ─────────────────────────────────────────────────────
+    if msg_text == "refunds":
+        refunds = get_refund_requests(status="pending", limit=9)
+        if not refunds:
+            return "✅ No pending refund requests.\n\nSend *admin* to return to the panel."
+        lines = [f"💸 *Pending Refunds ({len(refunds)}):*\n"]
+        for r in refunds:
+            lines.append(
+                f"• *{r['reference']}*  |  Order: {r['order_ref']}\n"
+                f"  Buyer: {r['buyer_phone']}  |  {_zig_price(r['amount'])}\n"
+                f"  Reason: {r['reason'][:60]}\n"
+            )
+        lines.append("_*approve refund <ref>* or *reject refund <ref> <reason>*_")
+        return "\n".join(lines)
+
+    if msg_text.startswith("approve refund "):
+        ref    = msg_text[15:].strip().upper()
+        refund = next((r for r in get_refund_requests() if r["reference"] == ref), None)
+        if not refund:
+            return f"❌ Refund request *{ref}* not found."
+        update_refund_status(ref, "approved", "Approved by admin")
+        send_whatsapp_message(
+            refund["buyer_phone"],
+            f"✅ *Refund Approved — {ref}*\n\n"
+            f"Amount: {_zig_price(refund['amount'])}\n\n"
+            "Your refund has been approved and will be processed within *2-3 business days*.\n"
+            f"Contact: 📞 {get_setting('contact_phone','+263 77 412 8219')}\n\n"
+            "_Reply *0* for the main menu._"
+        )
+        log_admin_action(phone, "approve_refund", "refund", ref)
+        return f"✅ Refund *{ref}* approved. Buyer notified."
+
+    if msg_text.startswith("reject refund "):
+        parts  = msg_text[14:].strip().split(maxsplit=1)
+        ref    = parts[0].upper()
+        reason = parts[1] if len(parts) > 1 else "Refund criteria not met."
+        refund = next((r for r in get_refund_requests() if r["reference"] == ref), None)
+        if not refund:
+            return f"❌ Refund request *{ref}* not found."
+        update_refund_status(ref, "rejected", reason)
+        send_whatsapp_message(
+            refund["buyer_phone"],
+            f"❌ *Refund Request {ref} — Not Approved*\n\n"
+            f"Reason: _{reason}_\n\n"
+            "If you believe this is an error, please contact us:\n"
+            f"📞 {get_setting('contact_phone','+263 77 412 8219')}\n\n"
+            "_Reply *0* for the main menu._"
+        )
+        log_admin_action(phone, "reject_refund", "refund", ref, reason)
+        return f"❌ Refund *{ref}* rejected. Buyer notified."
+
+    # ── Promo code management ─────────────────────────────────────────────────
+    if msg_text.startswith("create promo "):
+        # create promo <CODE> <percent|fixed> <value> [min_order]
+        # e.g.: create promo LAUNCH10 percent 10 5
+        parts = msg_text[13:].strip().split()
+        if len(parts) < 3:
+            return "Usage: *create promo <CODE> <percent|fixed> <value> [min_order]*\nExample: _create promo LAUNCH10 percent 10 5_"
+        code     = parts[0].upper()
+        type_    = parts[1].lower() if parts[1].lower() in ("percent","fixed") else "percent"
+        try:
+            value = float(parts[2])
+        except ValueError:
+            return "❌ Invalid value — must be a number."
+        min_order = float(parts[3]) if len(parts) > 3 else 0
+        create_promo_code(code, type_, value, min_order)
+        log_admin_action(phone, "create_promo", "promo", code, f"{type_} {value}")
+        label = f"{value:.0f}%" if type_ == "percent" else f"${value:.2f} off"
+        return (
+            f"✅ *Promo Code Created*\n\n"
+            f"Code     : *{code}*\n"
+            f"Discount : {label}\n"
+            f"Min order: ${min_order:.2f}\n\n"
+            "Buyers type: *promo {code}* in WhatsApp chat to apply."
+        )
+
+    if msg_text == "promos":
+        codes = get_all_promo_codes()
+        if not codes:
+            return "📭 No promo codes yet.\n\n_create promo <CODE> percent 10_"
+        lines = ["🎟️ *Promo Codes:*\n"]
+        for c in codes:
+            status = "✅ Active" if c["active"] else "❌ Inactive"
+            label  = f"{c['value']:.0f}%" if c["type"] == "percent" else f"${c['value']:.2f} off"
+            lines.append(f"• *{c['code']}* — {label}  |  Used: {c['used_count']}  |  {status}")
+        lines.append("\n_deactivate promo <CODE> to disable_")
+        return "\n".join(lines)
+
+    if msg_text.startswith("deactivate promo "):
+        code = msg_text[17:].strip().upper()
+        deactivate_promo_code(code)
+        log_admin_action(phone, "deactivate_promo", "promo", code)
+        return f"✅ Promo code *{code}* deactivated."
+
+    # ── Exchange rate update ──────────────────────────────────────────────────
+    if msg_text.startswith("set rate "):
+        # set rate 26.5  (USD to ZiG)
+        try:
+            rate = float(msg_text[9:].strip())
+        except ValueError:
+            return "Usage: *set rate <value>*  e.g. _set rate 26.5_"
+        set_exchange_rate("USD", "ZiG", rate)
+        log_admin_action(phone, "set_exchange_rate", "settings", "USD/ZiG", str(rate))
+        return f"✅ Exchange rate updated: 1 USD = *ZiG {rate:,.2f}*"
+
+    # ── Payout management ─────────────────────────────────────────────────────
+    if msg_text == "payouts":
+        payouts = get_seller_payouts(status="pending")
+        if not payouts:
+            return "✅ No pending payouts.\n\nSend *admin* to return."
+        lines = [f"💸 *Pending Payouts ({len(payouts)}):*\n"]
+        for p in payouts:
+            lines.append(
+                f"• *{p['seller_phone']}*  |  {_zig_price(p['amount'])}  |  {p['period']}"
+            )
+        lines.append("\n_*mark paid <id> <method>* to mark as paid_")
+        return "\n".join(lines)
+
+    if msg_text.startswith("mark paid "):
+        parts = msg_text[10:].strip().split(maxsplit=1)
+        if not parts[0].isdigit():
+            return "Usage: *mark paid <payout_id> <method>*"
+        payout_id = int(parts[0])
+        method    = parts[1] if len(parts) > 1 else "EcoCash"
+        mark_payout_paid(payout_id, method)
+        log_admin_action(phone, "mark_payout_paid", "payout", payout_id, method)
+        return f"✅ Payout #{payout_id} marked as paid via {method}."
+
+    # ── Abandoned cart nudge ──────────────────────────────────────────────────
+    if msg_text == "remind carts":
+        carts = get_nonempty_carts(min_age_minutes=60, max_age_hours=24)
+        if not carts:
+            return "📭 No abandoned carts to remind right now."
+        sent = 0
+        for c in carts:
+            send_whatsapp_message(
+                c["phone"],
+                f"🛒 *You left something in your cart!*\n\n"
+                f"You have *{c['item_count']} item(s)* worth "
+                f"{_zig_price(c['total'])} waiting.\n\n"
+                "Reply *cart* to view your cart or *checkout* to order now.\n\n"
+                "_Reply *0* for the main menu._"
+            )
+            sent += 1
+        log_admin_action(phone, "remind_carts", "", "", f"{sent} reminders sent")
+        return f"✅ Sent cart reminders to *{sent}* buyer(s)."
+
+    # ── Bank details update ───────────────────────────────────────────────────
+    if msg_text.startswith("set bank "):
+        details = msg_text[9:].strip()
+        set_setting("bank_details", details)
+        return f"✅ Bank details updated:\n_{details}_"
+
+    # ── Re-engagement campaign ────────────────────────────────────────────────
+    if msg_text.startswith("re-engage") or msg_text == "remind inactive":
+        parts     = msg_text.split()
+        days      = int(parts[1]) if len(parts) == 2 and parts[1].isdigit() else 7
+        phones_   = get_inactive_users(min_days=days, max_days=30)
+        if not phones_:
+            return f"📭 No users inactive for {days}–30 days right now."
+        sent_ = 0
+        for p_ in phones_:
+            send_whatsapp_message(
+                p_,
+                f"👋 *We miss you at T-Tech Connect!*\n\n"
+                f"It's been a while — there are new products, services and deals waiting for you. 🛍️\n\n"
+                f"🌐 Shop online: {BASE_URL}/shop\n\n"
+                "Reply *hi* to start browsing or *0* for the menu."
+            )
+            sent_ += 1
+        log_admin_action(phone, "re_engage", "", "", f"{sent_} messages sent (inactive {days}+ days)")
+        return f"✅ Re-engagement messages sent to *{sent_}* inactive user(s) (silent {days}–30 days)."
+
+    # ── Flash sale / Deal of the Day ──────────────────────────────────────────
+    if msg_text.startswith("flash "):
+        parts = msg_text.split()
+        if len(parts) < 3 or not parts[1].isdigit() or not parts[2].isdigit():
+            return (
+                "⚡ *Flash Sale — Usage:*\n"
+                "`flash <product_id> <discount_%> <hours>`\n\n"
+                "Example: `flash 42 20 6`  →  20% off product #42 for 6 hours"
+            )
+        pid_      = int(parts[1])
+        pct_      = min(int(parts[2]), 90)
+        hours_    = int(parts[3]) if len(parts) >= 4 and parts[3].isdigit() else 24
+        product_  = get_product_by_id(pid_)
+        if not product_ or product_["status"] != "approved":
+            return f"❌ Product #{pid_} not found or not approved."
+        from datetime import datetime, timedelta
+        expires_  = (datetime.utcnow() + timedelta(hours=hours_)).isoformat()
+        sale_price_ = round(product_["price"] * (1 - pct_ / 100), 2)
+        set_setting("flash_product_id",  str(pid_))
+        set_setting("flash_discount_pct", str(pct_))
+        set_setting("flash_sale_price",  str(sale_price_))
+        set_setting("flash_expires_at",  expires_)
+        # Notify newsletter subscribers
+        phones_nl = get_newsletter_phones()
+        msg_nl = (
+            f"⚡ *FLASH SALE — {hours_}hrs only!*\n\n"
+            f"*{product_['name']}*\n"
+            f"~~${product_['price']:.2f}~~  →  *${sale_price_:.2f}* ({pct_}% OFF) 🔥\n\n"
+            f"🛒 Order now — reply *search {product_['name'].split()[0]}*\n"
+            f"🌐 Or shop online: {BASE_URL}/shop\n\n"
+            "_Reply *unsubscribe* to opt out._"
+        )
+        for p_ in phones_nl:
+            send_whatsapp_message(p_, msg_nl)
+        log_admin_action(phone, "flash_sale", "product", pid_, f"{pct_}% off for {hours_}h, {len(phones_nl)} notified")
+        return (
+            f"⚡ Flash sale live!\n\n"
+            f"Product  : {product_['name']}\n"
+            f"Discount : {pct_}% off (${sale_price_:.2f})\n"
+            f"Expires  : {hours_} hours\n"
+            f"Notified : {len(phones_nl)} subscriber(s)"
+        )
+
+    if msg_text == "end flash":
+        set_setting("flash_product_id", "")
+        set_setting("flash_discount_pct", "0")
+        set_setting("flash_sale_price", "0")
+        set_setting("flash_expires_at", "")
+        log_admin_action(phone, "end_flash_sale")
+        return "✅ Flash sale ended."
+
+    # ── Featured / boost a listing ────────────────────────────────────────────
+    if msg_text.startswith("feature ") or msg_text.startswith("boost "):
+        parts = msg_text.split()
+        if len(parts) == 2 and parts[1].isdigit():
+            pid_  = int(parts[1])
+            prod_ = get_product_by_id(pid_)
+            if not prod_ or prod_["status"] != "approved":
+                return f"❌ Product #{pid_} not found or not approved."
+            set_product_featured(pid_, True)
+            log_admin_action(phone, "feature_product", "product", pid_)
+            return (
+                f"⭐ *{prod_['name']}* is now featured!\n\n"
+                "It will appear at the top of search results and category pages."
+            )
+        return "Usage: `feature <product_id>`  e.g. `feature 12`"
+
+    if msg_text.startswith("unfeature "):
+        parts = msg_text.split()
+        if len(parts) == 2 and parts[1].isdigit():
+            pid_  = int(parts[1])
+            prod_ = get_product_by_id(pid_)
+            set_product_featured(pid_, False)
+            log_admin_action(phone, "unfeature_product", "product", pid_)
+            name_ = prod_["name"] if prod_ else f"#{pid_}"
+            return f"✅ *{name_}* removed from featured listings."
+        return "Usage: `unfeature <product_id>`"
+
     return None
 
 
@@ -3997,10 +5312,37 @@ def handle_message(phone, msg_text):
 
     # Greetings and global nav — no active session
     if any(word in msg_text for word in GREETING_WORDS):
-        return WELCOME
+        # New-user onboarding — detect first-time users
+        if get_message_count(phone) <= 1:
+            send_whatsapp_image(phone,
+                f"{BASE_URL}/uploads/welcome_banner.png",
+                caption="T-Tech Connect — Zimbabwe's Digital Marketplace 🇿🇼")
+            return (
+                "🎉 *Welcome to T-Tech Connect!*\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "Zimbabwe's WhatsApp marketplace — buy, sell & find services!\n\n"
+                "Here's how it works:\n\n"
+                "🛒 *Buy* — Browse products, add to cart, pay via EcoCash/InnBucks/bank\n"
+                "🔧 *Services* — Find plumbers, tutors, photographers & more\n"
+                "💼 *Sell* — Register as a vendor & start earning\n"
+                "🏠 *Accommodation* — Find rooms & flats across Zimbabwe\n\n"
+                "💡 *Useful commands:*\n"
+                "• Reply *help* — see all commands\n"
+                "• Reply *search <item>* — find any product\n"
+                "• Reply *my profile* — save your name & delivery address\n"
+                "• Reply *referral* — get your referral link\n\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "Reply *1–5* below to get started:\n\n"
+                "1️⃣  🛒 Buy Products\n"
+                "2️⃣  🔧 Find a Service\n"
+                "3️⃣  💼 Become a Vendor\n"
+                "4️⃣  🏠 Find Accommodation\n"
+                "5️⃣  📬 Contact & Support"
+            )
+        return go_welcome(phone, with_image=True)
 
     if msg_text in ("menu", "home", "back"):
-        return WELCOME
+        return go_welcome(phone, with_image=True)
 
     # Main menu numbers — set context so sub-navigation works
     if msg_text == "1":
@@ -4368,6 +5710,345 @@ def handle_message(phone, msg_text):
                 return f"🔔 We'll notify you when *{product['name']}* is back in stock. ✅\n\n_Reply *0* for the main menu._"
         return "❌ Invalid product ID."
 
+    # ── Order cancellation ────────────────────────────────────────────────────
+    if msg_text.startswith("cancel order"):
+        ref_part = msg_text.replace("cancel order", "").strip().upper()
+        if not ref_part:
+            return (
+                "❌ *Cancel an Order*\n\n"
+                "Usage: *cancel order <reference>*\n"
+                "Example: _cancel order TTC-ABC123_\n\n"
+                "⏰ Cancellations are only allowed within *30 minutes* of placing the order.\n\n"
+                "_Reply *0* for the main menu._"
+            )
+        order = get_order_by_reference(ref_part)
+        if not order:
+            return f"❌ No order found with reference *{ref_part}*."
+        if order["buyer_phone"] != phone:
+            return "❌ You can only cancel your own orders."
+        if order["status"] not in ("pending", "confirmed"):
+            return (
+                f"❌ Order *{ref_part}* cannot be cancelled.\n\n"
+                f"Status: *{order['status'].title()}* — only pending or confirmed orders can be cancelled.\n\n"
+                "Reply *dispute* if you have a problem with a fulfilled order."
+            )
+        from datetime import datetime as _dt, timezone as _tz
+        placed_at = _dt.fromisoformat(order["created_at"])
+        now_utc   = _dt.now(_tz.utc).replace(tzinfo=None)
+        if (now_utc - placed_at).total_seconds() > 1800:
+            return (
+                f"⏰ *Cancellation window closed.*\n\n"
+                f"Order *{ref_part}* was placed more than 30 minutes ago.\n\n"
+                "Reply *dispute* to report an issue with this order.\n\n"
+                "_Reply *0* for the main menu._"
+            )
+        set_session(phone, "cancel_order_reason", {"order_ref": ref_part, "order": dict(order)})
+        product = get_product_by_id(order["product_id"])
+        return (
+            f"🚫 *Cancel Order {ref_part}?*\n\n"
+            f"Item  : {product['name'] if product else 'N/A'}\n"
+            f"Total : {_zig_price(order['total_price'])}\n\n"
+            "Please give a brief reason (or type *skip*):\n\n"
+            "_Reply *0* to keep your order._"
+        )
+
+    # ── Refund requests ───────────────────────────────────────────────────────
+    if msg_text.startswith("refund "):
+        ref_part = msg_text[7:].strip().upper()
+        order    = get_order_by_reference(ref_part)
+        if not order:
+            return f"❌ No order found with reference *{ref_part}*."
+        if order["buyer_phone"] != phone:
+            return "❌ You can only request refunds for your own orders."
+        if order["status"] == "pending":
+            return f"Order *{ref_part}* hasn't been confirmed yet — try *cancel order {ref_part}* instead."
+        set_session(phone, "refund_request_desc", {
+            "order_ref": ref_part,
+            "amount":    order["total_price"],
+        })
+        product = get_product_by_id(order["product_id"])
+        return (
+            f"💸 *Refund Request — {ref_part}*\n\n"
+            f"Item  : {product['name'] if product else 'N/A'}\n"
+            f"Amount: {_zig_price(order['total_price'])}\n\n"
+            "Please describe the reason for your refund request:\n"
+            "_e.g. Item not received, Wrong item, Defective product_\n\n"
+            "_Reply *0* to cancel._"
+        )
+
+    if msg_text in ("my refunds", "refund status"):
+        refunds = get_buyer_refunds(phone)
+        if not refunds:
+            return "✅ You have no refund requests.\n\n_Reply *0* for the main menu._"
+        STATUS_ICON = {"pending": "⏳", "approved": "✅", "rejected": "❌", "processed": "💸"}
+        lines = ["💸 *Your Refund Requests:*\n"]
+        for r in refunds:
+            icon = STATUS_ICON.get(r["status"], "•")
+            lines.append(
+                f"{icon} *{r['reference']}*  |  Order: {r['order_ref']}\n"
+                f"   {_zig_price(r['amount'])}  ·  {r['status'].title()}\n"
+                + (f"   Note: {r['resolution']}\n" if r.get("resolution") else "")
+            )
+        lines.append("_Reply *0* for the main menu._")
+        return "\n".join(lines)
+
+    # ── Invoice ───────────────────────────────────────────────────────────────
+    if msg_text.startswith("invoice "):
+        ref_part = msg_text[8:].strip().upper()
+        order    = get_order_by_reference(ref_part)
+        if not order or order["buyer_phone"] != phone:
+            return f"❌ No order found with reference *{ref_part}*."
+        product = get_product_by_id(order["product_id"])
+        seller  = get_seller(product["listed_by"]) if product and product.get("listed_by") else None
+        biz     = dict(seller).get("business_name", "T-Tech Connect") if seller else "T-Tech Connect"
+        loc     = dict(seller).get("location", "") if seller else get_setting("contact_location","Harare")
+        return (
+            f"🧾 *INVOICE*\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"From    : *{biz}*\n"
+            f"Location: {loc}\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"Ref     : *{ref_part}*\n"
+            f"Date    : {order['created_at'][:10]}\n"
+            f"Buyer   : {phone}\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"Item    : {product['name'] if product else 'N/A'}\n"
+            f"Qty     : {order['quantity']}  ×  ${order['unit_price']:.2f}\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"*TOTAL  : {_zig_price(order['total_price'])}*\n"
+            f"Status  : {order['status'].title()}\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"T-Tech Connect · {get_setting('contact_phone','+263 77 412 8219')}\n"
+            f"{get_setting('contact_website','https://t-techsolutions.co.zw')}\n\n"
+            "_Reply *0* for the main menu._"
+        )
+
+    # ── Promo code application ─────────────────────────────────────────────────
+    if msg_text.startswith("promo ") or msg_text.startswith("coupon "):
+        code  = msg_text.split(" ", 1)[1].strip().upper()
+        items = get_cart(phone)
+        if not items:
+            return "🛒 Your cart is empty. Add items first, then apply a promo code.\n\n_Reply *0* for the main menu._"
+        total    = get_cart_total(phone)
+        discount, err = apply_promo_discount(code, total)
+        if err:
+            return f"❌ *{err}*\n\n_Reply *0* for the main menu._"
+        new_total = max(0, total - discount)
+        use_promo_code(code)
+        set_session(phone, "ctx_quote", {"total": new_total, "promo": code, "discount": discount})
+        return (
+            f"🎉 *Promo Code Applied — {code}!*\n\n"
+            f"Original total : ${total:.2f}\n"
+            f"Discount       : -${discount:.2f}\n"
+            f"*New total     : {_zig_price(new_total)}*\n\n"
+            "Reply *1* to proceed to checkout.\n\n"
+            "_Reply *0* to cancel._"
+        )
+
+    # ── Seller dashboard ──────────────────────────────────────────────────────
+    if msg_text in ("my stats", "my dashboard", "dashboard", "seller stats"):
+        seller = get_seller(phone)
+        if not seller or seller["status"] != "approved":
+            return (
+                "📊 Seller dashboard is only available to approved sellers.\n\n"
+                "Reply *3* to access the Sell menu.\n\n"
+                "_Reply *0* for the main menu._"
+            )
+        s   = get_seller_dashboard_stats(phone)
+        pay = get_seller_earnings_summary(phone)
+        low = get_low_stock_products(phone, LOW_STOCK_THRESHOLD)
+        oos = get_out_of_stock_products(phone)
+        low_lines = ""
+        if low:
+            low_lines = "\n⚠️ *Low Stock (restock soon):*\n" + \
+                        "\n".join(f"  • {p['name']} — {p['stock_qty']} {p['stock_unit']}" for p in low)
+        oos_lines = ""
+        if oos:
+            oos_lines = "\n❌ *Out of Stock:*\n" + \
+                        "\n".join(f"  • {p['name']}" for p in oos)
+        return (
+            f"📊 *Seller Dashboard — {dict(seller).get('business_name','')}*\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"📦 *Orders:*\n"
+            f"  Total      : {s['total_orders']}\n"
+            f"  Pending    : {s['pending_orders']}\n"
+            f"  Fulfilled  : {s['fulfilled_orders']}\n"
+            f"  Disputes   : {s['open_disputes']} open\n\n"
+            f"💰 *Revenue:*\n"
+            f"  This month : {_zig_price(s['month_revenue'])}\n"
+            f"  All time   : {_zig_price(s['total_revenue'])}\n\n"
+            f"💸 *Connect Fee ({s['commission_rate']}%):*\n"
+            f"  Total owed : {_zig_price(pay['commission_owed'])}\n"
+            f"  Already paid: {_zig_price(pay['paid_out'])}\n"
+            f"  *Balance due: {_zig_price(pay['balance_due'])}*\n\n"
+            f"🗂️ *Listings:*\n"
+            f"  Active  : {s['active_listings']}\n"
+            f"  Pending : {s['pending_listings']}\n"
+            f"{low_lines}{oos_lines}\n\n"
+            f"📞 Pay Connect Fee to: {get_setting('contact_phone','+263 77 412 8219')}\n"
+            f"_Reply *0* for the main menu._"
+        )
+
+    if msg_text in ("low stock", "stock alert", "my stock"):
+        seller = get_seller(phone)
+        if not seller or seller["status"] != "approved":
+            return "❌ Seller account required.\n\n_Reply *0* for the main menu._"
+        low = get_low_stock_products(phone, LOW_STOCK_THRESHOLD)
+        oos = get_out_of_stock_products(phone)
+        if not low and not oos:
+            return "✅ All your products are well-stocked!\n\n_Reply *0* for the main menu._"
+        lines = ["📦 *Your Stock Status:*\n"]
+        if low:
+            lines.append("⚠️ *Low Stock:*")
+            for p in low:
+                lines.append(f"  • {p['name']} — *{p['stock_qty']} {p['stock_unit']}* remaining")
+        if oos:
+            lines.append("\n❌ *Out of Stock:*")
+            for p in oos:
+                lines.append(f"  • {p['name']}")
+        lines.append("\nReply *2* from the Sell menu to update stock.\n\n_Reply *0* for main menu._")
+        return "\n".join(lines)
+
+    # ── ZiG exchange rate query ───────────────────────────────────────────────
+    if msg_text in ("zig rate", "exchange rate", "usd to zig", "rate"):
+        rate = get_exchange_rate("USD", "ZiG")
+        if not rate:
+            return "📊 Exchange rate not set. Contact admin.\n\n_Reply *0* for the main menu._"
+        return (
+            f"💱 *Exchange Rate*\n\n"
+            f"1 USD = *ZiG {rate:,.0f}*\n\n"
+            f"_Source: RBZ official rate — updated by admin_\n\n"
+            f"_Reply *0* for the main menu._"
+        )
+
+    # ── Help / FAQ ───────────────────────────────────────────────────────────
+    if msg_text in ("help", "faq", "commands", "?"):
+        return (
+            "📖 *T-Tech Connect — Command Guide*\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            "🛒 *Shopping*\n"
+            "• *1* — Browse products by category\n"
+            "• *search <item>* — Find a product\n"
+            "• *cart* — View your cart\n"
+            "• *checkout* — Pay for your cart\n"
+            "• *promo <code>* — Apply a discount code\n"
+            "• *share <id>* — Get shareable product link\n\n"
+            "📦 *Orders*\n"
+            "• *my orders* — View your order history\n"
+            "• *track <ref>* — Track an order (e.g. track TTC-ABC123)\n"
+            "• *dispute* — Report a problem with an order\n"
+            "• *rate product* — Leave a review\n\n"
+            "👤 *Profile*\n"
+            "• *my profile* — View/update your saved name & address\n"
+            "• *subscribe* — Get new product alerts\n"
+            "• *unsubscribe* — Stop alerts\n"
+            "• *referral* — Get your referral link ($1 bonus)\n\n"
+            "🔧 *Services & More*\n"
+            "• *2* — Find a service\n"
+            "• *3* — Register as a seller\n"
+            "• *4* — Find accommodation\n"
+            "• *5* — Contact us\n"
+            "• *rate* — Exchange rate (USD/ZiG)\n\n"
+            "• *0* — Go back  |  *menu* — Main menu\n"
+            "• *reset* — Start over"
+        )
+
+    # ── Buyer profile ─────────────────────────────────────────────────────────
+    if msg_text in ("my profile", "profile", "my details"):
+        profile = get_buyer_profile(phone)
+        name_   = profile.get("name", "") if profile else ""
+        addr_   = profile.get("address", "") if profile else ""
+        return (
+            f"👤 *Your Profile*\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"📞 Phone  : {phone}\n"
+            f"🏷️  Name   : {name_ or '_not set_'}\n"
+            f"📍 Address : {addr_ or '_not set_'}\n\n"
+            "To update, type:\n"
+            "• *my name <Your Name>*\n"
+            "• *my address <Your Address>*\n\n"
+            "_Reply *0* for the main menu._"
+        )
+
+    if msg_text.startswith("my name "):
+        name_ = msg_text[8:].strip()
+        if name_:
+            save_buyer_profile(phone, name=name_)
+            return f"✅ Name saved as *{name_}*\n\n_Reply *0* for the main menu._"
+
+    if msg_text.startswith("my address "):
+        addr_ = msg_text[11:].strip()
+        if len(addr_) >= 5:
+            save_buyer_profile(phone, address=addr_)
+            return f"✅ Address saved: _{addr_}_\n\n_Reply *0* for the main menu._"
+        return "❌ Address too short. Please include street and area.\n\n_Reply *0* for the main menu._"
+
+    # ── Product share link ────────────────────────────────────────────────────
+    if msg_text.startswith("share"):
+        parts = msg_text.split()
+        pid   = None
+        if len(parts) == 2 and parts[1].isdigit():
+            pid = int(parts[1])
+        else:
+            # Try to get product from current session context
+            sess = get_session(phone)
+            if sess:
+                sdata = json.loads(sess["data"]) if isinstance(sess["data"], str) else sess["data"]
+                pid   = sdata.get("product_id") or sdata.get("prod_id")
+        if pid:
+            p = get_product_by_id(pid)
+            if p and p["status"] == "approved":
+                link = f"{BASE_URL}/product/{pid}"
+                return (
+                    f"🔗 *Share this product with friends!*\n\n"
+                    f"*{p['name']}*\n"
+                    f"💰 ${p['price']:.2f}\n\n"
+                    f"{link}\n\n"
+                    "_Anyone who clicks this link can buy directly from our online shop._"
+                )
+        return "❓ Please specify a product ID, e.g. *share 42*\n\n_Reply *0* for the main menu._"
+
+    # ── Referral programme ────────────────────────────────────────────────────
+    if msg_text in ("referral", "my ref", "refer", "my referral"):
+        code  = "REF" + phone[-6:]
+        link  = f"{BASE_URL}/shop?ref={code}"
+        total, rewarded = get_referral_count(phone)
+        return (
+            f"🤝 *Your T-Tech Connect Referral Link*\n\n"
+            f"Share this link with friends:\n"
+            f"{link}\n\n"
+            f"When a friend signs up and places their first order, "
+            f"you both get a *$1 discount code* automatically! 🎉\n\n"
+            f"📊 *Your referrals:* {total} referred | {rewarded} rewarded\n\n"
+            "_Reply *0* for the main menu._"
+        )
+
+    if msg_text.startswith("from ref") or msg_text.startswith("from "):
+        parts    = msg_text.split()
+        ref_code = parts[-1].upper()
+        if ref_code.startswith("REF") and len(ref_code) == 9:
+            ref_phone_suffix = ref_code[3:]
+            existing = get_referral_by_referred(phone)
+            if existing:
+                return "✅ You've already been registered via a referral.\n\n_Reply *0* for the main menu._"
+            # Find the referrer by phone suffix
+            from db import get_connection as _gc
+            conn_ = _gc()
+            row_  = conn_.execute(
+                "SELECT phone FROM message_log WHERE phone LIKE ? GROUP BY phone LIMIT 1",
+                (f"%{ref_phone_suffix}",)
+            ).fetchone()
+            conn_.close()
+            if row_ and row_["phone"] != phone:
+                create_referral(row_["phone"], phone)
+                return (
+                    f"🎉 *Referral registered!*\n\n"
+                    f"You were referred by a T-Tech Connect member.\n"
+                    "Place your first order and you'll *both* receive a $1 discount code!\n\n"
+                    "_Reply *0* for the main menu._"
+                )
+        return "❓ Invalid referral code.\n\n_Reply *0* for the main menu._"
+
     # ── NLP intent detection — free text ──────────────────────────────────────
     if len(msg_text) > 8:
         intent = detect_service_intent(msg_text)
@@ -4446,7 +6127,52 @@ def webhook():
 
 @app.route("/")
 def index():
-    return redirect("/admin")
+    wa_number = WA_BUSINESS_NUMBER or get_setting("contact_phone", "")
+    stats     = get_live_stats()
+    return render_template("landing.html", wa_number=wa_number, stats=stats)
+
+
+# ── Automated cart reminder cron endpoint ─────────────────────────────────────
+# Call this from Render's cron job, UptimeRobot, or any scheduler.
+# Protected by a shared secret token (set CRON_SECRET in .env).
+
+CRON_SECRET = os.getenv("CRON_SECRET", "")
+
+@app.route("/cron/cart-reminders", methods=["POST", "GET"])
+def cron_cart_reminders():
+    if CRON_SECRET and request.headers.get("X-Cron-Secret") != CRON_SECRET:
+        return jsonify({"error": "Unauthorized"}), 401
+    carts = get_nonempty_carts(min_age_minutes=60, max_age_hours=24)
+    sent  = 0
+    for c in carts:
+        send_whatsapp_message(
+            c["phone"],
+            f"🛒 *You left something in your cart!*\n\n"
+            f"You have *{c['item_count']} item(s)* worth "
+            f"{_zig_price(c['total'])} waiting.\n\n"
+            "Reply *cart* to view or *checkout* to order now.\n\n"
+            "_Reply *0* for the main menu._"
+        )
+        sent += 1
+    return jsonify({"sent": sent, "status": "ok"}), 200
+
+
+@app.route("/cron/re-engage", methods=["POST", "GET"])
+def cron_re_engage():
+    if CRON_SECRET and request.headers.get("X-Cron-Secret") != CRON_SECRET:
+        return jsonify({"error": "Unauthorized"}), 401
+    phones_ = get_inactive_users(min_days=7, max_days=30)
+    sent_   = 0
+    for p_ in phones_:
+        send_whatsapp_message(
+            p_,
+            f"👋 *We miss you at T-Tech Connect!*\n\n"
+            "New products and deals are waiting — come have a look! 🛍️\n\n"
+            f"🌐 Shop online: {BASE_URL}/shop\n\n"
+            "Reply *hi* to browse or *0* for the menu."
+        )
+        sent_ += 1
+    return jsonify({"sent": sent_, "status": "ok"}), 200
 
 
 @app.route("/uploads/<filename>")
@@ -4500,7 +6226,12 @@ def product_detail_page(product_id):
     wa_number = WA_BUSINESS_NUMBER or ADMIN_PHONE
     wa_link   = f"https://wa.me/{wa_number}?text=I+want+to+buy+{product['name'].replace(' ', '+')}"
     related   = [dict(p) for p in get_products_by_category(product["category"]) if p["id"] != product_id][:4]
-    cart_count = _cart_count()
+    cart_count   = _cart_count()
+    zig_rate     = get_exchange_rate("USD", "ZiG")
+    zig_price    = round(product["price"] * zig_rate, 0) if zig_rate else None
+    seller_row   = get_seller(product["listed_by"]) if product.get("listed_by") else None
+    seller_phone = product.get("listed_by", "")
+    variants     = get_product_variants(product_id)
     return render_template(
         "product_detail.html",
         product=product,
@@ -4511,6 +6242,11 @@ def product_detail_page(product_id):
         wa_link=wa_link,
         related=related,
         cart_count=cart_count,
+        zig_price=zig_price,
+        zig_rate=zig_rate,
+        seller_phone=seller_phone,
+        seller=dict(seller_row) if seller_row else None,
+        variants=variants,
     )
 
 
@@ -4650,7 +6386,7 @@ def list_product():
                 f"🔧 *New Service Pending #{svc_id}*\n\n"
                 f"Title    : {name}\n"
                 f"Category : {category}\n"
-                f"Rate     : ${price:.2f} {unit_label}  |  Commission: ${comm:.2f}\n"
+                f"Rate     : ${price:.2f} {unit_label}  |  Connect Fee: ${comm:.2f}\n"
                 f"Location : {location or 'Not specified'}{del_note}\n"
                 f"Extras   : {extras or 'None'}\n"
                 f"Seller   : {seller_name}\n\n"
@@ -4692,7 +6428,7 @@ def list_product():
                 f"{'🖼️' if is_digital else '📦'} *New {'Digital ' if is_digital else ''}Product Pending #{product_id}*\n\n"
                 f"Product  : {name}\n"
                 f"Category : {category}\n"
-                f"Stock    : {stock_label}  |  Price: ${price:.2f}  |  Commission: ${comm:.2f}\n"
+                f"Stock    : {stock_label}  |  Price: ${price:.2f}  |  Connect Fee: ${comm:.2f}\n"
                 f"Location : {location or 'Not specified'}{del_note}\n"
                 f"Extras   : {extras or 'None'}{pay_note}\n"
                 f"Seller   : {seller_name}  |  {file_note}\n\n"
@@ -4847,7 +6583,7 @@ def register_seller_web():
 
 # ── Web admin panel ───────────────────────────────────────────────────────────
 
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "ttech2024")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
 
 def admin_required(f):
     @functools.wraps(f)
@@ -5249,7 +6985,7 @@ def api_admin_create_listing():
             f"Product  : {name}\n"
             f"Category : {category}\n"
             f"Price    : ${price:.2f} × {qty} {stock_unit}\n"
-            f"Commission: ${comm:.2f}\n\n"
+            f"Connect Fee: ${comm:.2f}\n\n"
             f"Your listing is *pending approval*.\n\n"
             "_Reply *0* for the main menu._"
         )
@@ -5365,13 +7101,50 @@ def analytics_web():
 @app.route("/paynow/result", methods=["POST"])
 def paynow_result():
     """Paynow sends payment confirmation here."""
-    data = request.form
-    print(f"[PAYNOW RESULT] {dict(data)}")
-    # Paynow sends: reference, paynowreference, amount, status, hash
-    status = data.get("status", "").lower()
-    ref    = data.get("reference", "")
-    if status == "paid":
-        notify_admin(f"💰 *Paynow Payment Confirmed*\nRef: {ref}\nAmount: ${data.get('amount', '?')}")
+    form   = request.form
+    status = form.get("status", "").lower()
+    ref    = form.get("reference", "")
+
+    if status != "paid" or not ref:
+        return "OK", 200
+
+    # Look for a pending viewing fee whose payment_method ends with this reference
+    from db import get_connection as _gc
+    conn    = _gc()
+    viewing = conn.execute(
+        "SELECT * FROM property_viewings WHERE payment_method LIKE ? AND status='pending' LIMIT 1",
+        (f"%:{ref}",)
+    ).fetchone()
+    conn.close()
+
+    if viewing:
+        provider = viewing["payment_method"].split(":")[0]
+        confirm_property_viewing(viewing["phone"], viewing["property_id"], f"{provider}:{ref}")
+        fresh = fetch_property_by_id(viewing["property_id"])
+        prop  = dict(fresh) if fresh else {
+            "title": viewing["property_title"],
+            "id":    viewing["property_id"],
+        }
+        full_detail = format_property_detail(prop, already_paid=True)
+        label = _PAYNOW_LABEL.get(provider, provider.title())
+        send_whatsapp_message(
+            viewing["phone"],
+            f"✅ *{label} Payment Confirmed!*\n\n"
+            f"Fee paid: *${viewing['fee_amount']:.2f}*\n\n"
+            f"🔓 *Full property details:*\n\n"
+            + full_detail
+        )
+        notify_admin(
+            f"💰 *{label} Payment Confirmed*\n"
+            f"Ref    : {ref}\nAmount : ${form.get('amount', viewing['fee_amount'])}\n"
+            f"Tenant : {viewing['phone']}\nProp   : {viewing['property_title']}"
+        )
+    else:
+        # Not a viewing fee — could be a product order payment; just notify admin
+        notify_admin(
+            f"💰 *Paynow Payment Confirmed*\nRef: {ref}\nAmount: ${form.get('amount', '?')}"
+        )
+
     return "OK", 200
 
 
@@ -5403,34 +7176,6 @@ def _cart_count():
     return len(get_cart(_get_cart_id()))
 
 
-@app.route("/shop")
-def shop_home():
-    q   = request.args.get("q", "").strip()
-    cat = request.args.get("cat", "").strip()
-
-    if q:
-        products = [dict(p) for p in search_products(q)]
-        page_title = f'Results for "{q}"'
-    elif cat:
-        products = [dict(p) for p in get_products_by_category(cat)]
-        page_title = cat
-    else:
-        products = get_featured_products(limit=16)
-        page_title = None
-
-    active_cats  = get_distinct_categories()
-    cat_groups   = CATEGORY_GROUPS
-    cart_count   = _cart_count()
-    return render_template(
-        "shop.html",
-        products=products,
-        active_cats=active_cats,
-        cat_groups=cat_groups,
-        query=q,
-        selected_cat=cat,
-        page_title=page_title,
-        cart_count=cart_count,
-    )
 
 
 @app.route("/shop/api/cart/add", methods=["POST"])
@@ -5521,9 +7266,16 @@ def checkout_place():
     buyer_phone      = data.get("phone", "").strip()
     delivery_type    = data.get("delivery_type", "self_collect")
     delivery_address = data.get("delivery_address", "").strip()
+    payment_method   = data.get("payment_method", "Cash")
+    promo_code       = data.get("promo_code", "").strip().upper()
+    discount         = float(data.get("discount", 0))
 
     if not buyer_name or not buyer_phone:
         return jsonify({"ok": False, "error": "Name and phone number are required."}), 400
+
+    # Honour the promo discount that was already validated client-side
+    if promo_code and discount > 0:
+        use_promo_code(promo_code)
 
     session["buyer_name"]  = buyer_name
     session["buyer_phone"] = buyer_phone
@@ -5564,13 +7316,23 @@ def checkout_place():
             qty_display = "Digital" if is_digital else f"{item['quantity']} {unit}"
             seller_msg = (
                 f"🌐 *New Web Order!*\n\n"
-                f"Ref    : *{ref}*\n"
-                f"Item   : {product['name']}\n"
-                f"Qty    : {qty_display}  |  Revenue: ${total:.2f}\n"
-                f"Buyer  : {buyer_name} ({buyer_phone})\n"
-                f"_Buyer will pay via seller's accepted methods._"
+                f"Ref     : *{ref}*\n"
+                f"Item    : {product['name']}\n"
+                f"Qty     : {qty_display}  |  Revenue: ${total:.2f}\n"
+                f"Buyer   : {buyer_name} ({buyer_phone})\n"
+                f"Payment : {payment_method}\n"
+                + (f"Promo   : {promo_code} (-${discount:.2f})\n" if promo_code else "")
+                + "⚠️ Verify payment before dispatching."
             )
             send_whatsapp_message(seller_phone, seller_msg)
+            # Low-stock alert after web order
+            if not is_digital:
+                new_qty = max(0, product["stock_qty"] - item["quantity"])
+                if 0 < new_qty <= LOW_STOCK_THRESHOLD:
+                    send_whatsapp_message(
+                        seller_phone,
+                        f"⚠️ *Low Stock!* *{product['name']}* — only {new_qty} left after this order."
+                    )
 
         status_note = "_(auto-confirmed)_" if is_seller_product else "_(awaiting approval)_"
         notify_admin(
@@ -5610,6 +7372,755 @@ def order_success_page():
         buyer_name=name,
         buyer_phone=phone,
         order_details=details,
+    )
+
+
+# ── Order tracking page ───────────────────────────────────────────────────────
+
+@app.route("/track")
+@app.route("/track/<ref>")
+def order_track(ref=None):
+    ref = ref or request.args.get("ref", "").strip().upper()
+    order        = get_order_by_reference(ref) if ref else None
+    product_row  = get_product_by_id(order["product_id"]) if order else None
+    product      = dict(product_row) if product_row else None
+    seller       = get_seller(product["listed_by"]) if product and product.get("listed_by") else None
+    return render_template(
+        "order_track.html",
+        ref=ref,
+        order=order,
+        product=product,
+        seller=dict(seller) if seller else None,
+        zig_price=_zig_price,
+        wa_number=WA_BUSINESS_NUMBER or ADMIN_PHONE,
+    )
+
+
+# ── Seller storefront ─────────────────────────────────────────────────────────
+
+@app.route("/seller/<seller_phone>")
+def seller_storefront(seller_phone):
+    seller = get_seller(seller_phone)
+    if not seller or seller["status"] != "approved":
+        return "<h2 style='font-family:sans-serif;text-align:center;margin-top:60px'>Seller not found.</h2>", 404
+    seller   = dict(seller)
+    products = [dict(p) for p in get_seller_products(seller_phone)
+                if p["status"] == "approved"]
+    services = [s for s in get_provider_services(seller_phone)
+                if s["status"] == "approved"]
+    stats    = get_seller_earnings_summary(seller_phone)
+    trust    = get_seller_trust_score(seller_phone)
+    cart_count = _cart_count()
+    return render_template(
+        "seller_storefront.html",
+        seller=seller,
+        products=products,
+        services=services,
+        trust=trust,
+        total_orders=stats["order_count"],
+        cart_count=cart_count,
+        zig_price=_zig_price,
+    )
+
+
+# ── Pagination-aware shop ─────────────────────────────────────────────────────
+
+@app.route("/shop")
+def shop_home():
+    q    = request.args.get("q", "").strip()
+    cat  = request.args.get("cat", "").strip()
+    page = max(1, int(request.args.get("page", 1)))
+    per  = 16
+
+    if q:
+        all_products = [dict(p) for p in search_products(q)]
+        page_title   = f'Results for "{q}"'
+    elif cat:
+        all_products = [dict(p) for p in get_products_by_category(cat)]
+        page_title   = cat
+    else:
+        all_products = get_featured_products(limit=200)
+        page_title   = None
+
+    total_pages = max(1, (len(all_products) + per - 1) // per)
+    page        = min(page, total_pages)
+    products    = all_products[(page - 1) * per: page * per]
+
+    active_cats = get_distinct_categories()
+    cart_count  = _cart_count()
+    return render_template(
+        "shop.html",
+        products=products,
+        active_cats=active_cats,
+        cat_groups=CATEGORY_GROUPS,
+        query=q,
+        selected_cat=cat,
+        page_title=page_title,
+        cart_count=cart_count,
+        page=page,
+        total_pages=total_pages,
+        total_count=len(all_products),
+    )
+
+
+# ── Promo code via web (apply at checkout) ────────────────────────────────────
+
+@app.route("/shop/api/promo/apply", methods=["POST"])
+def api_promo_apply():
+    data  = request.get_json() or {}
+    code  = data.get("code", "").strip().upper()
+    total = float(data.get("total", 0))
+    discount, err = apply_promo_discount(code, total)
+    if err:
+        return jsonify({"ok": False, "error": err})
+    return jsonify({"ok": True, "discount": discount, "new_total": round(total - discount, 2), "code": code})
+
+
+# ── Admin refund API ──────────────────────────────────────────────────────────
+
+@app.route("/admin/api/refunds")
+@admin_required
+def api_get_refunds():
+    status = request.args.get("status")
+    return jsonify(get_refund_requests(status=status or None, limit=100))
+
+
+@app.route("/admin/api/refund/approve", methods=["POST"])
+@admin_required
+def api_approve_refund():
+    body = request.json or {}
+    ref  = body.get("reference", "").upper()
+    refund = next((r for r in get_refund_requests() if r["reference"] == ref), None)
+    if not refund:
+        return jsonify({"ok": False, "message": "Refund not found."})
+    update_refund_status(ref, "approved", "Approved via web admin")
+    send_whatsapp_message(
+        refund["buyer_phone"],
+        f"✅ *Refund Approved — {ref}*\n\n"
+        f"Amount: {_zig_price(refund['amount'])}\n"
+        "Processed within 2-3 business days.\n\n"
+        f"📞 {get_setting('contact_phone','+263 77 412 8219')}"
+    )
+    log_admin_action("web_admin", "approve_refund", "refund", ref)
+    return jsonify({"ok": True, "message": f"Refund {ref} approved."})
+
+
+@app.route("/admin/api/refund/reject", methods=["POST"])
+@admin_required
+def api_reject_refund():
+    body   = request.json or {}
+    ref    = body.get("reference", "").upper()
+    reason = body.get("reason", "Does not meet refund criteria.")
+    refund = next((r for r in get_refund_requests() if r["reference"] == ref), None)
+    if not refund:
+        return jsonify({"ok": False, "message": "Refund not found."})
+    update_refund_status(ref, "rejected", reason)
+    send_whatsapp_message(
+        refund["buyer_phone"],
+        f"❌ *Refund {ref} Not Approved*\n\nReason: _{reason}_\n\n"
+        f"📞 {get_setting('contact_phone','+263 77 412 8219')}"
+    )
+    log_admin_action("web_admin", "reject_refund", "refund", ref, reason)
+    return jsonify({"ok": True, "message": f"Refund {ref} rejected."})
+
+
+# ── Admin payout API ──────────────────────────────────────────────────────────
+
+@app.route("/admin/api/payouts")
+@admin_required
+def api_get_payouts():
+    return jsonify(get_seller_payouts())
+
+
+@app.route("/admin/api/payout/mark-paid", methods=["POST"])
+@admin_required
+def api_mark_payout_paid():
+    body   = request.json or {}
+    pid    = body.get("id")
+    method = body.get("method", "EcoCash")
+    if not pid:
+        return jsonify({"ok": False, "message": "Payout ID required."})
+    mark_payout_paid(pid, method)
+    log_admin_action("web_admin", "mark_payout_paid", "payout", pid, method)
+    return jsonify({"ok": True, "message": f"Payout #{pid} marked as paid via {method}."})
+
+
+# ── Admin promo code API ──────────────────────────────────────────────────────
+
+@app.route("/admin/api/promos")
+@admin_required
+def api_get_promos():
+    return jsonify(get_all_promo_codes())
+
+
+@app.route("/admin/api/promo/create", methods=["POST"])
+@admin_required
+def api_create_promo():
+    body      = request.json or {}
+    code      = body.get("code", "").strip().upper()
+    type_     = body.get("type", "percent")
+    value     = float(body.get("value", 0))
+    min_order = float(body.get("min_order", 0))
+    max_uses  = int(body.get("max_uses", 0))
+    expires   = body.get("expires_at")
+    if not code or value <= 0:
+        return jsonify({"ok": False, "message": "Code and value are required."})
+    create_promo_code(code, type_, value, min_order, max_uses, expires)
+    log_admin_action("web_admin", "create_promo", "promo", code, f"{type_} {value}")
+    return jsonify({"ok": True, "message": f"Promo code {code} created."})
+
+
+@app.route("/admin/api/promo/deactivate", methods=["POST"])
+@admin_required
+def api_deactivate_promo():
+    code = (request.json or {}).get("code", "").upper()
+    deactivate_promo_code(code)
+    log_admin_action("web_admin", "deactivate_promo", "promo", code)
+    return jsonify({"ok": True, "message": f"Promo code {code} deactivated."})
+
+
+# ── Admin exchange rate API ───────────────────────────────────────────────────
+
+@app.route("/admin/api/exchange-rate", methods=["GET"])
+@admin_required
+def api_get_exchange_rate():
+    rate = get_exchange_rate("USD", "ZiG")
+    return jsonify({"rate": rate, "from": "USD", "to": "ZiG"})
+
+
+@app.route("/admin/api/exchange-rate", methods=["POST"])
+@admin_required
+def api_set_exchange_rate():
+    rate = float((request.json or {}).get("rate", 0))
+    if rate <= 0:
+        return jsonify({"ok": False, "message": "Rate must be positive."})
+    set_exchange_rate("USD", "ZiG", rate)
+    log_admin_action("web_admin", "set_exchange_rate", "settings", "USD/ZiG", str(rate))
+    return jsonify({"ok": True, "message": f"Rate set to 1 USD = ZiG {rate}"})
+
+
+# ── Terms & Privacy ───────────────────────────────────────────────────────────
+
+@app.route("/terms")
+def terms_page():
+    return render_template("terms.html",
+                           contact_phone=get_setting("contact_phone", "+263 77 412 8219"),
+                           contact_email=get_setting("contact_email", "terrencemuromba@gmail.com"),
+                           contact_website=get_setting("contact_website", "https://t-techsolutions.co.zw"))
+
+
+@app.route("/privacy")
+def privacy_page():
+    return render_template("privacy.html",
+                           contact_phone=get_setting("contact_phone", "+263 77 412 8219"),
+                           contact_email=get_setting("contact_email", "terrencemuromba@gmail.com"))
+
+
+# ── T-Tech Connect1 → Chatbot webhook receiver ────────────────────────────────
+
+def _verify_ttech_webhook(req) -> bool:
+    """
+    Validate the X-Hub-Signature-256 (or X-Signature) header sent by T-Tech Connect1.
+    Returns True if secret is not configured (dev mode) or signature matches.
+    """
+    if not TTECH_WEBHOOK_SECRET:
+        return True
+    sig_header = req.headers.get("X-Hub-Signature-256") or req.headers.get("X-Signature", "")
+    if not sig_header:
+        return False
+    prefix    = "sha256=" if sig_header.startswith("sha256=") else ""
+    body_sig  = prefix + hmac.new(
+        TTECH_WEBHOOK_SECRET.encode(),
+        req.get_data(),
+        hashlib.sha256,
+    ).hexdigest()
+    return hmac.compare_digest(sig_header, body_sig)
+
+
+@app.route("/webhooks/property", methods=["POST"])
+def property_webhook():
+    """Receive events from T-Tech Connect1 and act on them via WhatsApp."""
+    if not _verify_ttech_webhook(request):
+        print("[TTECH WEBHOOK] Signature mismatch — rejected")
+        return jsonify({"error": "Forbidden"}), 403
+
+    payload = request.get_json(silent=True) or {}
+    event   = payload.get("event", "")
+    print(f"[TTECH WEBHOOK] event={event} payload={str(payload)[:200]}")
+
+    # ── property.unavailable ─────────────────────────────────────────────────
+    # T-Tech Connect1 sends this when a property is rented or removed.
+    # → Notify every tenant who has paid a viewing fee for it.
+    if event == "property.unavailable":
+        prop_id    = payload.get("property_id")
+        prop_title = payload.get("title", "a property you viewed")
+        if prop_id:
+            viewings = get_viewing_stats(limit=200)
+            notified = set()
+            for v in viewings:
+                if v.get("property_id") == prop_id and v.get("status") == "paid":
+                    tenant_phone = v.get("phone")
+                    if tenant_phone and tenant_phone not in notified:
+                        send_whatsapp_message(
+                            tenant_phone,
+                            f"🏠 *Property Update*\n\n"
+                            f"*{prop_title}* is no longer available — "
+                            "it has been rented or removed from the listing.\n\n"
+                            "Reply *4* to browse other available properties.\n\n"
+                            "_Reply *0* for the main menu._"
+                        )
+                        notified.add(tenant_phone)
+        return jsonify({"ok": True, "notified": len(notified) if prop_id else 0}), 200
+
+    # ── appointment.confirmed ────────────────────────────────────────────────
+    # Landlord confirmed the viewing via T-Tech Connect1 dashboard.
+    # → WhatsApp the tenant with confirmed date/time.
+    if event == "appointment.confirmed":
+        tenant_phone   = payload.get("tenant_phone")
+        prop_title     = payload.get("property_title") or payload.get("title", "your property")
+        confirmed_date = payload.get("confirmed_date", "")
+        confirmed_time = payload.get("confirmed_time", "")
+        landlord_name  = payload.get("landlord_name", "The landlord")
+        landlord_ph    = payload.get("landlord_phone", "")
+        if tenant_phone:
+            contact_line = f"\n📞 {landlord_name}: {landlord_ph}" if landlord_ph else ""
+            send_whatsapp_message(
+                tenant_phone,
+                f"✅ *Viewing Confirmed!*\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"🏠 {prop_title}\n"
+                f"📅 {confirmed_date}  ·  {confirmed_time}\n"
+                f"{contact_line}\n\n"
+                "Please arrive on time. If you need to reschedule, contact the landlord directly.\n\n"
+                "_Reply *0* for the main menu._"
+            )
+        return jsonify({"ok": True}), 200
+
+    # ── appointment.rejected ─────────────────────────────────────────────────
+    # Landlord rejected or suggested an alternative time.
+    # → Relay the message to the tenant on WhatsApp.
+    if event == "appointment.rejected":
+        tenant_phone  = payload.get("tenant_phone")
+        prop_title    = payload.get("property_title") or payload.get("title", "your property")
+        message       = payload.get("message", "The landlord is unavailable at that time.")
+        landlord_ph   = payload.get("landlord_phone", "")
+        if tenant_phone:
+            wa_line = ""
+            if landlord_ph:
+                clean  = landlord_ph.lstrip("+").replace(" ", "")
+                wa_line = f"\n💬 Reply to landlord: https://wa.me/{clean}"
+            send_whatsapp_message(
+                tenant_phone,
+                f"📅 *Viewing Update — {prop_title}*\n\n"
+                f"_{message}_\n"
+                f"{wa_line}\n\n"
+                "_Reply *0* for the main menu._"
+            )
+        return jsonify({"ok": True}), 200
+
+    # ── property.new ─────────────────────────────────────────────────────────
+    # A new property was listed on T-Tech Connect1.
+    # → Notify newsletter subscribers searching in that city.
+    if event == "property.new":
+        prop_id    = payload.get("property_id")
+        city       = payload.get("city", "")
+        prop_title = payload.get("title", "New Property")
+        price      = payload.get("price_per_month", 0)
+        sf         = payload.get("student_friendly", False)
+        web_link   = f"{TTECH_CONNECT_URL}/landlord/property/{prop_id}" if prop_id else TTECH_CONNECT_URL
+        sf_note    = "  🎓 Student-friendly" if sf else ""
+        msg = (
+            f"🏠 *New Property Listed!*\n\n"
+            f"*{prop_title}*{sf_note}\n"
+            f"📍 {city}\n"
+            f"💰 ${price:.2f}/month\n\n"
+            f"🔗 {web_link}\n\n"
+            "Reply *4* to browse accommodation on WhatsApp.\n"
+            "_Reply *unsubscribe* to opt out._"
+        )
+        phones   = get_newsletter_phones()
+        notified = 0
+        for p in phones:
+            send_whatsapp_message(p, msg)
+            notified += 1
+        return jsonify({"ok": True, "notified": notified}), 200
+
+    # Unknown event — acknowledge so T-Tech Connect1 doesn't retry forever
+    return jsonify({"ok": True, "ignored": event}), 200
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Seller Portal
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def seller_required(f):
+    @functools.wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get("seller_phone"):
+            if request.path.startswith("/seller/api/"):
+                return jsonify({"ok": False, "message": "Not authenticated"}), 401
+            return redirect("/seller/login")
+        return f(*args, **kwargs)
+    return decorated
+
+
+@app.route("/seller/login", methods=["GET", "POST"])
+def seller_login():
+    if session.get("seller_phone"):
+        return redirect("/seller/portal")
+    if request.method == "GET":
+        return render_template("seller_login.html", step="phone", error=None)
+
+    phone = request.form.get("phone", "").strip().replace(" ", "").replace("+", "")
+    if not phone.isdigit() or len(phone) < 9:
+        return render_template("seller_login.html", step="phone",
+                               error="Please enter a valid phone number.")
+
+    # Normalise to 263XXXXXXXXX
+    if phone.startswith("0"):
+        phone = "263" + phone[1:]
+
+    seller = get_seller(phone)
+    if not seller:
+        return render_template("seller_login.html", step="phone",
+                               error="No seller account found for that number. "
+                                     "Please register first.")
+    if seller["status"] not in ("approved",):
+        return render_template("seller_login.html", step="phone",
+                               error=f"Your account is currently {seller['status']}. "
+                                      "Please wait for admin approval.")
+
+    code = create_seller_otp(phone)
+    send_whatsapp_message(
+        phone,
+        f"🔐 *T-Tech Seller Portal*\n\n"
+        f"Your one-time login code is:\n\n"
+        f"*{code}*\n\n"
+        f"Valid for 10 minutes. Do not share this code."
+    )
+    session["seller_otp_phone"] = phone
+    return render_template("seller_login.html", step="otp",
+                           phone=phone, error=None)
+
+
+@app.route("/seller/verify-otp", methods=["POST"])
+def seller_verify_otp():
+    phone = session.get("seller_otp_phone")
+    if not phone:
+        return redirect("/seller/login")
+    code = request.form.get("code", "").strip()
+    if not verify_seller_otp(phone, code):
+        return render_template("seller_login.html", step="otp",
+                               phone=phone, error="Incorrect or expired code. Try again.")
+    session.pop("seller_otp_phone", None)
+    session["seller_phone"] = phone
+    return redirect("/seller/portal")
+
+
+@app.route("/seller/logout")
+def seller_logout():
+    session.pop("seller_phone", None)
+    return redirect("/seller/login")
+
+
+@app.route("/seller/portal")
+@seller_required
+def seller_portal():
+    phone  = session["seller_phone"]
+    seller = get_seller(phone)
+    return render_template("seller_dashboard.html", seller=dict(seller))
+
+
+# ── Seller API ─────────────────────────────────────────────────────────────────
+
+@app.route("/seller/api/stats")
+@seller_required
+def seller_api_stats():
+    stats    = get_seller_dashboard_stats(session["seller_phone"])
+    earnings = get_seller_earnings_summary(session["seller_phone"])
+    return jsonify({**stats, **earnings})
+
+
+@app.route("/seller/api/products")
+@seller_required
+def seller_api_products():
+    rows = get_seller_products(session["seller_phone"])
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/seller/api/products/add", methods=["POST"])
+@seller_required
+def seller_api_products_add():
+    phone  = session["seller_phone"]
+    seller = get_seller(phone)
+    f      = request.form
+    image_path = None
+    if "image" in request.files and request.files["image"].filename:
+        result = save_image(request.files["image"], "product")
+        if not result["ok"]:
+            return jsonify({"ok": False, "message": result["error"]}), 400
+        image_path = result["path"]
+
+    try:
+        product_id, commission = add_product(
+            name          = f.get("name", "").strip(),
+            category      = f.get("category", "").strip(),
+            price         = float(f.get("price", 0)),
+            stock_qty     = int(f.get("stock_qty", 0)),
+            description   = f.get("description", "").strip(),
+            image_path    = image_path,
+            listed_by     = phone,
+            product_type  = f.get("product_type", "physical"),
+            stock_unit    = f.get("stock_unit", "pcs"),
+            seller_location = seller["location"] if seller else "",
+            offers_delivery = 1 if f.get("offers_delivery") else 0,
+        )
+    except (ValueError, TypeError) as e:
+        return jsonify({"ok": False, "message": f"Invalid data: {e}"}), 400
+
+    notify_admin(
+        f"📦 *New Product Listed — Pending Approval*\n\n"
+        f"Seller  : {seller['name'] if seller else phone}\n"
+        f"Product : {f.get('name', '')}\n"
+        f"Category: {f.get('category', '')}\n"
+        f"Price   : ${float(f.get('price', 0)):.2f}\n"
+        f"ID      : {product_id}"
+    )
+    return jsonify({"ok": True, "message": "Product submitted for approval.", "id": product_id})
+
+
+@app.route("/seller/api/products/<int:product_id>/remove", methods=["POST"])
+@seller_required
+def seller_api_products_remove(product_id):
+    delete_product_by_seller(product_id, session["seller_phone"])
+    return jsonify({"ok": True, "message": "Product removed."})
+
+
+@app.route("/seller/api/services")
+@seller_required
+def seller_api_services():
+    rows = get_provider_services(session["seller_phone"])
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/seller/api/services/add", methods=["POST"])
+@seller_required
+def seller_api_services_add():
+    phone  = session["seller_phone"]
+    seller = get_seller(phone)
+    f      = request.form
+    try:
+        service_id = add_service(
+            title            = f.get("title", "").strip(),
+            category         = f.get("category", "").strip(),
+            description      = f.get("description", "").strip(),
+            price_type       = f.get("price_type", "fixed"),
+            price            = float(f.get("price", 0)),
+            service_area     = f.get("service_area", "").strip(),
+            provider_phone   = phone,
+            provider_name    = seller["name"] if seller else "",
+            provider_business= seller["business_name"] if seller else "",
+            seller_location  = seller["location"] if seller else "",
+        )
+    except (ValueError, TypeError) as e:
+        return jsonify({"ok": False, "message": f"Invalid data: {e}"}), 400
+
+    notify_admin(
+        f"🔧 *New Service Listed — Pending Approval*\n\n"
+        f"Seller  : {seller['name'] if seller else phone}\n"
+        f"Service : {f.get('title', '')}\n"
+        f"Category: {f.get('category', '')}\n"
+        f"ID      : {service_id}"
+    )
+    return jsonify({"ok": True, "message": "Service submitted for approval.", "id": service_id})
+
+
+@app.route("/seller/api/services/<int:service_id>/remove", methods=["POST"])
+@seller_required
+def seller_api_services_remove(service_id):
+    delete_service_by_seller(service_id, session["seller_phone"])
+    return jsonify({"ok": True, "message": "Service removed."})
+
+
+@app.route("/seller/api/orders")
+@seller_required
+def seller_api_orders():
+    rows = get_seller_orders(session["seller_phone"])
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/seller/api/orders/<int:order_id>/status", methods=["POST"])
+@seller_required
+def seller_api_order_status(order_id):
+    data   = request.get_json() or {}
+    status = data.get("status", "")
+    if status not in ("confirmed", "fulfilled", "cancelled"):
+        return jsonify({"ok": False, "message": "Invalid status"}), 400
+    # Verify order belongs to this seller before updating
+    from db import get_connection as _gc
+    conn  = _gc()
+    row   = conn.execute(
+        "SELECT o.id FROM orders o JOIN products p ON o.product_id=p.id "
+        "WHERE o.id=? AND p.listed_by=?", (order_id, session["seller_phone"])
+    ).fetchone()
+    conn.close()
+    if not row:
+        return jsonify({"ok": False, "message": "Order not found"}), 404
+    update_order_status(order_id, status)
+    return jsonify({"ok": True, "message": f"Order marked {status}."})
+
+
+@app.route("/seller/api/earnings")
+@seller_required
+def seller_api_earnings():
+    earnings = get_seller_earnings_summary(session["seller_phone"])
+    payouts  = get_seller_payouts(session["seller_phone"])
+    return jsonify({
+        "summary": earnings,
+        "payouts": [dict(p) for p in (payouts or [])],
+    })
+
+
+# ── Seller Inventory & Profit API ─────────────────────────────────────────────
+
+@app.route("/seller/api/inventory")
+@seller_required
+def seller_api_inventory():
+    rows = get_seller_inventory(session["seller_phone"])
+    return jsonify(rows)
+
+
+@app.route("/seller/api/inventory/summary")
+@seller_required
+def seller_api_inventory_summary():
+    return jsonify(get_seller_profit_summary(session["seller_phone"]))
+
+
+@app.route("/seller/api/inventory/<int:product_id>/adjust", methods=["POST"])
+@seller_required
+def seller_api_stock_adjust(product_id):
+    data   = request.get_json() or {}
+    change = data.get("change", 0)
+    reason = data.get("reason", "adjustment")
+    note   = data.get("note", "")
+    if not isinstance(change, (int, float)) or change == 0:
+        return jsonify({"ok": False, "message": "Provide a non-zero change amount."}), 400
+    allowed_reasons = ("restock", "adjustment", "damaged", "returned", "correction")
+    if reason not in allowed_reasons:
+        reason = "adjustment"
+    adjust_stock(product_id, session["seller_phone"], int(change), reason, note)
+    return jsonify({"ok": True, "message": f"Stock {'added' if change > 0 else 'reduced'} by {abs(int(change))}."})
+
+
+@app.route("/seller/api/inventory/<int:product_id>/cost", methods=["POST"])
+@seller_required
+def seller_api_update_cost(product_id):
+    data       = request.get_json() or {}
+    cost_price = data.get("cost_price")
+    try:
+        cost_price = float(cost_price)
+        if cost_price < 0:
+            raise ValueError
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "message": "Enter a valid cost price."}), 400
+    update_product_cost(product_id, session["seller_phone"], cost_price)
+    return jsonify({"ok": True, "message": "Cost price updated."})
+
+
+@app.route("/seller/api/inventory/<int:product_id>/movements")
+@seller_required
+def seller_api_stock_movements(product_id):
+    rows = get_stock_movements(product_id, session["seller_phone"])
+    return jsonify(rows)
+
+
+# ── Seller Expenses API ────────────────────────────────────────────────────────
+
+@app.route("/seller/api/expenses/categories")
+@seller_required
+def seller_api_expense_categories():
+    return jsonify(EXPENSE_CATEGORIES)
+
+
+@app.route("/seller/api/expenses")
+@seller_required
+def seller_api_expenses():
+    month = request.args.get("month")
+    rows  = get_seller_expenses(session["seller_phone"], month=month)
+    return jsonify(rows)
+
+
+@app.route("/seller/api/expenses/summary")
+@seller_required
+def seller_api_expense_summary():
+    return jsonify(get_expense_summary(session["seller_phone"]))
+
+
+@app.route("/seller/api/expenses/add", methods=["POST"])
+@seller_required
+def seller_api_expense_add():
+    data = request.get_json() or {}
+    try:
+        amount = float(data.get("amount", 0))
+        if amount <= 0:
+            raise ValueError
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "message": "Enter a valid amount greater than 0."}), 400
+
+    category    = data.get("category", "Other").strip()
+    description = data.get("description", "").strip()
+    expense_date = data.get("date", "")
+
+    if category not in EXPENSE_CATEGORIES:
+        category = "Other"
+
+    expense_id = add_expense(
+        seller_phone=session["seller_phone"],
+        amount=amount,
+        category=category,
+        description=description,
+        expense_date=expense_date or None,
+    )
+    return jsonify({"ok": True, "message": "Expense recorded.", "id": expense_id})
+
+
+@app.route("/seller/api/expenses/<int:expense_id>/delete", methods=["POST"])
+@seller_required
+def seller_api_expense_delete(expense_id):
+    delete_expense(expense_id, session["seller_phone"])
+    return jsonify({"ok": True, "message": "Expense deleted."})
+
+
+@app.route("/seller/api/orders/export")
+@seller_required
+def seller_api_orders_export():
+    """Download seller's orders as a CSV file."""
+    import csv, io
+    phone  = session["seller_phone"]
+    seller = get_seller(phone)
+    rows   = get_seller_orders(phone)
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Reference", "Product", "Qty", "Total (USD)", "Buyer Phone", "Status", "Date"])
+    for r in rows:
+        writer.writerow([
+            r["reference"] or r["id"],
+            r["name"],
+            r["quantity"],
+            f"{r['total_price']:.2f}",
+            r["buyer_phone"],
+            r["status"],
+            str(r["created_at"])[:10],
+        ])
+
+    biz_name = dict(seller).get("business_name", "seller").replace(" ", "_") if seller else "seller"
+    filename = f"orders_{biz_name}_{datetime.utcnow().strftime('%Y%m%d')}.csv"
+    from flask import Response
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
 
 

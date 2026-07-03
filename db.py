@@ -1,54 +1,118 @@
-import sqlite3
 import os
 import re
 import uuid
 import json
 from datetime import datetime, timedelta
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "ttech.db")
+import psycopg2
+import psycopg2.extras
+from dotenv import load_dotenv
+
+# app.py imports this module before it calls load_dotenv() itself, so this
+# module must load its own .env to find DATABASE_URL at import time.
+load_dotenv()
+
+DATABASE_URL = os.environ.get("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL environment variable is required")
+
+# Timestamp columns are stored as TEXT in the exact format SQLite's
+# CURRENT_TIMESTAMP used to produce ('YYYY-MM-DD HH:MM:SS', UTC, no tz).
+# Application code across app.py parses these with datetime.fromisoformat()
+# and does string slicing on them, so we deliberately avoid native TIMESTAMP
+# columns (which psycopg2 would hand back as datetime objects) to keep that
+# code working unchanged.
+NOW_SQL = "to_char(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')"
+
+
+class _CompatCursor:
+    """Wraps a psycopg2 cursor to accept SQLite-style '?' placeholders and
+    behave like sqlite3.Row (supports both row['col'] and row[0])."""
+
+    def __init__(self, cursor):
+        self._cursor = cursor
+
+    def execute(self, query, params=None):
+        self._cursor.execute(query.replace("?", "%s"), params or ())
+        return self
+
+    def fetchone(self):
+        return self._cursor.fetchone()
+
+    def fetchall(self):
+        return self._cursor.fetchall()
+
+    def __getattr__(self, name):
+        return getattr(self._cursor, name)
+
+
+class _CompatConnection:
+    """Wraps a psycopg2 connection to mimic the sqlite3 connection API used
+    throughout this module (conn.execute(...), dict+index-accessible rows)."""
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    def cursor(self):
+        return _CompatCursor(
+            self._conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        )
+
+    def execute(self, query, params=None):
+        cur = self.cursor()
+        cur.execute(query, params)
+        return cur
+
+    def commit(self):
+        self._conn.commit()
+
+    def rollback(self):
+        self._conn.rollback()
+
+    def close(self):
+        self._conn.close()
 
 
 def get_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    conn = psycopg2.connect(DATABASE_URL)
+    return _CompatConnection(conn)
 
 
 def init_db():
     conn = get_connection()
     cursor = conn.cursor()
 
-    cursor.execute("""
+    cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS sellers (
             phone         TEXT PRIMARY KEY,
             name          TEXT NOT NULL,
             business_name TEXT NOT NULL,
             location      TEXT DEFAULT '',
             status        TEXT NOT NULL DEFAULT 'pending',
-            registered_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            registered_at TEXT DEFAULT {NOW_SQL}
         )
     """)
 
-    cursor.execute("""
+    cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS products (
-            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            id               SERIAL PRIMARY KEY,
             name             TEXT NOT NULL,
             category         TEXT NOT NULL,
-            price            REAL NOT NULL,
-            commission       REAL NOT NULL DEFAULT 0,
+            price            DOUBLE PRECISION NOT NULL,
+            commission       DOUBLE PRECISION NOT NULL DEFAULT 0,
             stock_qty        INTEGER NOT NULL DEFAULT 0,
             description      TEXT,
             image_path       TEXT,
             listed_by        TEXT,
             status           TEXT NOT NULL DEFAULT 'pending',
             rejection_reason TEXT,
-            created_at       DATETIME DEFAULT CURRENT_TIMESTAMP
+            created_at       TEXT DEFAULT {NOW_SQL}
         )
     """)
 
     # Migrate existing products table if it lacks new columns
     for col, definition in [
-        ("commission",        "REAL NOT NULL DEFAULT 0"),
+        ("commission",        "DOUBLE PRECISION NOT NULL DEFAULT 0"),
         ("status",            "TEXT NOT NULL DEFAULT 'pending'"),
         ("rejection_reason",  "TEXT"),
         ("product_type",      "TEXT NOT NULL DEFAULT 'physical'"),
@@ -60,132 +124,94 @@ def init_db():
         ("extra_services",    "TEXT DEFAULT ''"),
         ("payment_methods",   "TEXT DEFAULT ''"),
         ("currency",          "TEXT DEFAULT 'USD'"),
+        ("cost_price",        "DOUBLE PRECISION NOT NULL DEFAULT 0"),
+        ("featured",          "INTEGER DEFAULT 0"),
     ]:
-        try:
-            cursor.execute(f"ALTER TABLE products ADD COLUMN {col} {definition}")
-        except Exception:
-            pass
+        cursor.execute(f"ALTER TABLE products ADD COLUMN IF NOT EXISTS {col} {definition}")
 
-    cursor.execute("""
-        CREATE VIRTUAL TABLE IF NOT EXISTS products_fts
-        USING fts5(
-            name,
-            category,
-            description,
-            content='products',
-            content_rowid='id'
-        )
-    """)
-
-    cursor.execute("""
-        CREATE TRIGGER IF NOT EXISTS products_ai
-        AFTER INSERT ON products BEGIN
-            INSERT INTO products_fts(rowid, name, category, description)
-            VALUES (new.id, new.name, new.category, new.description);
-        END
-    """)
-
-    cursor.execute("""
-        CREATE TRIGGER IF NOT EXISTS products_ad
-        AFTER DELETE ON products BEGIN
-            INSERT INTO products_fts(products_fts, rowid, name, category, description)
-            VALUES ('delete', old.id, old.name, old.category, old.description);
-        END
-    """)
-
-    cursor.execute("""
-        CREATE TRIGGER IF NOT EXISTS products_au
-        AFTER UPDATE ON products BEGIN
-            INSERT INTO products_fts(products_fts, rowid, name, category, description)
-            VALUES ('delete', old.id, old.name, old.category, old.description);
-            INSERT INTO products_fts(rowid, name, category, description)
-            VALUES (new.id, new.name, new.category, new.description);
-        END
-    """)
-
-    cursor.execute("""
+    cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS vendor_tokens (
             token      TEXT PRIMARY KEY,
             phone      TEXT NOT NULL,
-            expires_at DATETIME NOT NULL,
+            expires_at TEXT NOT NULL,
             used       INTEGER NOT NULL DEFAULT 0
         )
     """)
 
-    cursor.execute("""
+    cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS sessions (
             phone      TEXT PRIMARY KEY,
             state      TEXT NOT NULL,
-            data       TEXT DEFAULT '{}',
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            data       TEXT DEFAULT '{{}}',
+            updated_at TEXT DEFAULT {NOW_SQL}
         )
     """)
 
-    cursor.execute("""
+    cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS message_log (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            id          SERIAL PRIMARY KEY,
             phone       TEXT NOT NULL,
             message     TEXT NOT NULL,
-            received_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            received_at TEXT DEFAULT {NOW_SQL}
         )
     """)
 
-    cursor.execute("""
+    cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS waitlist (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            id         SERIAL PRIMARY KEY,
             phone      TEXT NOT NULL,
             product_id INTEGER NOT NULL,
-            added_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+            added_at   TEXT DEFAULT {NOW_SQL},
             UNIQUE(phone, product_id)
         )
     """)
 
-    cursor.execute("""
+    cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS orders (
-            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            id               SERIAL PRIMARY KEY,
             reference        TEXT UNIQUE,
             buyer_phone      TEXT NOT NULL,
             product_id       INTEGER NOT NULL,
             quantity         INTEGER NOT NULL DEFAULT 1,
-            unit_price       REAL NOT NULL,
-            total_price      REAL NOT NULL,
+            unit_price       DOUBLE PRECISION NOT NULL,
+            total_price      DOUBLE PRECISION NOT NULL,
             status           TEXT NOT NULL DEFAULT 'pending',
             delivery_type    TEXT NOT NULL DEFAULT 'self_collect',
             delivery_address TEXT DEFAULT '',
-            created_at       DATETIME DEFAULT CURRENT_TIMESTAMP
+            created_at       TEXT DEFAULT {NOW_SQL}
         )
     """)
 
-    cursor.execute("""
+    cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS property_enquiries (
-            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            id             SERIAL PRIMARY KEY,
             phone          TEXT NOT NULL,
             name           TEXT NOT NULL,
             property_id    INTEGER NOT NULL,
             property_title TEXT NOT NULL,
             property_city  TEXT DEFAULT '',
-            price_per_month REAL DEFAULT 0,
+            price_per_month DOUBLE PRECISION DEFAULT 0,
             status         TEXT NOT NULL DEFAULT 'new',
-            created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+            created_at     TEXT DEFAULT {NOW_SQL}
         )
     """)
 
     # ── Cart ──────────────────────────────────────────────────────────────────
-    cursor.execute("""
+    cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS cart (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            id         SERIAL PRIMARY KEY,
             phone      TEXT NOT NULL,
             product_id INTEGER NOT NULL,
             quantity   INTEGER NOT NULL DEFAULT 1,
-            added_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+            added_at   TEXT DEFAULT {NOW_SQL},
             UNIQUE(phone, product_id)
         )
     """)
 
     # ── Disputes ──────────────────────────────────────────────────────────────
-    cursor.execute("""
+    cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS disputes (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            id           SERIAL PRIMARY KEY,
             reference    TEXT NOT NULL,
             order_id     INTEGER,
             buyer_phone  TEXT NOT NULL,
@@ -194,42 +220,42 @@ def init_db():
             description  TEXT DEFAULT '',
             status       TEXT NOT NULL DEFAULT 'open',
             resolution   TEXT DEFAULT '',
-            created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+            created_at   TEXT DEFAULT {NOW_SQL},
+            updated_at   TEXT DEFAULT {NOW_SQL}
         )
     """)
 
     # ── Newsletter subscribers ─────────────────────────────────────────────────
-    cursor.execute("""
+    cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS newsletter_subs (
             phone        TEXT PRIMARY KEY,
-            subscribed_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            subscribed_at TEXT DEFAULT {NOW_SQL}
         )
     """)
 
     # ── Social media post log ─────────────────────────────────────────────────
-    cursor.execute("""
+    cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS social_posts (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            id         SERIAL PRIMARY KEY,
             product_id INTEGER,
             service_id INTEGER,
             platform   TEXT NOT NULL,
             post_id    TEXT DEFAULT '',
             status     TEXT NOT NULL DEFAULT 'sent',
-            posted_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+            posted_at  TEXT DEFAULT {NOW_SQL}
         )
     """)
 
     # ── Product reviews ───────────────────────────────────────────────────────
-    cursor.execute("""
+    cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS product_reviews (
-            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            id             SERIAL PRIMARY KEY,
             product_id     INTEGER NOT NULL,
             reviewer_phone TEXT NOT NULL,
             order_id       INTEGER,
             rating         INTEGER NOT NULL CHECK(rating BETWEEN 1 AND 5),
             comment        TEXT DEFAULT '',
-            created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+            created_at     TEXT DEFAULT {NOW_SQL},
             UNIQUE(product_id, reviewer_phone)
         )
     """)
@@ -239,51 +265,46 @@ def init_db():
         "kyc_link TEXT DEFAULT ''",
         "id_photo TEXT DEFAULT ''",
         "selfie_photo TEXT DEFAULT ''",
+        "location TEXT DEFAULT ''",
     ]:
-        try:
-            cursor.execute(f"ALTER TABLE sellers ADD COLUMN {col}")
-        except Exception:
-            pass
-
-    # Migrate sellers table if location column missing
-    try:
-        cursor.execute("ALTER TABLE sellers ADD COLUMN location TEXT DEFAULT ''")
-    except Exception:
-        pass
+        cursor.execute(f"ALTER TABLE sellers ADD COLUMN IF NOT EXISTS {col}")
 
     # Migrate orders table if delivery columns missing
     for col, definition in [
         ("delivery_type",    "TEXT NOT NULL DEFAULT 'self_collect'"),
         ("delivery_address", "TEXT DEFAULT ''"),
+        ("reference",        "TEXT"),
     ]:
-        try:
-            cursor.execute(f"ALTER TABLE orders ADD COLUMN {col} {definition}")
-        except Exception:
-            pass
+        cursor.execute(f"ALTER TABLE orders ADD COLUMN IF NOT EXISTS {col} {definition}")
+
+    cursor.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_reference "
+        "ON orders(reference) WHERE reference IS NOT NULL"
+    )
 
     # ── Delivery personnel ────────────────────────────────────────────────────
-    cursor.execute("""
+    cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS delivery_personnel (
             phone         TEXT PRIMARY KEY,
             name          TEXT NOT NULL,
             vehicle_type  TEXT DEFAULT '',
             service_area  TEXT DEFAULT '',
             status        TEXT NOT NULL DEFAULT 'pending',
-            registered_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            registered_at TEXT DEFAULT {NOW_SQL}
         )
     """)
 
     # ── Settings ──────────────────────────────────────────────────────────────
-    cursor.execute("""
+    cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS settings (
             key        TEXT PRIMARY KEY,
             value      TEXT NOT NULL,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            updated_at TEXT DEFAULT {NOW_SQL}
         )
     """)
     # Seed defaults (only if not already set)
     cursor.execute("""
-        INSERT OR IGNORE INTO settings (key, value) VALUES
+        INSERT INTO settings (key, value) VALUES
         ('commission_rate', '10'),
         ('service_commission_rate', '10'),
         ('accommodation_commission_rate', '5'),
@@ -293,54 +314,56 @@ def init_db():
         ('contact_location', 'Harare, Zimbabwe'),
         ('auto_post_facebook', '0'),
         ('newsletter_enabled', '1'),
-        ('paynow_enabled', '0'),
-        ('whatsapp_business_number', '263774128219')
+        ('whatsapp_business_number', '263774128219'),
+        ('bank_details', 'FBC Bank | Account: 1234567890 | Branch: Harare CBD | Reference: your order ref'),
+        ('welcome_banner_url', '')
+        ON CONFLICT (key) DO NOTHING
     """)
 
     # ── Audit log ─────────────────────────────────────────────────────────────
-    cursor.execute("""
+    cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS audit_log (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            id          SERIAL PRIMARY KEY,
             admin_phone TEXT NOT NULL,
             action      TEXT NOT NULL,
             target_type TEXT DEFAULT '',
             target_id   TEXT DEFAULT '',
             detail      TEXT DEFAULT '',
-            created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+            created_at  TEXT DEFAULT {NOW_SQL}
         )
     """)
 
     # ── Rate limiting (persistent) ─────────────────────────────────────────────
-    cursor.execute("""
+    cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS rate_limit (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            id         SERIAL PRIMARY KEY,
             phone      TEXT NOT NULL,
-            hit_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+            hit_at     TEXT DEFAULT {NOW_SQL}
         )
     """)
 
     # ── Message send log (for failure tracking) ────────────────────────────────
-    cursor.execute("""
+    cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS send_log (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            id          SERIAL PRIMARY KEY,
             to_phone    TEXT NOT NULL,
             message     TEXT NOT NULL,
             status      TEXT NOT NULL DEFAULT 'sent',
             error       TEXT DEFAULT '',
-            sent_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+            sent_at     TEXT DEFAULT {NOW_SQL}
         )
     """)
 
     # ── Services tables ───────────────────────────────────────────────────────
 
-    cursor.execute("""
+    cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS services (
-            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            id                SERIAL PRIMARY KEY,
             title             TEXT NOT NULL,
             category          TEXT NOT NULL,
             description       TEXT,
             price_type        TEXT NOT NULL DEFAULT 'quoted',
-            price             REAL DEFAULT 0,
+            price             DOUBLE PRECISION DEFAULT 0,
             currency          TEXT DEFAULT 'USD',
             service_area      TEXT DEFAULT '',
             provider_phone    TEXT NOT NULL,
@@ -348,7 +371,7 @@ def init_db():
             provider_business TEXT,
             status            TEXT NOT NULL DEFAULT 'pending',
             rejection_reason  TEXT,
-            created_at        DATETIME DEFAULT CURRENT_TIMESTAMP
+            created_at        TEXT DEFAULT {NOW_SQL}
         )
     """)
 
@@ -358,53 +381,36 @@ def init_db():
         ("delivery_info",   "TEXT DEFAULT ''"),
         ("extra_services",  "TEXT DEFAULT ''"),
     ]:
-        try:
-            cursor.execute(f"ALTER TABLE services ADD COLUMN {col} {definition}")
-        except Exception:
-            pass
+        cursor.execute(f"ALTER TABLE services ADD COLUMN IF NOT EXISTS {col} {definition}")
 
-    cursor.execute("""
+    cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS service_reviews (
-            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            id             SERIAL PRIMARY KEY,
             service_id     INTEGER NOT NULL,
             reviewer_phone TEXT NOT NULL,
             rating         INTEGER NOT NULL CHECK(rating BETWEEN 1 AND 5),
             comment        TEXT DEFAULT '',
-            created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+            created_at     TEXT DEFAULT {NOW_SQL},
             UNIQUE(service_id, reviewer_phone)
         )
     """)
 
-    cursor.execute("""
+    cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS service_enquiries (
-            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            id             SERIAL PRIMARY KEY,
             service_id     INTEGER NOT NULL,
             customer_phone TEXT NOT NULL,
             customer_name  TEXT NOT NULL,
             details        TEXT DEFAULT '',
             status         TEXT NOT NULL DEFAULT 'new',
-            created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+            created_at     TEXT DEFAULT {NOW_SQL}
         )
     """)
 
-    # Migrate orders table if reference column missing
-    # (SQLite cannot add a UNIQUE column via ALTER TABLE, so add plain then index)
-    try:
-        cursor.execute("ALTER TABLE orders ADD COLUMN reference TEXT")
-    except Exception:
-        pass
-    try:
-        cursor.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_reference "
-            "ON orders(reference) WHERE reference IS NOT NULL"
-        )
-    except Exception:
-        pass
-
     # ── Quotations ────────────────────────────────────────────────────────────
-    cursor.execute("""
+    cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS quotations (
-            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            id             SERIAL PRIMARY KEY,
             reference      TEXT UNIQUE NOT NULL,
             buyer_phone    TEXT NOT NULL,
             buyer_name     TEXT DEFAULT '',
@@ -418,16 +424,202 @@ def init_db():
             seller_phone   TEXT DEFAULT '',
             seller_name    TEXT DEFAULT '',
             status         TEXT NOT NULL DEFAULT 'open',
-            quoted_price   REAL,
+            quoted_price   DOUBLE PRECISION,
             seller_message TEXT DEFAULT '',
-            created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+            created_at     TEXT DEFAULT {NOW_SQL},
+            updated_at     TEXT DEFAULT {NOW_SQL}
+        )
+    """)
+
+    # ── Property shortlist ────────────────────────────────────────────────────
+    cursor.execute(f"""
+        CREATE TABLE IF NOT EXISTS property_shortlist (
+            id          SERIAL PRIMARY KEY,
+            phone       TEXT NOT NULL,
+            property_id INTEGER NOT NULL,
+            prop_data   TEXT NOT NULL DEFAULT '{{}}',
+            added_at    TEXT DEFAULT {NOW_SQL},
+            UNIQUE(phone, property_id)
+        )
+    """)
+
+    # ── Viewing appointments ───────────────────────────────────────────────────
+    cursor.execute(f"""
+        CREATE TABLE IF NOT EXISTS viewing_appointments (
+            id             SERIAL PRIMARY KEY,
+            phone          TEXT NOT NULL,
+            tenant_name    TEXT NOT NULL,
+            property_id    INTEGER NOT NULL,
+            property_title TEXT DEFAULT '',
+            landlord_phone TEXT DEFAULT '',
+            preferred_date TEXT NOT NULL,
+            preferred_time TEXT NOT NULL DEFAULT 'Morning',
+            status         TEXT NOT NULL DEFAULT 'pending',
+            created_at     TEXT DEFAULT {NOW_SQL}
+        )
+    """)
+
+    # ── Property viewings (fee-gated access) ─────────────────────────────────
+    cursor.execute(f"""
+        CREATE TABLE IF NOT EXISTS property_viewings (
+            id             SERIAL PRIMARY KEY,
+            phone          TEXT NOT NULL,
+            property_id    INTEGER NOT NULL,
+            property_title TEXT DEFAULT '',
+            fee_amount     DOUBLE PRECISION NOT NULL,
+            payment_method TEXT DEFAULT '',
+            status         TEXT NOT NULL DEFAULT 'pending',
+            created_at     TEXT DEFAULT {NOW_SQL},
+            UNIQUE(phone, property_id)
+        )
+    """)
+
+    # ── Promo / discount codes ────────────────────────────────────────────────
+    cursor.execute(f"""
+        CREATE TABLE IF NOT EXISTS promo_codes (
+            id         SERIAL PRIMARY KEY,
+            code       TEXT UNIQUE NOT NULL,
+            type       TEXT NOT NULL DEFAULT 'percent',
+            value      DOUBLE PRECISION NOT NULL,
+            min_order  DOUBLE PRECISION DEFAULT 0,
+            max_uses   INTEGER DEFAULT 0,
+            used_count INTEGER DEFAULT 0,
+            active     INTEGER DEFAULT 1,
+            expires_at TEXT,
+            created_at TEXT DEFAULT {NOW_SQL}
+        )
+    """)
+
+    # ── Refund requests ───────────────────────────────────────────────────────
+    cursor.execute(f"""
+        CREATE TABLE IF NOT EXISTS refund_requests (
+            id          SERIAL PRIMARY KEY,
+            reference   TEXT UNIQUE NOT NULL,
+            order_ref   TEXT NOT NULL,
+            buyer_phone TEXT NOT NULL,
+            reason      TEXT NOT NULL,
+            amount      DOUBLE PRECISION NOT NULL,
+            status      TEXT NOT NULL DEFAULT 'pending',
+            resolution  TEXT DEFAULT '',
+            created_at  TEXT DEFAULT {NOW_SQL},
+            updated_at  TEXT DEFAULT {NOW_SQL}
+        )
+    """)
+
+    # ── Product variants (size, colour, etc.) ─────────────────────────────────
+    cursor.execute(f"""
+        CREATE TABLE IF NOT EXISTS product_variants (
+            id         SERIAL PRIMARY KEY,
+            product_id INTEGER NOT NULL,
+            label      TEXT NOT NULL,
+            price_adj  DOUBLE PRECISION DEFAULT 0,
+            stock_qty  INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT {NOW_SQL}
+        )
+    """)
+
+    # ── Seller payouts ────────────────────────────────────────────────────────
+    cursor.execute(f"""
+        CREATE TABLE IF NOT EXISTS seller_payouts (
+            id           SERIAL PRIMARY KEY,
+            seller_phone TEXT NOT NULL,
+            amount       DOUBLE PRECISION NOT NULL,
+            period       TEXT NOT NULL,
+            order_count  INTEGER DEFAULT 0,
+            status       TEXT NOT NULL DEFAULT 'pending',
+            paid_via     TEXT DEFAULT '',
+            paid_at      TEXT,
+            notes        TEXT DEFAULT '',
+            created_at   TEXT DEFAULT {NOW_SQL}
+        )
+    """)
+
+    # ── Exchange rates (USD ↔ ZiG) ────────────────────────────────────────────
+    cursor.execute(f"""
+        CREATE TABLE IF NOT EXISTS exchange_rates (
+            id         SERIAL PRIMARY KEY,
+            from_cur   TEXT NOT NULL,
+            to_cur     TEXT NOT NULL,
+            rate       DOUBLE PRECISION NOT NULL,
+            updated_at TEXT DEFAULT {NOW_SQL},
+            UNIQUE(from_cur, to_cur)
+        )
+    """)
+    cursor.execute("""
+        INSERT INTO exchange_rates (from_cur, to_cur, rate)
+        VALUES ('USD', 'ZiG', 26.0)
+        ON CONFLICT (from_cur, to_cur) DO NOTHING
+    """)
+
+    # ── Cancellation log ──────────────────────────────────────────────────────
+    cursor.execute(f"""
+        CREATE TABLE IF NOT EXISTS order_cancellations (
+            id          SERIAL PRIMARY KEY,
+            order_ref   TEXT NOT NULL,
+            buyer_phone TEXT NOT NULL,
+            reason      TEXT DEFAULT '',
+            cancelled_at TEXT DEFAULT {NOW_SQL}
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS seller_otps (
+            phone      TEXT PRIMARY KEY,
+            code       TEXT NOT NULL,
+            expires_at TEXT NOT NULL
+        )
+    """)
+
+    cursor.execute(f"""
+        CREATE TABLE IF NOT EXISTS seller_expenses (
+            id          SERIAL PRIMARY KEY,
+            seller_phone TEXT NOT NULL,
+            amount      DOUBLE PRECISION NOT NULL,
+            category    TEXT NOT NULL DEFAULT 'Other',
+            description TEXT DEFAULT '',
+            expense_date DATE NOT NULL DEFAULT CURRENT_DATE,
+            created_at  TEXT DEFAULT {NOW_SQL}
+        )
+    """)
+
+    cursor.execute(f"""
+        CREATE TABLE IF NOT EXISTS stock_movements (
+            id         SERIAL PRIMARY KEY,
+            product_id INTEGER NOT NULL,
+            seller_phone TEXT NOT NULL,
+            change_qty INTEGER NOT NULL,
+            reason     TEXT NOT NULL DEFAULT 'adjustment',
+            note       TEXT DEFAULT '',
+            created_at TEXT DEFAULT {NOW_SQL}
+        )
+    """)
+
+    # ── Referrals ─────────────────────────────────────────────────────────────
+    cursor.execute(f"""
+        CREATE TABLE IF NOT EXISTS referrals (
+            id             SERIAL PRIMARY KEY,
+            referrer_phone TEXT NOT NULL,
+            referred_phone TEXT NOT NULL,
+            status         TEXT NOT NULL DEFAULT 'pending',
+            reward_code    TEXT DEFAULT '',
+            created_at     TEXT DEFAULT {NOW_SQL},
+            UNIQUE(referred_phone)
+        )
+    """)
+
+    # ── Buyer profiles ────────────────────────────────────────────────────────
+    cursor.execute(f"""
+        CREATE TABLE IF NOT EXISTS buyer_profiles (
+            phone      TEXT PRIMARY KEY,
+            name       TEXT DEFAULT '',
+            address    TEXT DEFAULT '',
+            updated_at TEXT DEFAULT {NOW_SQL}
         )
     """)
 
     conn.commit()
     conn.close()
-    print("Database initialised at", DB_PATH)
+    print("Database initialised (Postgres)")
 
 
 # ── Sellers ───────────────────────────────────────────────────────────────────
@@ -475,6 +667,64 @@ def get_pending_sellers():
     return rows
 
 
+# ── Seller OTP (portal login) ─────────────────────────────────────────────────
+
+def create_seller_otp(phone):
+    """Generate a 6-digit OTP valid for 10 minutes. Returns the code."""
+    import random
+    code    = str(random.randint(100000, 999999))
+    expires = (datetime.utcnow() + timedelta(minutes=10)).isoformat()
+    conn    = get_connection()
+    conn.execute(
+        "INSERT INTO seller_otps(phone, code, expires_at) VALUES(?,?,?) "
+        "ON CONFLICT(phone) DO UPDATE SET code=excluded.code, expires_at=excluded.expires_at",
+        (phone, code, expires)
+    )
+    conn.commit()
+    conn.close()
+    return code
+
+
+def verify_seller_otp(phone, code):
+    """Return True if code matches and has not expired, then delete it."""
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT code, expires_at FROM seller_otps WHERE phone=?", (phone,)
+    ).fetchone()
+    conn.close()
+    if not row:
+        return False
+    if row["code"] != code:
+        return False
+    if datetime.utcnow() > datetime.fromisoformat(row["expires_at"]):
+        return False
+    conn2 = get_connection()
+    conn2.execute("DELETE FROM seller_otps WHERE phone=?", (phone,))
+    conn2.commit()
+    conn2.close()
+    return True
+
+
+def delete_product_by_seller(product_id, seller_phone):
+    """Delete a product only if it belongs to this seller."""
+    conn = get_connection()
+    conn.execute(
+        "DELETE FROM products WHERE id=? AND listed_by=?", (product_id, seller_phone)
+    )
+    conn.commit()
+    conn.close()
+
+
+def delete_service_by_seller(service_id, seller_phone):
+    """Delete a service only if it belongs to this seller."""
+    conn = get_connection()
+    conn.execute(
+        "DELETE FROM services WHERE id=? AND provider_phone=?", (service_id, seller_phone)
+    )
+    conn.commit()
+    conn.close()
+
+
 # ── Products ──────────────────────────────────────────────────────────────────
 
 def sanitize_fts_query(query):
@@ -498,39 +748,43 @@ def add_product(name, category, price, stock_qty, description,
              stock_unit, seller_location, offers_delivery, delivery_info,
              extra_services, payment_methods, currency)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        RETURNING id
     """, (name, category, price, commission, stock_qty, description,
           image_path, listed_by, product_type, product_file_path,
           stock_unit, seller_location, offers_delivery, delivery_info,
           extra_services, payment_methods, currency))
+    product_id = cursor.fetchone()["id"]
     conn.commit()
-    product_id = cursor.lastrowid
     conn.close()
     return product_id, commission
 
 
 def search_products(query):
+    """Simple ILIKE search across name/category/description (Postgres has no
+    built-in equivalent of SQLite's FTS5 virtual tables)."""
     safe_query = sanitize_fts_query(query)
     if not safe_query:
         return []
     conn = get_connection()
     cursor = conn.cursor()
+    like = f"%{safe_query}%"
     try:
         cursor.execute("""
             SELECT p.id, p.name, p.category, p.price, p.stock_qty, p.description,
                    p.image_path, p.product_type, p.stock_unit, p.seller_location,
                    p.offers_delivery, p.listed_by,
                    s.name AS seller_name, s.business_name, s.location AS seller_city,
-                   ROUND(COALESCE(AVG(r.rating), 0), 1) AS avg_rating,
+                   ROUND(COALESCE(AVG(r.rating), 0)::numeric, 1) AS avg_rating,
                    COUNT(r.id) AS review_count
             FROM products p
-            JOIN (SELECT rowid FROM products_fts WHERE products_fts MATCH ?) fts ON p.id = fts.rowid
             LEFT JOIN sellers s ON p.listed_by = s.phone
             LEFT JOIN product_reviews r ON r.product_id = p.id
             WHERE p.status = 'approved'
-            GROUP BY p.id
+              AND (p.name ILIKE ? OR p.category ILIKE ? OR p.description ILIKE ?)
+            GROUP BY p.id, s.name, s.business_name, s.location
             ORDER BY p.price ASC
             LIMIT 8
-        """, (safe_query,))
+        """, (like, like, like))
         results = cursor.fetchall()
     except Exception:
         results = []
@@ -600,13 +854,13 @@ def get_products_by_category(category):
                p.image_path, p.product_type, p.stock_unit, p.seller_location,
                p.offers_delivery, p.listed_by,
                s.name AS seller_name, s.business_name, s.location AS seller_city,
-               ROUND(COALESCE(AVG(r.rating), 0), 1) AS avg_rating,
+               ROUND(COALESCE(AVG(r.rating), 0)::numeric, 1) AS avg_rating,
                COUNT(r.id) AS review_count
         FROM products p
         LEFT JOIN sellers s ON p.listed_by = s.phone
         LEFT JOIN product_reviews r ON r.product_id = p.id
         WHERE LOWER(p.category) = LOWER(?) AND p.status = 'approved'
-        GROUP BY p.id
+        GROUP BY p.id, s.name, s.business_name, s.location
         ORDER BY p.price ASC
     """, (category,))
     rows = cursor.fetchall()
@@ -640,10 +894,11 @@ def create_order(buyer_phone, product_id, quantity, unit_price,
             (buyer_phone, product_id, quantity, unit_price, total_price, reference,
              delivery_type, delivery_address)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        RETURNING id
     """, (buyer_phone, product_id, quantity, unit_price, total, ref,
           delivery_type, delivery_address))
+    order_id = cursor.fetchone()["id"]
     conn.commit()
-    order_id = cursor.lastrowid
     conn.close()
     return order_id, ref, total
 
@@ -767,15 +1022,16 @@ def get_session(phone):
 
 def set_session(phone, state, data=None):
     payload = json.dumps(data or {})
+    now = datetime.utcnow().isoformat(sep=" ", timespec="seconds")
     conn = get_connection()
     conn.execute("""
         INSERT INTO sessions (phone, state, data, updated_at)
-        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        VALUES (?, ?, ?, ?)
         ON CONFLICT(phone) DO UPDATE SET
             state      = excluded.state,
             data       = excluded.data,
-            updated_at = CURRENT_TIMESTAMP
-    """, (phone, state, payload))
+            updated_at = excluded.updated_at
+    """, (phone, state, payload, now))
     conn.commit()
     conn.close()
 
@@ -802,12 +1058,12 @@ def add_to_waitlist(phone, product_id):
     conn = get_connection()
     try:
         conn.execute(
-            "INSERT OR IGNORE INTO waitlist (phone, product_id) VALUES (?, ?)",
+            "INSERT INTO waitlist (phone, product_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
             (phone, product_id)
         )
         conn.commit()
     except Exception:
-        pass
+        conn.rollback()
     conn.close()
 
 
@@ -875,14 +1131,15 @@ def get_setting(key, default=""):
 
 
 def set_setting(key, value):
+    now = datetime.utcnow().isoformat(sep=" ", timespec="seconds")
     conn = get_connection()
     conn.execute("""
         INSERT INTO settings (key, value, updated_at)
-        VALUES (?, ?, CURRENT_TIMESTAMP)
+        VALUES (?, ?, ?)
         ON CONFLICT(key) DO UPDATE SET
             value = excluded.value,
-            updated_at = CURRENT_TIMESTAMP
-    """, (key, str(value)))
+            updated_at = excluded.updated_at
+    """, (key, str(value), now))
     conn.commit()
     conn.close()
 
@@ -990,11 +1247,12 @@ def add_service(title, category, description, price_type, price,
              service_area, provider_phone, provider_name, provider_business,
              seller_location, offers_delivery, delivery_info, extra_services)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        RETURNING id
     """, (title, category, description, price_type, price,
           service_area, provider_phone, provider_name, provider_business,
           seller_location, offers_delivery, delivery_info, extra_services))
+    service_id = cursor.fetchone()["id"]
     conn.commit()
-    service_id = cursor.lastrowid
     conn.close()
     return service_id
 
@@ -1013,7 +1271,7 @@ def get_services_by_category(category, limit=5):
     cursor = conn.cursor()
     cursor.execute("""
         SELECT s.*,
-               ROUND(COALESCE(AVG(r.rating), 0), 1) AS avg_rating,
+               ROUND(COALESCE(AVG(r.rating), 0)::numeric, 1) AS avg_rating,
                COUNT(r.id) AS review_count
         FROM services s
         LEFT JOIN service_reviews r ON r.service_id = s.id
@@ -1037,12 +1295,12 @@ def search_services(query, limit=5):
     like = f"%{safe}%"
     cursor.execute("""
         SELECT s.*,
-               ROUND(COALESCE(AVG(r.rating), 0), 1) AS avg_rating,
+               ROUND(COALESCE(AVG(r.rating), 0)::numeric, 1) AS avg_rating,
                COUNT(r.id) AS review_count
         FROM services s
         LEFT JOIN service_reviews r ON r.service_id = s.id
         WHERE s.status = 'approved'
-          AND (s.title LIKE ? OR s.category LIKE ? OR s.description LIKE ? OR s.service_area LIKE ?)
+          AND (s.title ILIKE ? OR s.category ILIKE ? OR s.description ILIKE ? OR s.service_area ILIKE ?)
         GROUP BY s.id
         ORDER BY avg_rating DESC
         LIMIT ?
@@ -1069,7 +1327,7 @@ def get_provider_services(phone):
     cursor = conn.cursor()
     cursor.execute("""
         SELECT s.*,
-               ROUND(COALESCE(AVG(r.rating), 0), 1) AS avg_rating,
+               ROUND(COALESCE(AVG(r.rating), 0)::numeric, 1) AS avg_rating,
                COUNT(r.id) AS review_count
         FROM services s
         LEFT JOIN service_reviews r ON r.service_id = s.id
@@ -1104,6 +1362,7 @@ def add_service_review(service_id, reviewer_phone, rating, comment=""):
         conn.commit()
         success = True
     except Exception:
+        conn.rollback()
         success = False  # duplicate review
     conn.close()
     return success
@@ -1133,9 +1392,9 @@ def add_product_review(product_id, reviewer_phone, rating, comment="", order_id=
             VALUES (?, ?, ?, ?, ?)
         """, (product_id, reviewer_phone, rating, comment, order_id))
         conn.commit()
-        # Update FTS index average — not needed, ratings shown dynamically
         success = True
     except Exception:
+        conn.rollback()
         success = False   # duplicate review
     conn.close()
     return success
@@ -1156,7 +1415,7 @@ def get_product_reviews(product_id, limit=3):
 def get_product_avg_rating(product_id):
     conn = get_connection()
     row  = conn.execute("""
-        SELECT ROUND(COALESCE(AVG(rating), 0), 1) AS avg, COUNT(*) AS cnt
+        SELECT ROUND(COALESCE(AVG(rating), 0)::numeric, 1) AS avg, COUNT(*) AS cnt
         FROM product_reviews WHERE product_id = ?
     """, (product_id,)).fetchone()
     conn.close()
@@ -1245,7 +1504,7 @@ def check_and_record_hit(phone, window_secs=60, max_hits=20):
     cursor.execute("""
         SELECT COUNT(*) FROM rate_limit
         WHERE phone = ?
-          AND hit_at > datetime('now', ? || ' seconds')
+          AND hit_at::timestamp > (NOW() AT TIME ZONE 'UTC' + (? || ' seconds')::interval)
     """, (phone, f"-{window_secs}"))
     count = cursor.fetchone()[0]
     if count >= max_hits:
@@ -1255,7 +1514,7 @@ def check_and_record_hit(phone, window_secs=60, max_hits=20):
     # Purge old entries older than 2x window to keep table small
     conn.execute("""
         DELETE FROM rate_limit
-        WHERE hit_at < datetime('now', ? || ' seconds')
+        WHERE hit_at::timestamp < (NOW() AT TIME ZONE 'UTC' + (? || ' seconds')::interval)
     """, (f"-{window_secs * 2}",))
     conn.commit()
     conn.close()
@@ -1279,11 +1538,11 @@ def log_send(to_phone, message, status="sent", error=""):
 def cleanup_expired_sessions(max_age_minutes=60):
     """Delete sessions that have been idle longer than max_age_minutes."""
     conn = get_connection()
-    conn.execute("""
+    cur = conn.execute("""
         DELETE FROM sessions
-        WHERE updated_at < datetime('now', ? || ' minutes')
+        WHERE updated_at::timestamp < (NOW() AT TIME ZONE 'UTC' + (? || ' minutes')::interval)
     """, (f"-{max_age_minutes}",))
-    deleted = conn.execute("SELECT changes()").fetchone()[0]
+    deleted = cur.rowcount
     conn.commit()
     conn.close()
     return deleted
@@ -1297,8 +1556,8 @@ def add_to_cart(phone, product_id, quantity=1):
         INSERT INTO cart (phone, product_id, quantity)
         VALUES (?, ?, ?)
         ON CONFLICT(phone, product_id) DO UPDATE SET
-            quantity = quantity + excluded.quantity,
-            added_at = CURRENT_TIMESTAMP
+            quantity = cart.quantity + excluded.quantity,
+            added_at = excluded.added_at
     """, (phone, product_id, quantity))
     conn.commit()
     conn.close()
@@ -1397,9 +1656,10 @@ def create_dispute(buyer_phone, issue_type, description, order_id=None, seller_p
         INSERT INTO disputes
             (reference, order_id, buyer_phone, seller_phone, issue_type, description)
         VALUES (?, ?, ?, ?, ?, ?)
+        RETURNING id
     """, (ref, order_id, buyer_phone, seller_phone, issue_type, description))
+    dispute_id = cursor.fetchone()["id"]
     conn.commit()
-    dispute_id = cursor.lastrowid
     conn.close()
     return dispute_id, ref
 
@@ -1420,11 +1680,12 @@ def get_disputes(status=None, limit=10):
 
 
 def update_dispute(dispute_id, status, resolution=""):
+    now = datetime.utcnow().isoformat(sep=" ", timespec="seconds")
     conn = get_connection()
     conn.execute("""
-        UPDATE disputes SET status = ?, resolution = ?, updated_at = CURRENT_TIMESTAMP
+        UPDATE disputes SET status = ?, resolution = ?, updated_at = ?
         WHERE id = ?
-    """, (status, resolution, dispute_id))
+    """, (status, resolution, now, dispute_id))
     conn.commit()
     conn.close()
 
@@ -1445,7 +1706,7 @@ def get_buyer_disputes(phone):
 
 def newsletter_subscribe(phone):
     conn = get_connection()
-    conn.execute("INSERT OR IGNORE INTO newsletter_subs (phone) VALUES (?)", (phone,))
+    conn.execute("INSERT INTO newsletter_subs (phone) VALUES (?) ON CONFLICT DO NOTHING", (phone,))
     conn.commit()
     conn.close()
 
@@ -1492,11 +1753,11 @@ def get_analytics_summary(days=7):
     c    = conn.cursor()
     since = f"-{days} days"
     stats = {
-        "total_revenue":    c.execute("SELECT COALESCE(SUM(total_price),0) FROM orders WHERE created_at > datetime('now', ?)", (since,)).fetchone()[0],
-        "total_orders":     c.execute("SELECT COUNT(*) FROM orders WHERE created_at > datetime('now', ?)", (since,)).fetchone()[0],
-        "new_users":        c.execute("SELECT COUNT(DISTINCT phone) FROM message_log WHERE received_at > datetime('now', ?)", (since,)).fetchone()[0],
-        "new_listings":     c.execute("SELECT COUNT(*) FROM products WHERE created_at > datetime('now', ?) AND status='approved'", (since,)).fetchone()[0],
-        "new_services":     c.execute("SELECT COUNT(*) FROM services WHERE created_at > datetime('now', ?) AND status='approved'", (since,)).fetchone()[0],
+        "total_revenue":    c.execute("SELECT COALESCE(SUM(total_price),0) FROM orders WHERE created_at::timestamp > (NOW() AT TIME ZONE 'UTC' + (?)::interval)", (since,)).fetchone()[0],
+        "total_orders":     c.execute("SELECT COUNT(*) FROM orders WHERE created_at::timestamp > (NOW() AT TIME ZONE 'UTC' + (?)::interval)", (since,)).fetchone()[0],
+        "new_users":        c.execute("SELECT COUNT(DISTINCT phone) FROM message_log WHERE received_at::timestamp > (NOW() AT TIME ZONE 'UTC' + (?)::interval)", (since,)).fetchone()[0],
+        "new_listings":     c.execute("SELECT COUNT(*) FROM products WHERE created_at::timestamp > (NOW() AT TIME ZONE 'UTC' + (?)::interval) AND status='approved'", (since,)).fetchone()[0],
+        "new_services":     c.execute("SELECT COUNT(*) FROM services WHERE created_at::timestamp > (NOW() AT TIME ZONE 'UTC' + (?)::interval) AND status='approved'", (since,)).fetchone()[0],
         "open_disputes":    c.execute("SELECT COUNT(*) FROM disputes WHERE status='open'", ()).fetchone()[0],
         "newsletter_count": c.execute("SELECT COUNT(*) FROM newsletter_subs", ()).fetchone()[0],
     }
@@ -1504,23 +1765,23 @@ def get_analytics_summary(days=7):
     top_products = c.execute("""
         SELECT p.name, COUNT(*) as cnt, SUM(o.total_price) as revenue
         FROM orders o JOIN products p ON o.product_id = p.id
-        WHERE o.created_at > datetime('now', ?)
-        GROUP BY o.product_id ORDER BY cnt DESC LIMIT 5
+        WHERE o.created_at::timestamp > (NOW() AT TIME ZONE 'UTC' + (?)::interval)
+        GROUP BY o.product_id, p.name ORDER BY cnt DESC LIMIT 5
     """, (since,)).fetchall()
     stats["top_products"] = [dict(r) for r in top_products]
 
     # Revenue by day
     revenue_by_day = c.execute("""
-        SELECT DATE(created_at) as day, SUM(total_price) as revenue, COUNT(*) as orders
-        FROM orders WHERE created_at > datetime('now', ?)
+        SELECT DATE(created_at::timestamp) as day, SUM(total_price) as revenue, COUNT(*) as orders
+        FROM orders WHERE created_at::timestamp > (NOW() AT TIME ZONE 'UTC' + (?)::interval)
         GROUP BY day ORDER BY day
     """, (since,)).fetchall()
     stats["revenue_by_day"] = [dict(r) for r in revenue_by_day]
 
     # Peak hours
     peak_hours = c.execute("""
-        SELECT CAST(strftime('%H', received_at) AS INTEGER) as hour, COUNT(*) as hits
-        FROM message_log WHERE received_at > datetime('now', ?)
+        SELECT EXTRACT(HOUR FROM received_at::timestamp)::integer as hour, COUNT(*) as hits
+        FROM message_log WHERE received_at::timestamp > (NOW() AT TIME ZONE 'UTC' + (?)::interval)
         GROUP BY hour ORDER BY hits DESC LIMIT 3
     """, (since,)).fetchall()
     stats["peak_hours"] = [dict(r) for r in peak_hours]
@@ -1530,7 +1791,7 @@ def get_analytics_summary(days=7):
         SELECT category, COUNT(*) as enquiries
         FROM service_enquiries e
         JOIN services s ON e.service_id = s.id
-        WHERE e.created_at > datetime('now', ?)
+        WHERE e.created_at::timestamp > (NOW() AT TIME ZONE 'UTC' + (?)::interval)
         GROUP BY category ORDER BY enquiries DESC LIMIT 5
     """, (since,)).fetchall()
     stats["top_service_cats"] = [dict(r) for r in top_services]
@@ -1647,7 +1908,7 @@ def get_seller_trust_score(phone):
     ).fetchone()[0]
 
     fulfillment_rate = (fulfilled / total_orders * 100) if total_orders > 0 else 50
-    rating_score     = (avg_rating / 5) * 40   # 40 points max from rating
+    rating_score     = (float(avg_rating) / 5) * 40   # 40 points max from rating
     order_score      = min(fulfillment_rate * 0.4, 40)  # 40 points max
     dispute_penalty  = min(disputes * 10, 20)            # -10 per open dispute, max -20
     score = max(0, min(100, rating_score + order_score - dispute_penalty + 20))  # 20 base
@@ -1662,7 +1923,7 @@ def get_featured_products(limit=12):
     cursor.execute("""
         SELECT p.id, p.name, p.category, p.price, p.stock_qty,
                p.image_path, p.product_type, p.stock_unit,
-               ROUND(COALESCE(AVG(r.rating), 0), 1) AS avg_rating,
+               ROUND(COALESCE(AVG(r.rating), 0)::numeric, 1) AS avg_rating,
                COUNT(r.id) AS review_count
         FROM products p
         LEFT JOIN product_reviews r ON r.product_id = p.id
@@ -1748,6 +2009,7 @@ def get_seller_quote_requests(seller_phone, limit=10):
 
 
 def respond_to_quotation(reference, seller_phone, seller_name, quoted_price, seller_message=""):
+    now = datetime.utcnow().isoformat(sep=" ", timespec="seconds")
     conn = get_connection()
     conn.execute("""
         UPDATE quotations
@@ -1756,8 +2018,910 @@ def respond_to_quotation(reference, seller_phone, seller_name, quoted_price, sel
             seller_name    = ?,
             quoted_price   = ?,
             seller_message = ?,
-            updated_at     = CURRENT_TIMESTAMP
+            updated_at     = ?
         WHERE reference = ?
-    """, (seller_phone, seller_name, quoted_price, seller_message, reference))
+    """, (seller_phone, seller_name, quoted_price, seller_message, now, reference))
     conn.commit()
     conn.close()
+
+
+# ── Property viewings ─────────────────────────────────────────────────────────
+
+def create_property_viewing(phone, property_id, property_title, fee_amount, payment_method=""):
+    conn = get_connection()
+    conn.execute("""
+        INSERT INTO property_viewings
+            (phone, property_id, property_title, fee_amount, payment_method, status)
+        VALUES (?, ?, ?, ?, ?, 'pending')
+        ON CONFLICT(phone, property_id) DO UPDATE SET
+            fee_amount     = excluded.fee_amount,
+            payment_method = excluded.payment_method,
+            status         = 'pending'
+    """, (phone, property_id, property_title, fee_amount, payment_method))
+    conn.commit()
+    conn.close()
+
+
+def confirm_property_viewing(phone, property_id, payment_method):
+    conn = get_connection()
+    conn.execute("""
+        UPDATE property_viewings
+        SET status = 'paid', payment_method = ?
+        WHERE phone = ? AND property_id = ?
+    """, (payment_method, phone, property_id))
+    conn.commit()
+    conn.close()
+
+
+def has_paid_viewing_fee(phone, property_id):
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT 1 FROM property_viewings WHERE phone=? AND property_id=? AND status='paid'",
+        (phone, property_id)
+    ).fetchone()
+    conn.close()
+    return row is not None
+
+
+def get_viewing_stats(limit=20):
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM property_viewings ORDER BY created_at DESC LIMIT ?", (limit,)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ── Property shortlist ─────────────────────────────────────────────────────────
+
+def add_to_shortlist(phone, property_id, prop_data):
+    conn = get_connection()
+    conn.execute("""
+        INSERT INTO property_shortlist (phone, property_id, prop_data)
+        VALUES (?, ?, ?)
+        ON CONFLICT(phone, property_id) DO UPDATE SET
+            prop_data = excluded.prop_data,
+            added_at  = excluded.added_at
+    """, (phone, property_id, json.dumps(prop_data)))
+    conn.commit()
+    conn.close()
+
+
+def remove_from_shortlist(phone, property_id):
+    conn = get_connection()
+    conn.execute(
+        "DELETE FROM property_shortlist WHERE phone=? AND property_id=?",
+        (phone, property_id)
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_shortlist(phone):
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM property_shortlist WHERE phone=? ORDER BY added_at DESC",
+        (phone,)
+    ).fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        try:
+            result.append(json.loads(r["prop_data"]))
+        except Exception:
+            pass
+    return result
+
+
+def shortlist_count(phone):
+    conn = get_connection()
+    count = conn.execute(
+        "SELECT COUNT(*) FROM property_shortlist WHERE phone=?", (phone,)
+    ).fetchone()[0]
+    conn.close()
+    return count
+
+
+def in_shortlist(phone, property_id):
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT 1 FROM property_shortlist WHERE phone=? AND property_id=?",
+        (phone, property_id)
+    ).fetchone()
+    conn.close()
+    return row is not None
+
+
+# ── Viewing appointments ───────────────────────────────────────────────────────
+
+def create_viewing_appointment(phone, tenant_name, property_id, property_title,
+                                landlord_phone, preferred_date, preferred_time):
+    conn   = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO viewing_appointments
+            (phone, tenant_name, property_id, property_title,
+             landlord_phone, preferred_date, preferred_time)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        RETURNING id
+    """, (phone, tenant_name, property_id, property_title,
+          landlord_phone, preferred_date, preferred_time))
+    appt_id = cursor.fetchone()["id"]
+    conn.commit()
+    conn.close()
+    return appt_id
+
+
+def get_viewing_appointments(phone=None, limit=10):
+    conn = get_connection()
+    if phone:
+        rows = conn.execute(
+            "SELECT * FROM viewing_appointments WHERE phone=? ORDER BY created_at DESC LIMIT ?",
+            (phone, limit)
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM viewing_appointments ORDER BY created_at DESC LIMIT ?",
+            (limit,)
+        ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ── Promo codes ───────────────────────────────────────────────────────────────
+
+def create_promo_code(code, type_, value, min_order=0, max_uses=0, expires_at=None):
+    conn = get_connection()
+    conn.execute("""
+        INSERT INTO promo_codes (code, type, value, min_order, max_uses, expires_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT (code) DO NOTHING
+    """, (code.upper().strip(), type_, value, min_order, max_uses, expires_at))
+    conn.commit()
+    conn.close()
+
+
+def get_promo_code(code):
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT * FROM promo_codes WHERE code = ? AND active = 1", (code.upper().strip(),)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def use_promo_code(code):
+    conn = get_connection()
+    conn.execute(
+        "UPDATE promo_codes SET used_count = used_count + 1 WHERE code = ?",
+        (code.upper().strip(),)
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_all_promo_codes():
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM promo_codes ORDER BY created_at DESC"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def deactivate_promo_code(code):
+    conn = get_connection()
+    conn.execute(
+        "UPDATE promo_codes SET active = 0 WHERE code = ?", (code.upper().strip(),)
+    )
+    conn.commit()
+    conn.close()
+
+
+def apply_promo_discount(code, order_total):
+    """Validate and calculate discount. Returns (discount_amount, error_msg)."""
+    promo = get_promo_code(code)
+    if not promo:
+        return 0, "Invalid or expired promo code."
+    if promo["expires_at"]:
+        from datetime import datetime
+        if datetime.utcnow() > datetime.fromisoformat(promo["expires_at"]):
+            return 0, "This promo code has expired."
+    if promo["max_uses"] > 0 and promo["used_count"] >= promo["max_uses"]:
+        return 0, "This promo code has reached its usage limit."
+    if order_total < promo["min_order"]:
+        return 0, f"Minimum order of ${promo['min_order']:.2f} required for this code."
+    if promo["type"] == "percent":
+        discount = round(order_total * promo["value"] / 100, 2)
+    else:
+        discount = min(promo["value"], order_total)
+    return discount, None
+
+
+# ── Refund requests ───────────────────────────────────────────────────────────
+
+def create_refund_request(order_ref, buyer_phone, reason, amount):
+    ref  = f"REF-{uuid.uuid4().hex[:6].upper()}"
+    conn = get_connection()
+    conn.execute("""
+        INSERT INTO refund_requests (reference, order_ref, buyer_phone, reason, amount)
+        VALUES (?, ?, ?, ?, ?)
+    """, (ref, order_ref, buyer_phone, reason, amount))
+    conn.commit()
+    conn.close()
+    return ref
+
+
+def get_refund_requests(status=None, limit=20):
+    conn   = get_connection()
+    cursor = conn.cursor()
+    if status:
+        cursor.execute(
+            "SELECT * FROM refund_requests WHERE status = ? ORDER BY created_at DESC LIMIT ?",
+            (status, limit)
+        )
+    else:
+        cursor.execute(
+            "SELECT * FROM refund_requests ORDER BY created_at DESC LIMIT ?", (limit,)
+        )
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def update_refund_status(reference, status, resolution=""):
+    now = datetime.utcnow().isoformat(sep=" ", timespec="seconds")
+    conn = get_connection()
+    conn.execute("""
+        UPDATE refund_requests
+        SET status = ?, resolution = ?, updated_at = ?
+        WHERE reference = ?
+    """, (status, resolution, now, reference))
+    conn.commit()
+    conn.close()
+
+
+def get_buyer_refunds(phone):
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM refund_requests WHERE buyer_phone = ? ORDER BY created_at DESC LIMIT 10",
+        (phone,)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ── Product variants ──────────────────────────────────────────────────────────
+
+def add_product_variant(product_id, label, price_adj=0, stock_qty=0):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO product_variants (product_id, label, price_adj, stock_qty)
+        VALUES (?, ?, ?, ?)
+        RETURNING id
+    """, (product_id, label.strip(), price_adj, stock_qty))
+    variant_id = cursor.fetchone()["id"]
+    conn.commit()
+    conn.close()
+    return variant_id
+
+
+def get_product_variants(product_id):
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM product_variants WHERE product_id = ? ORDER BY id",
+        (product_id,)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def update_variant_stock(variant_id, new_qty):
+    conn = get_connection()
+    conn.execute(
+        "UPDATE product_variants SET stock_qty = ? WHERE id = ?", (new_qty, variant_id)
+    )
+    conn.commit()
+    conn.close()
+
+
+# ── Seller payouts ────────────────────────────────────────────────────────────
+
+def create_seller_payout(seller_phone, amount, period, order_count):
+    conn = get_connection()
+    conn.execute("""
+        INSERT INTO seller_payouts (seller_phone, amount, period, order_count)
+        VALUES (?, ?, ?, ?)
+    """, (seller_phone, amount, period, order_count))
+    conn.commit()
+    conn.close()
+
+
+def get_seller_payouts(seller_phone=None, status=None):
+    conn   = get_connection()
+    cursor = conn.cursor()
+    if seller_phone and status:
+        cursor.execute(
+            "SELECT * FROM seller_payouts WHERE seller_phone=? AND status=? ORDER BY created_at DESC",
+            (seller_phone, status)
+        )
+    elif seller_phone:
+        cursor.execute(
+            "SELECT * FROM seller_payouts WHERE seller_phone=? ORDER BY created_at DESC",
+            (seller_phone,)
+        )
+    else:
+        cursor.execute("SELECT * FROM seller_payouts ORDER BY created_at DESC LIMIT 50")
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def mark_payout_paid(payout_id, paid_via="EcoCash"):
+    now = datetime.utcnow().isoformat(sep=" ", timespec="seconds")
+    conn = get_connection()
+    conn.execute("""
+        UPDATE seller_payouts
+        SET status = 'paid', paid_via = ?, paid_at = ?
+        WHERE id = ?
+    """, (paid_via, now, payout_id))
+    conn.commit()
+    conn.close()
+
+
+def get_seller_earnings_summary(seller_phone):
+    """Total earned, pending payout, commission owed."""
+    conn = get_connection()
+    c    = conn.cursor()
+    total_revenue = c.execute("""
+        SELECT COALESCE(SUM(o.total_price), 0)
+        FROM orders o JOIN products p ON o.product_id = p.id
+        WHERE p.listed_by = ? AND o.status IN ('confirmed','fulfilled')
+    """, (seller_phone,)).fetchone()[0]
+
+    rate_row = conn.execute(
+        "SELECT value FROM settings WHERE key='commission_rate'"
+    ).fetchone()
+    rate = float(rate_row["value"]) / 100 if rate_row else 0.10
+
+    commission_owed = round(total_revenue * rate, 2)
+
+    paid_out = c.execute(
+        "SELECT COALESCE(SUM(amount), 0) FROM seller_payouts WHERE seller_phone=? AND status='paid'",
+        (seller_phone,)
+    ).fetchone()[0]
+
+    order_count = c.execute("""
+        SELECT COUNT(*) FROM orders o JOIN products p ON o.product_id = p.id
+        WHERE p.listed_by = ? AND o.status IN ('confirmed','fulfilled')
+    """, (seller_phone,)).fetchone()[0]
+
+    conn.close()
+    return {
+        "total_revenue":   round(total_revenue, 2),
+        "commission_owed": commission_owed,
+        "paid_out":        round(paid_out, 2),
+        "balance_due":     round(commission_owed - paid_out, 2),
+        "order_count":     order_count,
+    }
+
+
+# ── Exchange rates ────────────────────────────────────────────────────────────
+
+def get_exchange_rate(from_cur="USD", to_cur="ZiG"):
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT rate FROM exchange_rates WHERE from_cur=? AND to_cur=?",
+        (from_cur, to_cur)
+    ).fetchone()
+    conn.close()
+    return float(row["rate"]) if row else None
+
+
+def set_exchange_rate(from_cur, to_cur, rate):
+    now = datetime.utcnow().isoformat(sep=" ", timespec="seconds")
+    conn = get_connection()
+    conn.execute("""
+        INSERT INTO exchange_rates (from_cur, to_cur, rate, updated_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(from_cur, to_cur) DO UPDATE SET
+            rate = excluded.rate, updated_at = excluded.updated_at
+    """, (from_cur, to_cur, rate, now))
+    conn.commit()
+    conn.close()
+
+
+# ── Order cancellation helpers ────────────────────────────────────────────────
+
+def get_order_by_reference(reference):
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT * FROM orders WHERE reference = ?", (reference,)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def log_cancellation(order_ref, buyer_phone, reason=""):
+    conn = get_connection()
+    conn.execute("""
+        INSERT INTO order_cancellations (order_ref, buyer_phone, reason)
+        VALUES (?, ?, ?)
+    """, (order_ref, buyer_phone, reason))
+    conn.commit()
+    conn.close()
+
+
+# ── Seller stats (for dashboard) ──────────────────────────────────────────────
+
+def get_seller_dashboard_stats(seller_phone):
+    conn = get_connection()
+    c    = conn.cursor()
+
+    total_orders = c.execute("""
+        SELECT COUNT(*) FROM orders o JOIN products p ON o.product_id = p.id
+        WHERE p.listed_by = ?
+    """, (seller_phone,)).fetchone()[0]
+
+    pending_orders = c.execute("""
+        SELECT COUNT(*) FROM orders o JOIN products p ON o.product_id = p.id
+        WHERE p.listed_by = ? AND o.status = 'pending'
+    """, (seller_phone,)).fetchone()[0]
+
+    fulfilled_orders = c.execute("""
+        SELECT COUNT(*) FROM orders o JOIN products p ON o.product_id = p.id
+        WHERE p.listed_by = ? AND o.status = 'fulfilled'
+    """, (seller_phone,)).fetchone()[0]
+
+    total_revenue = c.execute("""
+        SELECT COALESCE(SUM(o.total_price), 0) FROM orders o
+        JOIN products p ON o.product_id = p.id
+        WHERE p.listed_by = ? AND o.status IN ('confirmed','fulfilled')
+    """, (seller_phone,)).fetchone()[0]
+
+    this_month = c.execute("""
+        SELECT COALESCE(SUM(o.total_price), 0) FROM orders o
+        JOIN products p ON o.product_id = p.id
+        WHERE p.listed_by = ? AND o.status IN ('confirmed','fulfilled')
+          AND to_char(o.created_at::timestamp, 'YYYY-MM') = to_char(NOW() AT TIME ZONE 'UTC', 'YYYY-MM')
+    """, (seller_phone,)).fetchone()[0]
+
+    active_listings = c.execute(
+        "SELECT COUNT(*) FROM products WHERE listed_by = ? AND status = 'approved'",
+        (seller_phone,)
+    ).fetchone()[0]
+
+    pending_listings = c.execute(
+        "SELECT COUNT(*) FROM products WHERE listed_by = ? AND status = 'pending'",
+        (seller_phone,)
+    ).fetchone()[0]
+
+    open_disputes = c.execute(
+        "SELECT COUNT(*) FROM disputes WHERE seller_phone = ? AND status = 'open'",
+        (seller_phone,)
+    ).fetchone()[0]
+
+    rate_row = conn.execute(
+        "SELECT value FROM settings WHERE key='commission_rate'"
+    ).fetchone()
+    rate = float(rate_row["value"]) / 100 if rate_row else 0.10
+
+    conn.close()
+    return {
+        "total_orders":    total_orders,
+        "pending_orders":  pending_orders,
+        "fulfilled_orders": fulfilled_orders,
+        "total_revenue":   round(float(total_revenue), 2),
+        "month_revenue":   round(float(this_month), 2),
+        "commission_rate": int(rate * 100),
+        "commission_owed": round(float(total_revenue) * rate, 2),
+        "active_listings": active_listings,
+        "pending_listings": pending_listings,
+        "open_disputes":   open_disputes,
+    }
+
+
+# ── Low-stock check ───────────────────────────────────────────────────────────
+
+def get_low_stock_products(seller_phone, threshold=3):
+    conn = get_connection()
+    rows = conn.execute("""
+        SELECT id, name, stock_qty, stock_unit FROM products
+        WHERE listed_by = ? AND status = 'approved'
+          AND product_type = 'physical' AND stock_qty <= ? AND stock_qty > 0
+        ORDER BY stock_qty ASC
+    """, (seller_phone, threshold)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_out_of_stock_products(seller_phone):
+    conn = get_connection()
+    rows = conn.execute("""
+        SELECT id, name, stock_unit FROM products
+        WHERE listed_by = ? AND status = 'approved'
+          AND product_type = 'physical' AND stock_qty = 0
+    """, (seller_phone,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ── Abandoned cart (web) ──────────────────────────────────────────────────────
+
+def get_nonempty_carts(min_age_minutes=30, max_age_hours=48):
+    """Return (phone, item_count, total) for WhatsApp carts idle between 30 min and 48 h."""
+    conn   = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT c.phone, COUNT(*) AS item_count,
+               SUM(p.price * c.quantity) AS total
+        FROM cart c
+        JOIN products p ON c.product_id = p.id
+        WHERE c.phone NOT LIKE 'web-%%'
+          AND c.added_at::timestamp < (NOW() AT TIME ZONE 'UTC' + (? || ' minutes')::interval)
+          AND c.added_at::timestamp > (NOW() AT TIME ZONE 'UTC' + (? || ' hours')::interval)
+        GROUP BY c.phone
+    """, (f"-{min_age_minutes}", f"-{max_age_hours}"))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ── Inventory & Profit ────────────────────────────────────────────────────────
+
+def adjust_stock(product_id, seller_phone, change_qty, reason="adjustment", note=""):
+    """Add or subtract stock and log the movement. change_qty can be negative."""
+    conn = get_connection()
+    conn.execute(
+        "UPDATE products SET stock_qty = GREATEST(0, stock_qty + ?) WHERE id = ? AND listed_by = ?",
+        (change_qty, product_id, seller_phone)
+    )
+    conn.execute(
+        "INSERT INTO stock_movements (product_id, seller_phone, change_qty, reason, note) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (product_id, seller_phone, change_qty, reason, note)
+    )
+    conn.commit()
+    conn.close()
+
+
+def update_product_cost(product_id, seller_phone, cost_price):
+    """Set the cost price for a product (used in profit calculation)."""
+    conn = get_connection()
+    conn.execute(
+        "UPDATE products SET cost_price = ? WHERE id = ? AND listed_by = ?",
+        (max(0.0, float(cost_price)), product_id, seller_phone)
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_stock_movements(product_id, seller_phone, limit=30):
+    """Recent stock movement log for a product."""
+    conn  = get_connection()
+    rows  = conn.execute("""
+        SELECT change_qty, reason, note, created_at
+        FROM stock_movements
+        WHERE product_id = ? AND seller_phone = ?
+        ORDER BY created_at DESC LIMIT ?
+    """, (product_id, seller_phone, limit)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_seller_inventory(seller_phone):
+    """Full inventory with stock, cost, revenue and profit per product."""
+    conn = get_connection()
+    rows = conn.execute("""
+        SELECT
+            p.id,
+            p.name,
+            p.category,
+            p.price          AS selling_price,
+            p.cost_price,
+            p.stock_qty,
+            p.stock_unit,
+            p.status,
+            p.product_type,
+            COALESCE(SUM(CASE WHEN o.status IN ('confirmed','fulfilled') THEN o.quantity END), 0) AS units_sold,
+            COALESCE(SUM(CASE WHEN o.status IN ('confirmed','fulfilled') THEN o.total_price END), 0) AS total_revenue,
+            COALESCE(SUM(CASE WHEN o.status = 'pending' THEN o.quantity END), 0) AS units_pending
+        FROM products p
+        LEFT JOIN orders o ON o.product_id = p.id
+        WHERE p.listed_by = ?
+        GROUP BY p.id
+        ORDER BY p.created_at DESC
+    """, (seller_phone,)).fetchall()
+    conn.close()
+
+    rate = float(get_setting("commission_rate", "10")) / 100
+
+    result = []
+    for r in rows:
+        d             = dict(r)
+        cost_total    = round(d["cost_price"] * d["units_sold"], 2)
+        connect_fee   = round(d["total_revenue"] * rate, 2)
+        gross_profit  = round(d["total_revenue"] - cost_total - connect_fee, 2)
+        profit_margin = round((gross_profit / d["total_revenue"] * 100), 1) if d["total_revenue"] else 0
+        stock_value   = round(d["cost_price"] * d["stock_qty"], 2)
+        d.update({
+            "cost_total":    cost_total,
+            "connect_fee":   connect_fee,
+            "gross_profit":  gross_profit,
+            "profit_margin": profit_margin,
+            "stock_value":   stock_value,
+            "rate_pct":      round(rate * 100, 1),
+        })
+        result.append(d)
+    return result
+
+
+def get_seller_profit_summary(seller_phone):
+    """Aggregate profit summary across all products, including expenses for net profit."""
+    inventory = get_seller_inventory(seller_phone)
+    total_revenue    = sum(p["total_revenue"]  for p in inventory)
+    total_cost       = sum(p["cost_total"]     for p in inventory)
+    total_fee        = sum(p["connect_fee"]    for p in inventory)
+    gross_profit     = sum(p["gross_profit"]   for p in inventory)
+    total_stock_val  = sum(p["stock_value"]    for p in inventory)
+    total_units_sold = sum(p["units_sold"]     for p in inventory)
+    expense_summary  = get_expense_summary(seller_phone)
+    total_expenses   = expense_summary["all_time"]
+    net_profit       = round(gross_profit - total_expenses, 2)
+    gross_margin     = round(gross_profit / total_revenue * 100, 1) if total_revenue else 0
+    net_margin       = round(net_profit   / total_revenue * 100, 1) if total_revenue else 0
+    return {
+        "total_revenue":   round(total_revenue, 2),
+        "total_cost":      round(total_cost, 2),
+        "total_fee":       round(total_fee, 2),
+        "gross_profit":    round(gross_profit, 2),
+        "gross_margin":    gross_margin,
+        "total_expenses":  total_expenses,
+        "net_profit":      net_profit,
+        "net_margin":      net_margin,
+        "profit_margin":   gross_margin,
+        "stock_value":     round(total_stock_val, 2),
+        "units_sold":      total_units_sold,
+        "product_count":   len(inventory),
+    }
+
+
+# ── Seller Expenses ───────────────────────────────────────────────────────────
+
+EXPENSE_CATEGORIES = [
+    "Rent / Utilities",
+    "Transport / Delivery",
+    "Packaging / Materials",
+    "Marketing / Advertising",
+    "Supplier / Restocking",
+    "Salaries / Labour",
+    "Equipment / Repairs",
+    "Licences / Permits",
+    "Other",
+]
+
+
+def add_expense(seller_phone, amount, category, description="", expense_date=None):
+    if expense_date is None:
+        expense_date = datetime.utcnow().date().isoformat()
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO seller_expenses (seller_phone, amount, category, description, expense_date) "
+        "VALUES (?, ?, ?, ?, ?) RETURNING id",
+        (seller_phone, round(float(amount), 2), category, description, expense_date)
+    )
+    expense_id = cursor.fetchone()["id"]
+    conn.commit()
+    conn.close()
+    return expense_id
+
+
+def get_seller_expenses(seller_phone, limit=100, month=None):
+    """Return expenses ordered newest first. Optionally filter by 'YYYY-MM'."""
+    conn   = get_connection()
+    if month:
+        rows = conn.execute("""
+            SELECT id, amount, category, description, expense_date, created_at
+            FROM seller_expenses
+            WHERE seller_phone = ? AND to_char(expense_date, 'YYYY-MM') = ?
+            ORDER BY expense_date DESC, created_at DESC LIMIT ?
+        """, (seller_phone, month, limit)).fetchall()
+    else:
+        rows = conn.execute("""
+            SELECT id, amount, category, description, expense_date, created_at
+            FROM seller_expenses
+            WHERE seller_phone = ?
+            ORDER BY expense_date DESC, created_at DESC LIMIT ?
+        """, (seller_phone, limit)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def delete_expense(expense_id, seller_phone):
+    conn = get_connection()
+    conn.execute(
+        "DELETE FROM seller_expenses WHERE id = ? AND seller_phone = ?",
+        (expense_id, seller_phone)
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_expense_summary(seller_phone):
+    """Total expenses and breakdown by category (all time and this month)."""
+    conn = get_connection()
+    rows = conn.execute("""
+        SELECT category,
+               SUM(amount)  AS total,
+               COUNT(*)     AS count
+        FROM seller_expenses
+        WHERE seller_phone = ?
+        GROUP BY category
+        ORDER BY total DESC
+    """, (seller_phone,)).fetchall()
+
+    this_month = conn.execute("""
+        SELECT COALESCE(SUM(amount), 0) AS total
+        FROM seller_expenses
+        WHERE seller_phone = ?
+          AND to_char(expense_date, 'YYYY-MM') = to_char(NOW() AT TIME ZONE 'UTC', 'YYYY-MM')
+    """, (seller_phone,)).fetchone()["total"]
+
+    all_time = conn.execute(
+        "SELECT COALESCE(SUM(amount), 0) FROM seller_expenses WHERE seller_phone = ?",
+        (seller_phone,)
+    ).fetchone()[0]
+
+    conn.close()
+    return {
+        "all_time":   round(all_time, 2),
+        "this_month": round(this_month, 2),
+        "by_category": [dict(r) for r in rows],
+    }
+
+
+# ── Referral programme ────────────────────────────────────────────────────────
+
+def create_referral(referrer_phone, referred_phone):
+    conn = get_connection()
+    try:
+        conn.execute(
+            "INSERT INTO referrals (referrer_phone, referred_phone) VALUES (?,?) ON CONFLICT DO NOTHING",
+            (referrer_phone, referred_phone)
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+    conn.close()
+
+
+def get_referral_by_referred(referred_phone):
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT * FROM referrals WHERE referred_phone = ?", (referred_phone,)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def complete_referral(referred_phone, reward_code):
+    conn = get_connection()
+    conn.execute(
+        "UPDATE referrals SET status='rewarded', reward_code=? WHERE referred_phone=?",
+        (reward_code, referred_phone)
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_referral_count(referrer_phone):
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT COUNT(*) as total, "
+        "SUM(CASE WHEN status='rewarded' THEN 1 ELSE 0 END) as rewarded "
+        "FROM referrals WHERE referrer_phone=?",
+        (referrer_phone,)
+    ).fetchone()
+    conn.close()
+    return (row["total"], row["rewarded"]) if row else (0, 0)
+
+
+# ── Inactive users (re-engagement) ───────────────────────────────────────────
+
+def get_inactive_users(min_days=7, max_days=30):
+    """Return phones of users silent for min_days but no more than max_days."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT phone
+        FROM message_log
+        GROUP BY phone
+        HAVING MAX(received_at)::timestamp < (NOW() AT TIME ZONE 'UTC' + (? || ' days')::interval)
+           AND MAX(received_at)::timestamp > (NOW() AT TIME ZONE 'UTC' + (? || ' days')::interval)
+    """, (f"-{min_days}", f"-{max_days}"))
+    rows = cursor.fetchall()
+    conn.close()
+    return [r["phone"] for r in rows]
+
+
+# ── Buyer profiles ────────────────────────────────────────────────────────────
+
+def save_buyer_profile(phone, name="", address=""):
+    now = datetime.utcnow().isoformat(sep=" ", timespec="seconds")
+    conn = get_connection()
+    conn.execute("""
+        INSERT INTO buyer_profiles (phone, name, address, updated_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(phone) DO UPDATE SET
+            name       = COALESCE(NULLIF(excluded.name, ''),    buyer_profiles.name),
+            address    = COALESCE(NULLIF(excluded.address, ''), buyer_profiles.address),
+            updated_at = excluded.updated_at
+    """, (phone, name, address, now))
+    conn.commit()
+    conn.close()
+
+
+def get_buyer_profile(phone):
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT * FROM buyer_profiles WHERE phone = ?", (phone,)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_message_count(phone):
+    conn = get_connection()
+    count = conn.execute(
+        "SELECT COUNT(*) FROM message_log WHERE phone = ?", (phone,)
+    ).fetchone()[0]
+    conn.close()
+    return count
+
+
+# ── Live site stats (for landing page) ───────────────────────────────────────
+
+def get_live_stats():
+    conn = get_connection()
+    c    = conn.cursor()
+    stats = {
+        "products": c.execute("SELECT COUNT(*) FROM products WHERE status='approved'").fetchone()[0],
+        "sellers":  c.execute("SELECT COUNT(*) FROM sellers  WHERE status='approved'").fetchone()[0],
+        "orders":   c.execute("SELECT COUNT(*) FROM orders").fetchone()[0],
+        "services": c.execute("SELECT COUNT(*) FROM services WHERE status='approved'").fetchone()[0],
+    }
+    conn.close()
+    return stats
+
+
+# ── Featured products (admin picks) ──────────────────────────────────────────
+
+def set_product_featured(product_id, featured: bool):
+    conn = get_connection()
+    conn.execute(
+        "UPDATE products SET featured = ? WHERE id = ?",
+        (1 if featured else 0, product_id)
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_featured_admin_picks(limit=4):
+    conn = get_connection()
+    rows = conn.execute("""
+        SELECT p.id, p.name, p.category, p.price, p.stock_qty,
+               p.image_path, p.product_type, p.stock_unit,
+               ROUND(COALESCE(AVG(r.rating), 0)::numeric, 1) AS avg_rating,
+               COUNT(r.id) AS review_count
+        FROM products p
+        LEFT JOIN product_reviews r ON r.product_id = p.id
+        WHERE p.status = 'approved' AND p.featured = 1
+          AND (p.stock_qty > 0 OR p.product_type = 'digital')
+        GROUP BY p.id
+        ORDER BY p.created_at DESC
+        LIMIT ?
+    """, (limit,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]

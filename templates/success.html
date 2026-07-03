@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/png" href="/uploads/welcome_banner.png"/>
+  <link rel="apple-touch-icon" href="/uploads/welcome_banner.png"/>
   <title>Listings Submitted — T-Tech Connect</title>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
@@ -84,14 +86,14 @@
         <span>Total: ${{ "%.2f"|format(item.price * item.qty) }}</span>
         {% endif %}
       </div>
-      <div class="item-comm">Commission due: ${{ "%.2f"|format(item.commission) }}</div>
+      <div class="item-comm">Connect Fee due: ${{ "%.2f"|format(item.commission) }}</div>
     </div>
     {% endfor %}
   </div>
 
-  <!-- Commission summary -->
+  <!-- Connect Fee summary -->
   <div class="comm-box">
-    <h3>💰 Commission Summary</h3>
+    <h3>💰 Connect Fee Summary</h3>
     {% for item in submitted %}
     <div class="comm-row">
       <span>{{ item.name[:30] }}{% if item.name|length > 30 %}…{% endif %}</span>
@@ -118,7 +120,7 @@
     <div class="step">
       <div class="step-num">3</div>
       <div class="step-text">
-        Pay <strong>${{ "%.2f"|format(total_commission) }}</strong> total commission via
+        Pay <strong>${{ "%.2f"|format(total_commission) }}</strong> total Connect Fee via
         EcoCash to <strong>0774128219</strong> and send proof of payment.
       </div>
     </div>

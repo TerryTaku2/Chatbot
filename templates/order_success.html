@@ -3,7 +3,9 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Order Confirmed — T-Tech Connect</title>
+  <link rel="icon" type="image/png" href="/uploads/welcome_banner.png"/>
+  <link rel="apple-touch-icon" href="/uploads/welcome_banner.png"/>
+  <title>Order Confirmed T-Tech Connect</title>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
     body{font-family:'Segoe UI',system-ui,sans-serif;background:#f0f2f5;min-height:100vh;padding-bottom:32px}
@@ -100,7 +102,7 @@
   <div class="success-title">Order Placed! 🎉</div>
   <div class="success-sub">
     Thank you{% if buyer_name %}, <strong>{{ buyer_name }}</strong>{% endif %}!<br/>
-    Your order is confirmed — complete payment below to proceed.
+    Your order is confirmed, complete payment below to proceed.
   </div>
 </div>
 
@@ -258,6 +260,25 @@
     }
   }
 </script>
+
+<!-- Quick actions -->
+<div style="max-width:520px;margin:0 auto;padding:0 16px 32px;display:flex;flex-direction:column;gap:10px">
+  {% if refs %}
+  <a href="/track/{{ refs[0] }}"
+     style="display:flex;align-items:center;justify-content:center;gap:8px;padding:14px;background:#075e54;color:#fff;border-radius:12px;font-size:15px;font-weight:700;text-decoration:none">
+    📦 Track Order {{ refs[0] }}
+  </a>
+  {% endif %}
+  <a href="/shop"
+     style="display:flex;align-items:center;justify-content:center;gap:8px;padding:12px;background:#f0f2f5;color:#374151;border:1.5px solid #d1d5db;border-radius:12px;font-size:14px;font-weight:600;text-decoration:none">
+    🛍️ Continue Shopping
+  </a>
+  <p style="text-align:center;font-size:12px;color:#9ca3af;margin-top:4px">
+    Need to cancel? WhatsApp us: <strong>cancel order {{ refs[0] if refs else '' }}</strong> within 30 min.
+    <br><a href="/terms" style="color:#075e54">Terms</a> &middot;
+    <a href="/privacy" style="color:#075e54">Privacy</a>
+  </p>
+</div>
 
 </body>
 </html>

@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/png" href="/uploads/welcome_banner.png"/>
+  <link rel="apple-touch-icon" href="/uploads/welcome_banner.png"/>
+  <title>{{ seller.business_name }} — T-Tech Connect</title>
+  <meta name="description" content="{{ seller.business_name }} — verified seller on T-Tech Connect Zimbabwe. Browse their products and services."/>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Segoe UI',system-ui,sans-serif;background:#f0f2f5;min-height:100vh;padding-bottom:24px}
+    .topbar{background:#075e54;padding:0 14px;display:flex;align-items:center;gap:12px;height:56px;box-shadow:0 2px 8px rgba(0,0,0,.18)}
+    .topbar-back{color:#fff;text-decoration:none;font-size:20px}
+    .topbar-title{color:#fff;font-size:16px;font-weight:700;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .topbar-cart{color:#fff;font-size:22px;text-decoration:none;position:relative}
+    .cart-badge{position:absolute;top:-5px;right:-7px;background:#ef4444;color:#fff;border-radius:50%;min-width:17px;height:17px;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;border:2px solid #075e54}
+
+    .seller-hero{background:linear-gradient(135deg,#064e46,#075e54);padding:24px 16px 20px;text-align:center}
+    .seller-avatar{width:72px;height:72px;border-radius:50%;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:32px;margin:0 auto 12px;border:3px solid rgba(255,255,255,.4)}
+    .seller-name{color:#fff;font-size:20px;font-weight:800;margin-bottom:4px}
+    .seller-loc{color:rgba(255,255,255,.8);font-size:13px}
+    .badges{display:flex;gap:8px;justify-content:center;margin-top:10px;flex-wrap:wrap}
+    .badge{background:rgba(255,255,255,.18);color:#fff;border-radius:20px;padding:4px 12px;font-size:11px;font-weight:700;border:1px solid rgba(255,255,255,.3)}
+    .trust-bar{display:flex;background:#fff;padding:12px 16px;gap:0;border-bottom:1px solid #e5e7eb}
+    .trust-item{flex:1;text-align:center;font-size:11px;font-weight:700;color:#374151;border-right:1px solid #e5e7eb}
+    .trust-item:last-child{border-right:none}
+    .trust-num{display:block;font-size:18px;font-weight:800;color:#075e54;margin-bottom:2px}
+
+    .section{padding:14px 14px 0}
+    .section-title{font-size:15px;font-weight:800;color:#111827;margin-bottom:12px}
+    .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:11px;padding-bottom:16px}
+    @media(min-width:480px){.grid{grid-template-columns:repeat(3,1fr)}}
+    .card{background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb;transition:transform .15s,box-shadow .15s;display:flex;flex-direction:column}
+    .card:hover{transform:translateY(-2px);box-shadow:0 4px 18px rgba(0,0,0,.1)}
+    .card-img-wrap{position:relative;width:100%;aspect-ratio:1;overflow:hidden;background:#f3f4f6;flex-shrink:0;cursor:pointer}
+    .card-img{width:100%;height:100%;object-fit:cover;display:block}
+    .card-img-ph{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:36px}
+    .card-body{padding:10px 11px 4px;cursor:pointer;flex:1}
+    .card-name{font-size:13px;font-weight:700;color:#111827;line-height:1.35;margin-bottom:4px}
+    .card-price{font-size:15px;font-weight:800;color:#075e54}
+    .card-footer{padding:8px 11px 11px}
+    .btn-cart{width:100%;padding:9px;background:#075e54;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;transition:background .15s}
+    .btn-cart:hover{background:#064e46}
+
+    .svc-card{background:#fff;border-radius:12px;border:1px solid #e5e7eb;padding:14px;margin-bottom:10px}
+    .svc-title{font-size:14px;font-weight:700;color:#111827;margin-bottom:4px}
+    .svc-cat{font-size:11px;color:#6b7280;margin-bottom:6px}
+    .svc-row{display:flex;gap:12px;font-size:12px;color:#374151}
+    .svc-price{font-weight:700;color:#075e54}
+
+    .wa-cta{display:flex;align-items:center;justify-content:center;gap:8px;margin:16px 14px;padding:15px;background:#25d366;color:#fff;border-radius:12px;font-size:15px;font-weight:700;text-decoration:none}
+    .wa-cta:hover{background:#1ebe5d}
+    .empty{text-align:center;padding:32px;color:#9ca3af;font-size:13px}
+
+    .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);background:#111827;color:#fff;padding:10px 20px;border-radius:24px;font-size:13px;font-weight:600;opacity:0;transition:all .25s;pointer-events:none;z-index:300}
+    .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  </style>
+</head>
+<body>
+
+<div class="topbar">
+  <a class="topbar-back" href="/shop">←</a>
+  <span class="topbar-title">{{ seller.business_name }}</span>
+  <a class="topbar-cart" href="/cart">🛒
+    {% if cart_count > 0 %}<span class="cart-badge">{{ cart_count }}</span>{% endif %}
+  </a>
+</div>
+
+<!-- Hero -->
+<div class="seller-hero">
+  <div class="seller-avatar">🏪</div>
+  <div class="seller-name">{{ seller.business_name }}</div>
+  <div class="seller-loc">📍 {{ seller.location or 'Zimbabwe' }}</div>
+  <div class="badges">
+    <span class="badge">✅ Verified Seller</span>
+    {% if total_orders >= 10 %}<span class="badge">🏆 Trusted ({{ total_orders }}+ orders)</span>{% endif %}
+    {% if trust >= 70 %}<span class="badge">⭐ Top Rated</span>{% endif %}
+  </div>
+</div>
+
+<!-- Trust bar -->
+<div class="trust-bar">
+  <div class="trust-item">
+    <span class="trust-num">{{ products|length }}</span>Products
+  </div>
+  <div class="trust-item">
+    <span class="trust-num">{{ services|length }}</span>Services
+  </div>
+  <div class="trust-item">
+    <span class="trust-num">{{ total_orders }}</span>Orders
+  </div>
+  <div class="trust-item">
+    <span class="trust-num">{{ trust }}/100</span>Trust Score
+  </div>
+</div>
+
+<!-- WhatsApp CTA -->
+{% set wa_number = seller.phone %}
+<a class="wa-cta" href="https://wa.me/{{ wa_number }}?text=Hi%2C+I+found+your+store+on+T-Tech+Connect!">
+  💬 Chat with {{ seller.name }} on WhatsApp
+</a>
+
+{% if products %}
+<div class="section">
+  <div class="section-title">Products</div>
+  <div class="grid">
+    {% for p in products %}
+    <div class="card">
+      <div class="card-img-wrap" onclick="location.href='/product/{{ p.id }}'">
+        {% if p.image_path %}
+        <img class="card-img" src="/uploads/{{ p.image_path }}" alt="{{ p.name }}" loading="lazy"/>
+        {% else %}
+        <div class="card-img-ph">📦</div>
+        {% endif %}
+      </div>
+      <div class="card-body" onclick="location.href='/product/{{ p.id }}'">
+        <div class="card-name">{{ p.name }}</div>
+        <div class="card-price">${{ "%.2f"|format(p.price) }}</div>
+      </div>
+      <div class="card-footer">
+        {% if p.stock_qty > 0 or p.status == 'approved' %}
+        <button class="btn-cart" onclick="addToCart(event,{{ p.id }},this)">🛒 Add to Cart</button>
+        {% else %}
+        <button class="btn-cart" disabled style="background:#9ca3af;cursor:default">Out of Stock</button>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% if services %}
+<div class="section">
+  <div class="section-title">Services</div>
+  {% for s in services %}
+  <div class="svc-card">
+    <div class="svc-title">{{ s.title }}</div>
+    <div class="svc-cat">📂 {{ s.category }}</div>
+    <div class="svc-row">
+      <span class="svc-price">💰 {{ zig_price(s.price) if s.price else 'Get a quote' }}</span>
+      <span>📍 {{ s.service_area or 'Zimbabwe' }}</span>
+    </div>
+    <a href="https://wa.me/{{ seller.phone }}?text=Hi%2C+I%27d+like+to+enquire+about+*{{ s.title | urlencode }}*"
+       style="display:inline-block;margin-top:10px;padding:8px 14px;background:#075e54;color:#fff;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none">
+      💬 Enquire
+    </a>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if not products and not services %}
+<div class="empty">This seller has no active listings yet.</div>
+{% endif %}
+
+<div class="toast" id="toast"></div>
+
+<script>
+  let cartCount = {{ cart_count }};
+  function showToast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),2400)}
+  function addToCart(e,pid,btn){
+    e.stopPropagation();
+    const orig=btn.innerHTML;btn.innerHTML='⏳';btn.disabled=true;
+    fetch('/shop/api/cart/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({product_id:pid,qty:1})})
+    .then(r=>r.json()).then(d=>{
+      if(d.ok){showToast('✅ Added to cart!');btn.innerHTML='✓ Added';btn.style.background='#16a34a';setTimeout(()=>{btn.innerHTML=orig;btn.style.background='';btn.disabled=false;},1800);}
+      else{showToast('❌ '+(d.error||'Could not add'));btn.innerHTML=orig;btn.disabled=false;}
+    }).catch(()=>{showToast('⚠️ Network error');btn.innerHTML=orig;btn.disabled=false;});
+  }
+</script>
+</body>
+</html>

@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/png" href="/uploads/welcome_banner.png"/>
+  <link rel="apple-touch-icon" href="/uploads/welcome_banner.png"/>
   <title>Admin — T-Tech Connect</title>
   <style>
     /* ── Reset & base ── */
@@ -237,7 +239,7 @@
 
     <div class="sb-section">Tools</div>
     <div class="sb-link" onclick="showSection('commission')">
-      <span class="icon">💰</span> Commission
+      <span class="icon">💰</span> Connect Fee
     </div>
     <div class="sb-link" onclick="showSection('broadcast')">
       <span class="icon">📢</span> Broadcast
@@ -408,9 +410,9 @@
     <!-- ── Commission ── -->
     <div class="section-page" id="page-commission">
       <div class="settings-section">
-        <h3>💰 Commission Rates</h3>
+        <h3>💰 Connect Fee Rates</h3>
         <p style="font-size:12px;color:#6b7280;margin-bottom:16px">
-          Commission is charged on the <strong>total selling price</strong> (price × quantity) when a listing is approved.
+          The Connect Fee is charged on the <strong>total selling price</strong> (price × quantity) when a listing is approved.
           Changes apply to new listings only — existing approved listings keep their original rate.
         </p>
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px">
@@ -457,8 +459,8 @@
       </div>
 
       <div class="settings-section" style="margin-top:20px">
-        <h3>📊 Commission Calculator</h3>
-        <p style="font-size:12px;color:#6b7280;margin-bottom:14px">Preview how much commission a seller will pay for a given listing.</p>
+        <h3>📊 Connect Fee Calculator</h3>
+        <p style="font-size:12px;color:#6b7280;margin-bottom:14px">Preview how much Connect Fee a seller will pay for a given listing.</p>
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
           <div class="field" style="margin:0"><label>Price per unit ($)</label><input type="number" id="calc-price" min="0" step="0.01" placeholder="100.00" oninput="runCalc()"></div>
           <div class="field" style="margin:0"><label>Quantity</label><input type="number" id="calc-qty" min="1" value="1" oninput="runCalc()"></div>
@@ -498,7 +500,7 @@
     <!-- ── Settings ── -->
     <div class="section-page" id="page-settings">
       <div class="settings-section">
-        <h3>💰 Commission Rates (%)</h3>
+        <h3>💰 Connect Fee Rates (%)</h3>
         <div class="settings-grid">
           <div class="field"><label>Products</label><input type="number" id="s-commission_rate" min="0" max="100" step="1" placeholder="10"></div>
           <div class="field"><label>Services</label><input type="number" id="s-service_commission_rate" min="0" max="100" step="1" placeholder="10"></div>
@@ -652,7 +654,7 @@
       </div>
 
       <div id="lfs-comm-preview" style="background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:10px 14px;font-size:13px;display:none">
-        <span style="font-size:11px;font-weight:700;color:#92400e;text-transform:uppercase">Estimated Commission</span>
+        <span style="font-size:11px;font-weight:700;color:#92400e;text-transform:uppercase">Estimated Connect Fee</span>
         <div id="lfs-comm-amount" style="font-size:20px;font-weight:800;color:#b45309;margin-top:2px"></div>
         <div id="lfs-comm-note" style="font-size:11px;color:#92400e"></div>
       </div>
@@ -685,7 +687,7 @@ const TITLES = {
   overview:'Dashboard Overview', sellers:'Seller Management',
   products:'Product Management', services:'Service Management',
   orders:'Order Management',     enquiries:'Enquiries',
-  delivery:'Delivery Agents',    commission:'Commission Rates',
+  delivery:'Delivery Agents',    commission:'Connect Fee Rates',
   broadcast:'Broadcast Message', settings:'Settings',
   audit:'Audit Log',
 };
@@ -807,10 +809,10 @@ function renderSellers() {
   if (!rows.length) { tbody.innerHTML = emptyRow(7, 'No sellers found.'); return; }
   tbody.innerHTML = rows.map(s => `
     <tr>
-      <td><div class="td-name">${s.name}</div><div class="td-sub">Since ${(s.registered_at||'').slice(0,10)}</div></td>
-      <td>${s.business_name}</td>
-      <td style="font-family:monospace;font-size:12px">${s.phone}</td>
-      <td>${s.location || '—'}</td>
+      <td><div class="td-name">${esc(s.name)}</div><div class="td-sub">Since ${(s.registered_at||'').slice(0,10)}</div></td>
+      <td>${esc(s.business_name)}</td>
+      <td style="font-family:monospace;font-size:12px">${esc(s.phone)}</td>
+      <td>${esc(s.location) || '—'}</td>
       <td>${badge(s.status)}</td>
       <td>${kycCell(s)}</td>
       <td><div class="actions">${sellerActions(s)}</div></td>
@@ -888,11 +890,11 @@ function renderProducts() {
       : '';
     return `<tr>
       <td>${thumb}</td>
-      <td><div class="td-name">${p.name}${typeBadge}</div><div class="td-sub">ID: ${p.id}</div></td>
-      <td>${p.category}</td>
+      <td><div class="td-name">${esc(p.name)}${typeBadge}</div><div class="td-sub">ID: ${p.id}</div></td>
+      <td>${esc(p.category)}</td>
       <td>$${(+p.price).toFixed(2)}</td>
       <td>${p.product_type === 'digital' ? '∞' : p.stock_qty}</td>
-      <td>${p.business_name || p.seller_name || p.listed_by || '—'}</td>
+      <td>${esc(p.business_name || p.seller_name || p.listed_by || '—')}</td>
       <td>${badge(p.status)}</td>
       <td><div class="actions">${productActions(p)}</div></td>
     </tr>`;
@@ -910,8 +912,8 @@ function productActions(p) {
 function viewProductMedia(p) {
   document.getElementById('modal-title').textContent = `${p.product_type === 'digital' ? '🖼️ Digital' : '📦'} ${p.name}`;
   let body = `<div style="font-size:13px;color:#374151;margin-bottom:12px">
-    <b>Category:</b> ${p.category} &nbsp;|&nbsp; <b>Price:</b> $${(+p.price).toFixed(2)} &nbsp;|&nbsp;
-    <b>Status:</b> ${p.status}${p.description ? `<br><br>${p.description}` : ''}
+    <b>Category:</b> ${esc(p.category)} &nbsp;|&nbsp; <b>Price:</b> $${(+p.price).toFixed(2)} &nbsp;|&nbsp;
+    <b>Status:</b> ${esc(p.status)}${p.description ? `<br><br>${esc(p.description)}` : ''}
   </div>`;
   if (p.image_url) {
     body += `<div class="modal-img-label">Preview Image</div><img src="${p.image_url}" class="modal-img">`;
@@ -975,11 +977,11 @@ function renderServices() {
   tbody.innerHTML = rows.map(s => {
     const price = s.price_type==='hourly' ? `$${s.price}/hr` : s.price_type==='fixed' ? `$${s.price}` : 'Quote';
     return `<tr>
-      <td><div class="td-name">${s.title}</div></td>
-      <td>${s.category}</td>
+      <td><div class="td-name">${esc(s.title)}</div></td>
+      <td>${esc(s.category)}</td>
       <td>${price}</td>
-      <td>${s.service_area || '—'}</td>
-      <td>${s.provider_business || s.provider_name || s.provider_phone}</td>
+      <td>${esc(s.service_area) || '—'}</td>
+      <td>${esc(s.provider_business || s.provider_name || s.provider_phone)}</td>
       <td>${badge(s.status)}</td>
       <td><div class="actions">${serviceActions(s)}</div></td>
     </tr>`;
@@ -1025,12 +1027,12 @@ function renderOrders() {
   if (!rows.length) { tbody.innerHTML = emptyRow(8, 'No orders found.'); return; }
   tbody.innerHTML = rows.map(o => `
     <tr>
-      <td style="font-family:monospace;font-size:11px">${o.reference || o.id}</td>
-      <td>${o.product_name}</td>
-      <td style="font-size:12px">${o.buyer_phone}</td>
+      <td style="font-family:monospace;font-size:11px">${esc(o.reference || o.id)}</td>
+      <td>${esc(o.product_name)}</td>
+      <td style="font-size:12px">${esc(o.buyer_phone)}</td>
       <td>${o.quantity}</td>
       <td>$${(+o.total_price).toFixed(2)}</td>
-      <td><span style="font-size:11px">${o.delivery_type==='delivery'?'🚚 Deliver':'🏪 Collect'}</span>${o.delivery_address?`<div class="td-sub">${o.delivery_address}</div>`:''}</td>
+      <td><span style="font-size:11px">${o.delivery_type==='delivery'?'🚚 Deliver':'🏪 Collect'}</span>${o.delivery_address?`<div class="td-sub">${esc(o.delivery_address)}</div>`:''}</td>
       <td>${badge(o.status)}</td>
       <td><div class="actions">${orderActions(o)}</div></td>
     </tr>`).join('');
@@ -1066,17 +1068,17 @@ async function fetchEnquiries() {
   // Property
   const pb = document.getElementById('prop-enq-body');
   pb.innerHTML = data.property.length ? data.property.map(e => `
-    <tr><td>${e.name}</td><td style="font-size:12px">${e.phone}</td>
-    <td>${e.property_title}</td><td>${e.property_city||'—'}</td>
+    <tr><td>${esc(e.name)}</td><td style="font-size:12px">${esc(e.phone)}</td>
+    <td>${esc(e.property_title)}</td><td>${esc(e.property_city)||'—'}</td>
     <td>$${(+e.price_per_month).toFixed(2)}</td>
     <td>${badge(e.status)}</td><td style="font-size:11px">${(e.created_at||'').slice(0,16)}</td></tr>`).join('')
     : emptyRow(7,'No property enquiries.');
   // Service
   const sb = document.getElementById('svc-enq-body');
   sb.innerHTML = data.service.length ? data.service.map(e => `
-    <tr><td>${e.customer_name}</td><td style="font-size:12px">${e.customer_phone}</td>
-    <td>${e.service_title}</td>
-    <td style="font-size:12px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.details||'—'}</td>
+    <tr><td>${esc(e.customer_name)}</td><td style="font-size:12px">${esc(e.customer_phone)}</td>
+    <td>${esc(e.service_title)}</td>
+    <td style="font-size:12px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.details)||'—'}</td>
     <td>${badge(e.status)}</td><td style="font-size:11px">${(e.created_at||'').slice(0,16)}</td></tr>`).join('')
     : emptyRow(6,'No service enquiries.');
 }
@@ -1096,10 +1098,10 @@ function renderDelivery() {
   if (!rows.length) { tbody.innerHTML = emptyRow(6,'No delivery agents.'); return; }
   tbody.innerHTML = rows.map(d => `
     <tr>
-      <td>${d.name}</td>
-      <td style="font-size:12px">${d.phone}</td>
-      <td>${d.vehicle_type||'—'}</td>
-      <td>${d.service_area||'—'}</td>
+      <td>${esc(d.name)}</td>
+      <td style="font-size:12px">${esc(d.phone)}</td>
+      <td>${esc(d.vehicle_type)||'—'}</td>
+      <td>${esc(d.service_area)||'—'}</td>
       <td>${badge(d.status)}</td>
       <td><div class="actions">
         ${d.status!=='approved'?`<button class="btn btn-approve" onclick="deliveryAction('approve','${d.phone}')">✅ Approve</button>`:''}
@@ -1224,6 +1226,7 @@ function loadingRow(cols) {
 function emptyRow(cols, msg) {
   return `<tr class="empty-row"><td colspan="${cols}">${msg}</td></tr>`;
 }
+function esc(s) { const d = document.createElement('div'); d.textContent = (s == null ? '' : String(s)); return d.innerHTML; }
 function escQ(s) { return (s||'').replace(/'/g,"&#39;").replace(/"/g,'&quot;'); }
 
 /* ─────────────────────────────────────────────────────────
@@ -1324,7 +1327,7 @@ function previewCommission(type) {
   const eg = type === 'accom' ? 500 : 100;
   const qty = type === 'service' ? 1 : 10;
   const comm = eg * qty * rate / 100;
-  el.textContent = `e.g. $${eg} × ${qty} unit${qty>1?'s':''} = $${(eg*qty).toFixed(2)} total → commission $${comm.toFixed(2)}`;
+  el.textContent = `e.g. $${eg} × ${qty} unit${qty>1?'s':''} = $${(eg*qty).toFixed(2)} total → Connect Fee $${comm.toFixed(2)}`;
 }
 
 async function saveCommission(key, inputId, label) {
@@ -1352,7 +1355,7 @@ function runCalc() {
       `<div>Total value: <strong>$${total.toFixed(2)}</strong></div>` +
       `<div>Rate       : <strong>${rate}%</strong></div>` +
       `<div style="margin-top:8px;font-size:16px;color:#075e54;font-weight:800">` +
-      `Commission due: $${comm.toFixed(2)}</div>`;
+      `Connect Fee due: $${comm.toFixed(2)}</div>`;
     rEl.style.display = 'block';
   });
 }
