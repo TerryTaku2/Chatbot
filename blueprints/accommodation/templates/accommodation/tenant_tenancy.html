@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>T-Tech Connect | My Tenancy</title>
+  <link rel="stylesheet" href="{{ url_for('accommodation.static', filename='css/dashboard.css') }}" />
+  <link href="https://fonts.bunny.net/css?family=inter:300,400,500,600,700&display=swap" rel="stylesheet" />
+  <link rel="icon" type="image/png" href="{{ url_for('accommodation.static', filename='images/logo.png') }}" />
+  {% include 'accommodation/_pwa.html' %}
+</head>
+<body>
+{% include 'accommodation/_topbar.html' %}
+<div class="layout">
+  {% include 'accommodation/_sidebar.html' %}
+  <main class="page-main">
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}{% for cat, msg in messages %}
+        <div class="flash flash-{{ cat }}">{{ msg }}<button class="flash-close" onclick="this.parentElement.remove()">×</button></div>
+      {% endfor %}{% endif %}
+    {% endwith %}
+
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">My Tenancy</h1>
+        <p class="page-sub">Your current accommodation and lease details.</p>
+      </div>
+    </div>
+
+    {% if tenancy %}
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1.5rem;margin-bottom:2rem;">
+
+      <div class="prop-card" style="padding:1.5rem;">
+        <h3 style="margin:0 0 1rem;font-size:1rem;color:#1d4ed8;">Current Accommodation</h3>
+        <p style="margin:0 0 .5rem;font-size:1.1rem;font-weight:600;">{{ tenancy.property_title }}</p>
+        <p style="margin:0;color:#6b7280;font-size:.875rem;">{{ tenancy.address }}{% if tenancy.city %}, {{ tenancy.city }}{% endif %}</p>
+        {% if tenancy.unit_number %}<p style="margin:.5rem 0 0;font-size:.875rem;">Unit: <strong>{{ tenancy.unit_number }}</strong></p>{% endif %}
+        <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid #f3f4f6;">
+          <p style="margin:0 0 .25rem;font-size:.875rem;">Monthly Rent: <strong>${{ '%.2f'|format(tenancy.agreed_rent) }}</strong></p>
+          <p style="margin:0;font-size:.875rem;">Lease Start: <strong>{{ tenancy.lease_start }}</strong></p>
+          {% if tenancy.lease_end %}<p style="margin:0;font-size:.875rem;">Lease End: <strong>{{ tenancy.lease_end }}</strong></p>{% endif %}
+        </div>
+        <a href="/landlord/property/{{ tenancy.property_id }}" class="btn-secondary" style="margin-top:1rem;display:inline-block;font-size:.875rem;padding:.5rem 1rem;">View Property</a>
+      </div>
+
+      <div class="prop-card" style="padding:1.5rem;">
+        <h3 style="margin:0 0 1rem;font-size:1rem;color:#1d4ed8;">Your Landlord</h3>
+        <p style="margin:0 0 .25rem;font-size:1rem;font-weight:600;">{{ tenancy.landlord_name }}</p>
+        {% if tenancy.landlord_email %}<p style="margin:0 0 .25rem;font-size:.875rem;color:#6b7280;">{{ tenancy.landlord_email }}</p>{% endif %}
+        {% if tenancy.landlord_phone %}<p style="margin:0;font-size:.875rem;color:#6b7280;">{{ tenancy.landlord_phone }}</p>{% endif %}
+        <a href="/accommodation/messages" class="btn-primary" style="margin-top:1rem;display:inline-block;font-size:.875rem;padding:.5rem 1rem;">Message Landlord</a>
+      </div>
+
+      <div class="prop-card" style="padding:1.5rem;">
+        <h3 style="margin:0 0 1rem;font-size:1rem;color:#1d4ed8;">Quick Actions</h3>
+        <div style="display:flex;flex-direction:column;gap:.75rem;">
+          <button onclick="openMaintenanceModal()" class="btn-primary" style="font-size:.875rem;padding:.5rem 1rem;text-align:left;">
+            Submit Maintenance Request
+          </button>
+          <a href="/accommodation/tenant/maintenance" class="btn-secondary" style="font-size:.875rem;padding:.5rem 1rem;text-align:center;">
+            View My Requests
+          </a>
+        </div>
+      </div>
+
+    </div>
+    {% else %}
+    <div class="empty-state">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#d1d5db" stroke-width="1.5"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      <h3>No active tenancy</h3>
+      <p>You don't have an active tenancy yet. Browse properties, pay the commission, and apply to rent.</p>
+      <a href="/accommodation/dashboard" class="btn-primary" style="margin-top:1rem;">Browse Properties</a>
+    </div>
+    {% endif %}
+
+    {% if past_tenancies %}
+    <h2 style="font-size:1rem;font-weight:600;color:#374151;margin:2rem 0 1rem;">Past Tenancies</h2>
+    <div class="props-grid" style="grid-template-columns:1fr;">
+      {% for t in past_tenancies %}
+      <div class="prop-card" style="padding:1.25rem;opacity:.8;">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem;">
+          <div>
+            <p style="margin:0;font-weight:600;font-size:.9rem;">{{ t.property_title }}</p>
+            <p style="margin:0;color:#6b7280;font-size:.8rem;">{{ t.lease_start }} to {{ t.lease_end or 'N/A' }}</p>
+          </div>
+          <span style="background:#f3f4f6;color:#6b7280;font-size:.75rem;padding:.2rem .6rem;border-radius:999px;">{{ t.status|title }}</span>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+  </main>
+</div>
+
+<!-- Maintenance modal -->
+<div id="maint-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:999;align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:16px;padding:2rem;width:min(500px,90vw);">
+    <h2 style="margin:0 0 1.25rem;font-size:1.1rem;">Submit Maintenance Request</h2>
+    <div style="display:flex;flex-direction:column;gap:.875rem;">
+      <div>
+        <label style="font-size:.875rem;font-weight:500;display:block;margin-bottom:.25rem;">Title <span style="color:#ef4444">*</span></label>
+        <input id="maint-title" type="text" placeholder="e.g. Leaking tap in bathroom" class="form-input" />
+      </div>
+      <div>
+        <label style="font-size:.875rem;font-weight:500;display:block;margin-bottom:.25rem;">Priority</label>
+        <select id="maint-priority" class="form-input">
+          <option value="low">Low</option>
+          <option value="normal" selected>Normal</option>
+          <option value="high">High</option>
+          <option value="urgent">Urgent</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:.875rem;font-weight:500;display:block;margin-bottom:.25rem;">Description</label>
+        <textarea id="maint-desc" rows="3" placeholder="Describe the issue in detail..." class="form-input" style="resize:vertical;"></textarea>
+      </div>
+    </div>
+    <div style="display:flex;gap:.75rem;margin-top:1.25rem;">
+      <button onclick="submitMaintenance()" class="btn-primary" style="flex:1;">Submit Request</button>
+      <button onclick="document.getElementById('maint-modal').style.display='none'" class="btn-secondary" style="flex:1;">Cancel</button>
+    </div>
+    <div id="maint-error" style="display:none;color:#ef4444;font-size:.875rem;margin-top:.75rem;"></div>
+  </div>
+</div>
+
+<script>
+const PROPERTY_ID = {{ tenancy.property_id if tenancy else 'null' }};
+
+function openMaintenanceModal() {
+  if (!PROPERTY_ID) return;
+  document.getElementById('maint-title').value = '';
+  document.getElementById('maint-desc').value = '';
+  document.getElementById('maint-priority').value = 'normal';
+  document.getElementById('maint-error').style.display = 'none';
+  document.getElementById('maint-modal').style.display = 'flex';
+}
+
+async function submitMaintenance() {
+  const title = document.getElementById('maint-title').value.trim();
+  if (!title) {
+    document.getElementById('maint-error').textContent = 'Title is required.';
+    document.getElementById('maint-error').style.display = 'block';
+    return;
+  }
+  const res = await fetch(`/accommodation/property/${PROPERTY_ID}/maintenance`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      title,
+      description: document.getElementById('maint-desc').value,
+      priority: document.getElementById('maint-priority').value,
+    })
+  });
+  const data = await res.json();
+  if (data.success) {
+    document.getElementById('maint-modal').style.display = 'none';
+    alert('Maintenance request submitted. Your landlord has been notified.');
+    location.reload();
+  } else {
+    document.getElementById('maint-error').textContent = data.error || 'Something went wrong.';
+    document.getElementById('maint-error').style.display = 'block';
+  }
+}
+</script>
+</body>
+</html>

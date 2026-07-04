@@ -4,78 +4,11 @@ import uuid
 import json
 from datetime import datetime, timedelta
 
-import psycopg2
-import psycopg2.extras
-from dotenv import load_dotenv
-
-# app.py imports this module before it calls load_dotenv() itself, so this
-# module must load its own .env to find DATABASE_URL at import time.
-load_dotenv()
-
-DATABASE_URL = os.environ.get("DATABASE_URL")
-if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL environment variable is required")
-
-# Timestamp columns are stored as TEXT in the exact format SQLite's
-# CURRENT_TIMESTAMP used to produce ('YYYY-MM-DD HH:MM:SS', UTC, no tz).
-# Application code across app.py parses these with datetime.fromisoformat()
-# and does string slicing on them, so we deliberately avoid native TIMESTAMP
-# columns (which psycopg2 would hand back as datetime objects) to keep that
-# code working unchanged.
-NOW_SQL = "to_char(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')"
-
-
-class _CompatCursor:
-    """Wraps a psycopg2 cursor to accept SQLite-style '?' placeholders and
-    behave like sqlite3.Row (supports both row['col'] and row[0])."""
-
-    def __init__(self, cursor):
-        self._cursor = cursor
-
-    def execute(self, query, params=None):
-        self._cursor.execute(query.replace("?", "%s"), params or ())
-        return self
-
-    def fetchone(self):
-        return self._cursor.fetchone()
-
-    def fetchall(self):
-        return self._cursor.fetchall()
-
-    def __getattr__(self, name):
-        return getattr(self._cursor, name)
-
-
-class _CompatConnection:
-    """Wraps a psycopg2 connection to mimic the sqlite3 connection API used
-    throughout this module (conn.execute(...), dict+index-accessible rows)."""
-
-    def __init__(self, conn):
-        self._conn = conn
-
-    def cursor(self):
-        return _CompatCursor(
-            self._conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-        )
-
-    def execute(self, query, params=None):
-        cur = self.cursor()
-        cur.execute(query, params)
-        return cur
-
-    def commit(self):
-        self._conn.commit()
-
-    def rollback(self):
-        self._conn.rollback()
-
-    def close(self):
-        self._conn.close()
+from pg_compat import NOW_SQL, get_connection as _pg_get_connection
 
 
 def get_connection():
-    conn = psycopg2.connect(DATABASE_URL)
-    return _CompatConnection(conn)
+    return _pg_get_connection()
 
 
 def init_db():

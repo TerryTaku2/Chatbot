@@ -6,3 +6,6 @@ filetype==1.2.0
 gunicorn==21.2.0
 paynow==1.0.5
 psycopg2-binary==2.9.12
+flask-limiter==3.8.0
+flask-socketio==5.3.6
+simple-websocket==1.0.0

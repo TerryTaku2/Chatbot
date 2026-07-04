@@ -86,7 +86,7 @@ from db import (
 
 load_dotenv()
 
-_missing_env = [k for k in ("FLASK_SECRET_KEY", "ADMIN_PASSWORD", "VERIFY_TOKEN") if not os.getenv(k)]
+_missing_env = [k for k in ("FLASK_SECRET_KEY", "SHOP_ADMIN_PASSWORD", "VERIFY_TOKEN") if not os.getenv(k)]
 if _missing_env:
     raise RuntimeError(
         "Missing required environment variables: "
@@ -98,6 +98,16 @@ app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY")
 init_db()
 
+# ── Accommodation blueprint (T-Tech Connect1, merged into this process) ──────
+from blueprints.accommodation import accommodation_bp, socketio, limiter
+from blueprints.accommodation.db_ttech import init_db as init_ttech_db
+
+app.register_blueprint(accommodation_bp)
+socketio.init_app(app)
+limiter.init_app(app)
+limiter.limit("200 per day;50 per hour")(accommodation_bp)
+init_ttech_db()
+
 # Clean up stale sessions on startup
 cleanup_expired_sessions(max_age_minutes=60)
 
@@ -107,7 +117,13 @@ WHATSAPP_APP_SECRET = os.getenv("WHATSAPP_APP_SECRET", "")
 PHONE_NUMBER_ID     = os.getenv("PHONE_NUMBER_ID")
 BASE_URL            = os.getenv("BASE_URL", "http://localhost:5000")
 ADMIN_PHONE         = os.getenv("ADMIN_PHONE", "")
-TTECH_CONNECT_URL        = os.getenv("TTECH_CONNECT_URL", "http://localhost:8000")
+# The accommodation blueprint now lives in this same process, so this always
+# points back at ourselves — deliberately ignoring any externally-configured
+# TTECH_CONNECT_URL left over from when it was a separate service, since that
+# value is now guaranteed wrong (no other value is ever correct post-merge).
+# The outbound calls in fetch_properties() etc. become in-process HTTP
+# round-trips instead of hitting a separate service.
+TTECH_CONNECT_URL        = BASE_URL + "/accommodation"
 TTECH_API_KEY            = os.getenv("TTECH_API_KEY", "")
 TTECH_WEBHOOK_SECRET     = os.getenv("TTECH_WEBHOOK_SECRET", "")
 DATA_DIR                = os.getenv("DATA_DIR", os.path.join(os.path.dirname(__file__), "static"))
@@ -6583,7 +6599,7 @@ def register_seller_web():
 
 # ── Web admin panel ───────────────────────────────────────────────────────────
 
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
+ADMIN_PASSWORD = os.getenv("SHOP_ADMIN_PASSWORD")
 
 def admin_required(f):
     @functools.wraps(f)
@@ -8125,4 +8141,4 @@ def seller_api_orders_export():
 
 
 if __name__ == "__main__":
-    app.run(port=5000)
+    socketio.run(app, port=5000, allow_unsafe_werkzeug=True)
