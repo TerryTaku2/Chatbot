@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>T-Tech Connect | My Applications</title>
+  <link rel="stylesheet" href="{{ url_for('accommodation.static', filename='css/dashboard.css') }}" />
+  <link href="https://fonts.bunny.net/css?family=inter:300,400,500,600,700&display=swap" rel="stylesheet" />
+  <link rel="icon" type="image/png" href="{{ url_for('accommodation.static', filename='images/logo.png') }}" />
+  {% include 'accommodation/_pwa.html' %}
+</head>
+<body>
+{% include 'accommodation/_topbar.html' %}
+<div class="layout">
+  {% include 'accommodation/_sidebar.html' %}
+  <main class="page-main">
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}{% for cat, msg in messages %}
+        <div class="flash flash-{{ cat }}">{{ msg }}<button class="flash-close" onclick="this.parentElement.remove()">×</button></div>
+      {% endfor %}{% endif %}
+    {% endwith %}
+
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">My Applications</h1>
+        <p class="page-sub">Track all your rental applications and their status.</p>
+      </div>
+      <a href="/accommodation/dashboard" class="btn-secondary">Browse More Properties</a>
+    </div>
+
+    {% if bookings %}
+    <div class="props-grid" style="grid-template-columns:1fr;">
+      {% for b in bookings %}
+      <div class="prop-card" style="padding:1.5rem;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:1rem;">
+          <div style="flex:1;">
+            <h3 style="margin:0 0 .25rem;font-size:1rem;">{{ b.property_title }}</h3>
+            <p style="margin:0;color:#6b7280;font-size:.875rem;">{{ b.address }}</p>
+            <p style="margin:.5rem 0 0;font-size:.875rem;">Landlord: <strong>{{ b.landlord_name }}</strong>
+              {% if b.landlord_phone %} · {{ b.landlord_phone }}{% endif %}
+            </p>
+            <p style="margin:.25rem 0 0;font-size:.875rem;">Rent: <strong>${{ '%.2f'|format(b.price_per_month) }}/mo</strong></p>
+            {% if b.proposed_move_in %}<p style="margin:.25rem 0 0;font-size:.875rem;">Proposed move-in: {{ b.proposed_move_in }}</p>{% endif %}
+            {% if b.message %}<p style="margin:.75rem 0 0;background:#f9fafb;border-radius:8px;padding:.75rem;font-size:.875rem;color:#374151;">Your message: "{{ b.message }}"</p>{% endif %}
+            {% if b.landlord_notes %}<p style="margin:.5rem 0 0;background:#eff6ff;border-radius:8px;padding:.75rem;font-size:.875rem;color:#1e40af;">Landlord: "{{ b.landlord_notes }}"</p>{% endif %}
+          </div>
+          <span style="font-size:.75rem;padding:.25rem .75rem;border-radius:999px;font-weight:600;white-space:nowrap;
+            background:{% if b.status=='pending' %}#fef3c7{% elif b.status=='accepted' %}#d1fae5{% else %}#fee2e2{% endif %};
+            color:{% if b.status=='pending' %}#92400e{% elif b.status=='accepted' %}#065f46{% else %}#991b1b{% endif %};">
+            {{ b.status|title }}
+          </span>
+        </div>
+        {% if b.status == 'accepted' %}
+        <div style="margin-top:1rem;">
+          <a href="/accommodation/tenant/my-tenancy" class="btn-primary" style="font-size:.875rem;padding:.5rem 1rem;">View My Tenancy</a>
+        </div>
+        {% endif %}
+        <p style="margin:.75rem 0 0;font-size:.75rem;color:#9ca3af;">Applied {{ b.created_at[:10] }}</p>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#d1d5db" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      <h3>No applications yet</h3>
+      <p>Pay the viewing commission on a property and click "Apply to Rent" to submit your application.</p>
+      <a href="/accommodation/dashboard" class="btn-primary" style="margin-top:1rem;">Browse Properties</a>
+    </div>
+    {% endif %}
+
+  </main>
+</div>
+</body>
+</html>

@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>T-Tech Connect | My Tenants</title>
+  <link rel="stylesheet" href="{{ url_for('accommodation.static', filename='css/landlord.css') }}" />
+  <link href="https://fonts.bunny.net/css?family=inter:300,400,500,600,700&display=swap" rel="stylesheet" />
+  <link rel="icon" type="image/png" href="{{ url_for('accommodation.static', filename='images/logo.png') }}" />
+  {% include 'accommodation/_pwa.html' %}
+</head>
+<body>
+{% include 'accommodation/_topbar.html' %}
+<div class="layout">
+  {% include 'accommodation/_sidebar.html' %}
+  <main class="page-main">
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}{% for cat, msg in messages %}
+        <div class="flash flash-{{ cat }}">{{ msg }}<button class="flash-close" onclick="this.parentElement.remove()">×</button></div>
+      {% endfor %}{% endif %}
+    {% endwith %}
+
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">My Tenants</h1>
+        <p class="page-sub">All active and past tenancies across your properties.</p>
+      </div>
+    </div>
+
+    {% set active = tenancies | selectattr('status','equalto','active') | list %}
+    {% set past   = tenancies | rejectattr('status','equalto','active') | list %}
+
+    {% if active %}
+    <h2 style="font-size:1rem;font-weight:600;color:#374151;margin:0 0 1rem;">Active Tenancies ({{ active|length }})</h2>
+    <div class="props-grid" style="grid-template-columns:1fr;margin-bottom:2rem;">
+      {% for t in active %}
+      <div class="prop-card" style="padding:1.5rem;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:1rem;">
+          <div>
+            <h3 style="margin:0 0 .25rem;font-size:1rem;">{{ t.tenant_name }}</h3>
+            <p style="margin:0;color:#6b7280;font-size:.875rem;">{{ t.tenant_email }}{% if t.tenant_phone %} · {{ t.tenant_phone }}{% endif %}</p>
+            <p style="margin:.5rem 0 0;font-size:.875rem;">Property: <strong>{{ t.property_title }}</strong>{% if t.unit_number %} — Unit {{ t.unit_number }}{% endif %}</p>
+            <p style="margin:.25rem 0 0;font-size:.875rem;">Lease: <strong>{{ t.lease_start }}</strong>{% if t.lease_end %} to <strong>{{ t.lease_end }}</strong>{% else %} (open-ended){% endif %}</p>
+            <p style="margin:.25rem 0 0;font-size:.875rem;">Rent: <strong>${{ '%.2f'|format(t.agreed_rent) }} / month</strong></p>
+          </div>
+          <span style="background:#d1fae5;color:#065f46;font-size:.75rem;padding:.25rem .75rem;border-radius:999px;font-weight:600;">Active</span>
+        </div>
+        <div style="margin-top:1rem;display:flex;gap:.75rem;flex-wrap:wrap;">
+          <button onclick="endTenancy({{ t.id }}, '{{ t.tenant_name|e }}')"
+                  class="btn-secondary" style="font-size:.875rem;padding:.5rem 1rem;background:#fee2e2;color:#991b1b;border-color:#fca5a5;">
+            End Tenancy
+          </button>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if past %}
+    <h2 style="font-size:1rem;font-weight:600;color:#374151;margin:0 0 1rem;">Past Tenancies</h2>
+    <div class="props-grid" style="grid-template-columns:1fr;">
+      {% for t in past %}
+      <div class="prop-card" style="padding:1.25rem;opacity:.8;">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem;">
+          <div>
+            <p style="margin:0;font-weight:600;font-size:.9rem;">{{ t.tenant_name }}</p>
+            <p style="margin:0;color:#6b7280;font-size:.8rem;">{{ t.property_title }} · {{ t.lease_start }} to {{ t.lease_end or 'N/A' }}</p>
+          </div>
+          <span style="background:#f3f4f6;color:#6b7280;font-size:.75rem;padding:.2rem .6rem;border-radius:999px;">{{ t.status|title }}</span>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if not tenancies %}
+    <div class="empty-state">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#d1d5db" stroke-width="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      <h3>No tenants yet</h3>
+      <p>When you accept a booking application, the tenancy will appear here.</p>
+    </div>
+    {% endif %}
+
+  </main>
+</div>
+<script>
+async function endTenancy(tid, name) {
+  const notes = prompt(`End tenancy for ${name}? Add a note (optional):`);
+  if (notes === null) return;
+  const res = await fetch(`/accommodation/landlord/tenancies/${tid}/end`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ notes })
+  });
+  const data = await res.json();
+  if (data.success) location.reload();
+  else alert(data.error || 'Something went wrong.');
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>T-Tech Connect | Admin</title>
+  <link rel="stylesheet" href="{{ url_for('accommodation.static', filename='css/landlord.css') }}" />
+  <link rel="stylesheet" href="{{ url_for('accommodation.static', filename='css/admin.css') }}" />
+  <link href="https://fonts.bunny.net/css?family=inter:300,400,500,600,700&display=swap" rel="stylesheet" />
+  <link rel="icon" type="image/png" href="{{ url_for('accommodation.static', filename='images/logo.png') }}" />
+  {% include 'accommodation/_pwa.html' %}
+</head>
+<body>
+{% include 'accommodation/_topbar.html' %}
+<div class="layout">
+  {% include 'accommodation/_sidebar.html' %}
+  <main class="page-main">
+
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">Admin Dashboard</h1>
+        <p class="page-sub">Full system overview and controls.</p>
+      </div>
+    </div>
+
+    <!-- Stats grid -->
+    <div class="stats-grid stats-grid-6">
+      <div class="stat-card stat-blue">
+        <div class="stat-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
+        <div class="stat-body"><span class="stat-value">{{ stats.total_users or 0 }}</span><span class="stat-label">Total Users</span></div>
+      </div>
+      <div class="stat-card stat-indigo">
+        <div class="stat-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>
+        <div class="stat-body"><span class="stat-value">{{ stats.students or 0 }}</span><span class="stat-label">Tenants</span></div>
+      </div>
+      <div class="stat-card stat-purple">
+        <div class="stat-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></div>
+        <div class="stat-body"><span class="stat-value">{{ stats.landlords or 0 }}</span><span class="stat-label">Landlords</span></div>
+      </div>
+      <div class="stat-card stat-amber">
+        <div class="stat-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 4v16"/><path d="M2 8h18a2 2 0 0 1 2 2v10"/><path d="M2 17h20"/><path d="M6 8v9"/></svg></div>
+        <div class="stat-body"><span class="stat-value">{{ stats.total_props or 0 }}</span><span class="stat-label">Properties</span></div>
+      </div>
+      <div class="stat-card stat-green">
+        <div class="stat-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="16 12 12 8 8 12"/><line x1="12" y1="16" x2="12" y2="8"/></svg></div>
+        <div class="stat-body"><span class="stat-value">{{ stats.avail_props or 0 }}</span><span class="stat-label">Available</span></div>
+      </div>
+      <div class="stat-card stat-teal">
+        <div class="stat-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
+        <div class="stat-body"><span class="stat-value" id="stat-est-revenue">${{ "%.2f"|format(estimated_revenue) }}</span><span class="stat-label">Est. Revenue</span></div>
+      </div>
+      <div class="stat-card stat-emerald">
+        <div class="stat-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg></div>
+        <div class="stat-body"><span class="stat-value">${{ "%.2f"|format(stats.total_revenue or 0) }}</span><span class="stat-label">Revenue Received</span></div>
+      </div>
+    </div>
+
+    <!-- Recent panels -->
+    <div class="admin-panels">
+
+      <!-- Recent Users -->
+      <div class="admin-panel">
+        <div class="admin-panel-header">
+          <h3 class="admin-panel-title">Recent Users</h3>
+          <a href="/accommodation/admin/users" class="admin-panel-link">View all</a>
+        </div>
+        <table class="admin-table">
+          <thead><tr><th>Name</th><th>Role</th><th>Status</th><th>Joined</th></tr></thead>
+          <tbody>
+            {% for u in recent_users %}
+            <tr>
+              <td>
+                <div class="cell-main">{{ u.full_name }}</div>
+                <div class="cell-sub">{{ u.email }}</div>
+              </td>
+              <td><span class="role-pill role-{{ u.role }}">{% if u.role == 'student' %}Tenant{% else %}{{ u.role|title }}{% endif %}</span></td>
+              <td><span class="status-dot {{ 'dot-green' if u.is_active else 'dot-red' }}">{{ 'Active' if u.is_active else 'Inactive' }}</span></td>
+              <td class="cell-muted">{{ u.created_at[:10] if u.created_at else '—' }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" class="cell-empty">No users yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Recent Properties -->
+      <div class="admin-panel">
+        <div class="admin-panel-header">
+          <h3 class="admin-panel-title">Recent Properties</h3>
+          <a href="/accommodation/admin/properties" class="admin-panel-link">View all</a>
+        </div>
+        <table class="admin-table">
+          <thead><tr><th>Property</th><th>Landlord</th><th>Status</th><th>Price</th></tr></thead>
+          <tbody>
+            {% for p in recent_props %}
+            <tr>
+              <td>
+                <a href="/landlord/property/{{ p.id }}" class="cell-main cell-link">{{ p.title }}</a>
+              </td>
+              <td class="cell-muted">{{ p.landlord_name }}</td>
+              <td><span class="status-badge status-{{ p.status }}">{{ p.status|title }}</span></td>
+              <td class="cell-price">{{ p.currency }} {{ "%.0f"|format(p.price_per_month) }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" class="cell-empty">No properties yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+
+    <!-- Commission Rate Setting -->
+    <div class="admin-panel" id="commission" style="margin-top:1.5rem">
+      <div class="admin-panel-header">
+        <h3 class="admin-panel-title">Commission Rate</h3>
+        <span style="font-size:.8rem;color:#6b7280">Applied when tenants pay to contact a landlord</span>
+      </div>
+      <div style="padding:1.25rem;display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap">
+        <div style="flex:1;min-width:220px">
+          <p style="margin:0 0 .35rem;font-size:.85rem;color:#6b7280">Current rate applied to monthly rent</p>
+          <div style="display:flex;align-items:center;gap:.75rem">
+            <div style="position:relative;width:120px">
+              <input type="number" id="commission-input" value="{{ commission_rate }}" min="0" max="100" step="0.5"
+                style="width:100%;padding:.6rem 2rem .6rem .85rem;border:1.5px solid #e5e7eb;border-radius:8px;font-size:1rem;font-weight:700;color:#111827;outline:none;box-sizing:border-box"
+                onfocus="this.style.borderColor='#1d4ed8'" onblur="this.style.borderColor='#e5e7eb'" />
+              <span style="position:absolute;right:.6rem;top:50%;transform:translateY(-50%);color:#6b7280;font-weight:600;pointer-events:none">%</span>
+            </div>
+            <div style="display:flex;gap:.4rem">
+              <button onclick="adjustRate(-1)" style="width:32px;height:32px;border-radius:8px;border:1.5px solid #e5e7eb;background:#fff;font-size:1.1rem;cursor:pointer;display:flex;align-items:center;justify-content:center;font-weight:700;color:#374151" title="Decrease by 1%">−</button>
+              <button onclick="adjustRate(1)"  style="width:32px;height:32px;border-radius:8px;border:1.5px solid #e5e7eb;background:#fff;font-size:1.1rem;cursor:pointer;display:flex;align-items:center;justify-content:center;font-weight:700;color:#374151" title="Increase by 1%">+</button>
+            </div>
+            <button onclick="saveRate()"
+              style="padding:.55rem 1.25rem;background:#1d4ed8;color:#fff;border:none;border-radius:8px;font-weight:600;font-size:.875rem;cursor:pointer">
+              Save
+            </button>
+          </div>
+          <p id="rate-msg" style="margin:.5rem 0 0;font-size:.8rem;display:none"></p>
+        </div>
+        <div style="background:#f8faff;border:1px solid #e0e7ff;border-radius:10px;padding:.85rem 1.25rem;min-width:200px">
+          <p style="margin:0 0 .25rem;font-size:.78rem;color:#6b7280;font-weight:500">Example calculation</p>
+          <p style="margin:0;font-size:.875rem;color:#374151">
+            $500 rent × <span id="example-pct">{{ commission_rate }}</span>% =
+            <strong id="example-fee" style="color:#1d4ed8">${{ "%.2f"|format(commission_rate / 100 * 500) }}</strong>
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Recent Payments -->
+    <div class="admin-panel" style="margin-top:1.5rem">
+      <div class="admin-panel-header">
+        <h3 class="admin-panel-title">Recent Commission Payments</h3>
+        <a href="/accommodation/admin/payments" class="admin-panel-link">View all</a>
+      </div>
+      <table class="admin-table">
+        <thead><tr><th>Tenant</th><th>Property</th><th>Amount</th><th>Reference</th><th>Date</th></tr></thead>
+        <tbody>
+          {% for pay in recent_payments %}
+          <tr>
+            <td class="cell-main">{{ pay.student_name }}</td>
+            <td class="cell-muted">{{ pay.property_title }}</td>
+            <td class="cell-price">{{ pay.currency }} {{ "%.2f"|format(pay.amount) }}</td>
+            <td class="cell-muted">{{ pay.reference or '—' }}</td>
+            <td class="cell-muted">{{ pay.paid_at[:10] if pay.paid_at else '—' }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="cell-empty">No payments yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+  </main>
+</div>
+
+<script>
+function adjustRate(delta) {
+  const inp = document.getElementById('commission-input');
+  let val = parseFloat(inp.value) || 0;
+  val = Math.min(100, Math.max(0, Math.round((val + delta) * 10) / 10));
+  inp.value = val;
+  updateExample(val);
+}
+
+document.getElementById('commission-input').addEventListener('input', function() {
+  updateExample(parseFloat(this.value) || 0);
+});
+
+function updateExample(pct) {
+  document.getElementById('example-pct').textContent = pct;
+  document.getElementById('example-fee').textContent = '$' + (pct / 100 * 500).toFixed(2);
+}
+
+async function saveRate() {
+  const inp  = document.getElementById('commission-input');
+  const msg  = document.getElementById('rate-msg');
+  const rate = parseFloat(inp.value);
+  if (isNaN(rate) || rate < 0 || rate > 100) {
+    msg.style.display = ''; msg.style.color = '#dc2626';
+    msg.textContent = 'Enter a value between 0 and 100.'; return;
+  }
+  try {
+    const res  = await fetch('/accommodation/admin/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commission_rate: rate })
+    });
+    const data = await res.json();
+    msg.style.display = '';
+    if (data.success) {
+      msg.style.color = '#16a34a';
+      msg.textContent = `✓ Commission rate saved as ${rate}%`;
+    } else {
+      msg.style.color = '#dc2626';
+      msg.textContent = data.error || 'Failed to save.';
+    }
+  } catch {
+    msg.style.display = ''; msg.style.color = '#dc2626';
+    msg.textContent = 'Network error. Try again.';
+  }
+}
+
+const TOTAL_MONTHLY_RENT = {{ (stats.total_monthly_rent or 0) | tojson }};
+
+// Keep input + estimated revenue in sync when rate changes
+(function () {
+  const script = document.createElement('script');
+  script.src = 'https://cdn.socket.io/4.7.2/socket.io.min.js';
+  script.crossOrigin = 'anonymous';
+  script.onload = function () {
+    const socket = io({ transports: ['websocket', 'polling'] });
+    socket.on('commission_rate_changed', function (data) {
+      const rate = data.rate;
+      const inp = document.getElementById('commission-input');
+      if (inp && parseFloat(inp.value) !== rate) {
+        inp.value = rate;
+        updateExample(rate);
+      }
+      const estEl = document.getElementById('stat-est-revenue');
+      if (estEl) estEl.textContent = '$' + (TOTAL_MONTHLY_RENT * rate / 100).toFixed(2);
+    });
+  };
+  document.head.appendChild(script);
+})();
+</script>
+</body>
+</html>

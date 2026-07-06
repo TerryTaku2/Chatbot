@@ -21,6 +21,7 @@ build/
 
 # Uploads (user content — should be stored externally in production)
 static/uploads/
+blueprints/accommodation/static/uploads/
 
 # Virtual environments
 venv/

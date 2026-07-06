@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>T-Tech Connect | Saved Properties</title>
+  <link rel="stylesheet" href="{{ url_for('accommodation.static', filename='css/dashboard.css') }}" />
+  <link href="https://fonts.bunny.net/css?family=inter:300,400,500,600,700&display=swap" rel="stylesheet" />
+  <link rel="icon" type="image/png" href="{{ url_for('accommodation.static', filename='images/logo.png') }}" />
+  {% include 'accommodation/_pwa.html' %}
+</head>
+<body>
+{% include 'accommodation/_topbar.html' %}
+<div class="layout">
+  {% include 'accommodation/_sidebar.html' %}
+  <main class="page-main">
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}{% for cat, msg in messages %}
+        <div class="flash flash-{{ cat }}">{{ msg }}<button class="flash-close" onclick="this.parentElement.remove()">×</button></div>
+      {% endfor %}{% endif %}
+    {% endwith %}
+
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">Saved Properties</h1>
+        <p class="page-sub">Properties you've bookmarked for later.</p>
+      </div>
+      <a href="/accommodation/dashboard" class="btn-secondary">Browse More</a>
+    </div>
+
+    {% if properties %}
+    <div class="props-grid">
+      {% for p in properties %}
+      <div class="prop-card">
+        {% if p.cover_image %}
+        <div class="prop-img-wrap">
+          <img src="{{ url_for('accommodation.static', filename='uploads/properties/' ~ p.cover_image) }}" alt="{{ p.title }}" class="prop-img" />
+        </div>
+        {% else %}
+        <div class="prop-img-wrap prop-img-placeholder">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#d1d5db" stroke-width="1.5"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        </div>
+        {% endif %}
+
+        <div class="prop-body">
+          <div class="prop-meta">
+            <span class="prop-type">{{ p.property_type|title }}</span>
+            <span class="prop-status prop-status-{{ p.status }}">{{ p.status|title }}</span>
+          </div>
+          <h3 class="prop-title">{{ p.title }}</h3>
+          <p class="prop-location">{{ p.address }}{% if p.city %}, {{ p.city }}{% endif %}</p>
+          <div class="prop-price">${{ '%.0f'|format(p.price_per_month) }}<span>/mo</span></div>
+          {% if p.avg_rating > 0 %}
+          <div style="font-size:.8rem;color:#f59e0b;margin-top:.25rem;">★ {{ '%.1f'|format(p.avg_rating) }} <span style="color:#9ca3af;">({{ p.review_count }})</span></div>
+          {% endif %}
+        </div>
+        <div class="prop-footer">
+          <a href="/landlord/property/{{ p.id }}" class="btn-view">View Details</a>
+          <button onclick="unsave({{ p.id }}, this)" class="btn-secondary" style="font-size:.8rem;padding:.35rem .7rem;color:#ef4444;border-color:#fca5a5;">
+            ♥ Unsave
+          </button>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#d1d5db" stroke-width="1.5"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+      <h3>No saved properties</h3>
+      <p>Click the heart icon on any property to save it here for later.</p>
+      <a href="/accommodation/dashboard" class="btn-primary" style="margin-top:1rem;">Browse Properties</a>
+    </div>
+    {% endif %}
+
+  </main>
+</div>
+<script>
+async function unsave(pid, btn) {
+  const res = await fetch(`/accommodation/api/properties/${pid}/save`, { method: 'POST' });
+  const data = await res.json();
+  if (data.success && !data.saved) {
+    btn.closest('.prop-card').remove();
+    if (!document.querySelector('.prop-card')) location.reload();
+  }
+}
+</script>
+</body>
+</html>
