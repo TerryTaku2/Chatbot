@@ -111,6 +111,23 @@
     .stat-item .sv{font-size:36px;font-weight:800;color:#6ee7b7}
     .stat-item .sl{font-size:13px;opacity:.75;margin-top:4px}
 
+    /* ── WhatsApp demo mockup ── */
+    .phone-demo-wrap{display:flex;justify-content:center}
+    .phone-frame{width:300px;max-width:100%;background:#111;border-radius:34px;padding:10px;
+                 box-shadow:0 20px 50px rgba(0,0,0,.25)}
+    .phone-screen{background:#e5ddd5;border-radius:24px;overflow:hidden;display:flex;flex-direction:column}
+    .chat-header{background:#075e54;color:#fff;padding:12px 16px;display:flex;align-items:center;gap:10px}
+    .chat-header .avatar{width:34px;height:34px;border-radius:50%;background:#fff;color:#075e54;
+                          display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800}
+    .chat-header .name{font-size:14px;font-weight:700}
+    .chat-header .status{font-size:11px;opacity:.75}
+    .chat-body{padding:14px 10px;max-height:480px;overflow-y:auto;display:flex;flex-direction:column;gap:8px}
+    .msg{max-width:82%;padding:8px 10px;border-radius:8px;font-size:12.5px;line-height:1.55;
+         white-space:pre-wrap;box-shadow:0 1px 1px rgba(0,0,0,.08)}
+    .msg.bot{align-self:flex-start;background:#fff;border-top-left-radius:2px}
+    .msg.user{align-self:flex-end;background:#dcf8c6;border-top-right-radius:2px}
+    .msg-time{font-size:9px;color:#9ca3af;text-align:right;margin-top:3px}
+
     /* ── How it works ── */
     .steps-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:24px}
     .step-card{background:#f9fafb;border-radius:16px;padding:28px 22px;text-align:center}
@@ -404,6 +421,105 @@
         <div class="step-num">4</div>
         <h4>Sell</h4>
         <p>Got something to sell? Register as a seller, list your products, and start reaching buyers the same day.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- See it in action -->
+<section style="background:#f9fafb">
+  <div class="section-inner">
+    <div class="section-label">See It In Action</div>
+    <div class="section-title">A real order, start to finish — on WhatsApp</div>
+    <p class="section-sub">This is exactly what our bot sends. No app to install — just message the number below.</p>
+
+    <div class="phone-demo-wrap">
+      <div class="phone-frame">
+        <div class="phone-screen">
+          <div class="chat-header">
+            <div class="avatar">T</div>
+            <div>
+              <div class="name">T-Tech Connect</div>
+              <div class="status">online</div>
+            </div>
+          </div>
+          <div class="chat-body">
+
+            <div class="msg user">Hi</div>
+
+            <div class="msg bot">🎉 <b>Welcome to T-Tech Connect!</b>
+Zimbabwe's WhatsApp marketplace — buy, sell &amp; find services!
+
+Reply <b>1–5</b> to get started:
+1️⃣ 🛒 Buy Products
+2️⃣ 🔧 Find a Service
+3️⃣ 💼 Become a Vendor
+4️⃣ 🏠 Find Accommodation
+5️⃣ 📬 Contact &amp; Support</div>
+
+            <div class="msg user">1</div>
+
+            <div class="msg bot">🛒 <b>Buyer Menu</b>
+1️⃣ Browse by category
+2️⃣ Find a service
+3️⃣ Search for a product
+4️⃣ Request a quote
+5️⃣ My orders
+6️⃣ My cart</div>
+
+            <div class="msg user">search phone charger</div>
+
+            <div class="msg bot">🔍 <b>Results for "phone charger":</b>
+
+1️⃣ <b>Fast Charger 20W</b>
+    💰 <b>$8</b>  |  ✅ In Stock
+    🏪 TechHub, Harare ⭐4.5
+
+<i>Reply a number to view &amp; buy</i></div>
+
+            <div class="msg user">1</div>
+
+            <div class="msg bot">🛒 <b>Order Summary</b>
+Product : Fast Charger 20W
+Qty : 1
+<b>Total : $8</b>
+💳 Payment: EcoCash, Cash, Bank Transfer
+
+1️⃣ ✅ Confirm &amp; choose delivery</div>
+
+            <div class="msg user">1</div>
+
+            <div class="msg bot">💳 <b>Choose Payment Method</b>
+🧾 Amount: <b>$8</b>
+1️⃣ 📱 EcoCash
+2️⃣ 💚 InnBucks
+3️⃣ 🟠 OneMoney
+4️⃣ 💵 Cash
+5️⃣ 🏦 Bank Transfer</div>
+
+            <div class="msg user">1</div>
+
+            <div class="msg bot">📱 <b>EcoCash Payment Initiated!</b>
+Reference: <b>TTC-4F2A9C</b>
+Amount: $8
+
+✅ Check your phone for the EcoCash prompt and enter your PIN.
+
+Once paid, reply <b>paid</b> to confirm.</div>
+
+            <div class="msg user">paid</div>
+
+            <div class="msg bot">✅ <b>Payment Confirmation Received!</b>
+📌 Ref: <b>TTC-4F2A9C</b>
+💳 Method: EcoCash
+Total: $8
+
+📍 A delivery agent will contact you 🚚
+
+🔗 Track: t-techsolutions.co.zw/track/TTC-4F2A9C</div>
+
+          </div>
+        </div>
       </div>
     </div>
   </div>
