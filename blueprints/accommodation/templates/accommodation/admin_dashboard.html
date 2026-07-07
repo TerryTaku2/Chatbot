@@ -111,10 +111,10 @@
 
     </div>
 
-    <!-- Commission Rate Setting -->
+    <!-- Connect Fee Rate Setting -->
     <div class="admin-panel" id="commission" style="margin-top:1.5rem">
       <div class="admin-panel-header">
-        <h3 class="admin-panel-title">Commission Rate</h3>
+        <h3 class="admin-panel-title">Connect Fee Rate</h3>
         <span style="font-size:.8rem;color:#6b7280">Applied when tenants pay to contact a landlord</span>
       </div>
       <div style="padding:1.25rem;display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap">
@@ -151,7 +151,7 @@
     <!-- Recent Payments -->
     <div class="admin-panel" style="margin-top:1.5rem">
       <div class="admin-panel-header">
-        <h3 class="admin-panel-title">Recent Commission Payments</h3>
+        <h3 class="admin-panel-title">Recent Connect Fee Payments</h3>
         <a href="/accommodation/admin/payments" class="admin-panel-link">View all</a>
       </div>
       <table class="admin-table">
@@ -211,7 +211,7 @@ async function saveRate() {
     msg.style.display = '';
     if (data.success) {
       msg.style.color = '#16a34a';
-      msg.textContent = `✓ Commission rate saved as ${rate}%`;
+      msg.textContent = `✓ Connect fee rate saved as ${rate}%`;
     } else {
       msg.style.color = '#dc2626';
       msg.textContent = data.error || 'Failed to save.';

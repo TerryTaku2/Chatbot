@@ -1144,7 +1144,7 @@ def pay_commission(pid):
     uid  = session["user_id"]
     role = session.get("user_role")
     if role not in ("student", "admin"):
-        return jsonify({"error": "Only students can pay commission"}), 403
+        return jsonify({"error": "Only students can pay the connect fee"}), 403
 
     with get_db() as conn:
         prop = conn.execute(
@@ -1181,8 +1181,8 @@ def pay_commission(pid):
     if landlord_row and student_name:
         _notify(
             landlord_row["landlord_id"], "commission_paid",
-            f'Commission received for {landlord_row["title"]}',
-            f'{student_name["full_name"]} has paid the viewing commission.',
+            f'Connect fee received for {landlord_row["title"]}',
+            f'{student_name["full_name"]} has paid the viewing connect fee.',
             f"/accommodation/landlord/property/{pid}"
         )
     return jsonify({"success": True})
@@ -1232,7 +1232,7 @@ def ecocash_initiate(pid):
     request_id = str(uuid.uuid4())
 
     payment = pn.create_payment(f"TTC-{request_id[:8]}", session.get("user_email", ""))
-    payment.add(f'Commission: {prop["title"]}', amount)
+    payment.add(f'Connect Fee: {prop["title"]}', amount)
 
     try:
         response = pn.send_mobile(payment, phone, "ecocash")
@@ -1298,8 +1298,8 @@ def check_payment_status(pid, req_id):
         if prop and student_name:
             _notify(
                 prop["landlord_id"], "commission_paid",
-                f'Commission received for {prop["title"]}',
-                f'{student_name["full_name"]} has paid the viewing commission and wants to contact you.',
+                f'Connect fee received for {prop["title"]}',
+                f'{student_name["full_name"]} has paid the viewing connect fee and wants to contact you.',
                 f"/accommodation/landlord/property/{pid}"
             )
         return jsonify({"status": "paid"})
@@ -1366,7 +1366,7 @@ def submit_review(pid):
         return redirect(url_for("accommodation.property_view", pid=pid))
 
     if not has_paid(uid, pid):
-        flash("You must pay the viewing commission before reviewing this property.", "error")
+        flash("You must pay the viewing connect fee before reviewing this property.", "error")
         return redirect(url_for("accommodation.property_view", pid=pid))
 
     rating  = (request.form.get("rating") or "").strip()
@@ -1542,7 +1542,7 @@ def api_start_conversation():
             if not property_id:
                 return jsonify({"error": "A property must be selected to contact a landlord"}), 400
             if not has_paid(uid, property_id):
-                return jsonify({"error": "Commission payment required to contact this landlord"}), 403
+                return jsonify({"error": "Connect fee payment required to contact this landlord"}), 403
 
     with get_db() as conn:
         if property_id:
@@ -1901,7 +1901,7 @@ def booking_create(pid):
         return jsonify({"error": "Only tenants can submit booking applications"}), 403
 
     if not has_paid(uid, pid):
-        return jsonify({"error": "Commission payment required before applying"}), 403
+        return jsonify({"error": "Connect fee payment required before applying"}), 403
 
     with get_db() as conn:
         prop = conn.execute(

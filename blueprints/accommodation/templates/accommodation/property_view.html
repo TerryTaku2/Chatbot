@@ -150,7 +150,7 @@
           </p>
           <p style="font-size:.8rem;color:#6b7280;margin-top:.5rem;display:flex;align-items:center;gap:.35rem">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-            Pay the commission to unlock the exact address and map.
+            Pay the connect fee to unlock the exact address and map.
           </p>
           {% endif %}
 
@@ -311,7 +311,7 @@
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
           </div>
           <h3 class="commission-title">Unlock Contact Details</h3>
-          <p class="commission-desc">Pay a one-time commission to access the landlord's phone, email and messaging.</p>
+          <p class="commission-desc">Pay a one-time connect fee to access the landlord's phone, email and messaging.</p>
 
           <div class="commission-breakdown">
             <div class="commission-row">
@@ -319,7 +319,7 @@
               <span>{{ prop.currency }} {{ "%.2f"|format(prop.price_per_month) }}</span>
             </div>
             <div class="commission-row commission-row--total">
-              <span>Commission ({{ prop.commission_pct }}%)</span>
+              <span>Connect Fee ({{ prop.commission_pct }}%)</span>
               <span>{{ prop.currency }} {{ "%.2f"|format(prop.commission) }}</span>
             </div>
           </div>
@@ -486,7 +486,7 @@
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
       </div>
       <div>
-        <h3 class="pay-modal-title">Pay Commission</h3>
+        <h3 class="pay-modal-title">Pay Connect Fee</h3>
         <p class="pay-modal-sub">{{ prop.title }}</p>
       </div>
     </div>
@@ -986,7 +986,7 @@ document.querySelectorAll('.star-pick').forEach(s => {
     const amt  = (PRICE * rate / 100).toFixed(2);
 
     var pctEl = document.querySelector('.commission-row--total span:first-child');
-    if (pctEl) pctEl.textContent = 'Commission (' + rate + '%)';
+    if (pctEl) pctEl.textContent = 'Connect Fee (' + rate + '%)';
     var amtEl = document.querySelector('.commission-row--total span:last-child');
     if (amtEl) amtEl.textContent = CURRENCY + ' ' + amt;
 
