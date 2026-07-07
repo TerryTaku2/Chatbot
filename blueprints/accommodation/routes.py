@@ -42,8 +42,13 @@ def get_paynow():
         return None
     try:
         from paynow import Paynow
+        # Paynow's constructor is (integration_id, integration_key, return_url,
+        # result_url) — result_url is the one Paynow actually requires (it's
+        # the server-to-server status callback). We don't have a browser
+        # redirect step for mobile push payments, so return_url is left blank.
+        result_url = PAYNOW_RESULT_URL or f"{request.url_root.rstrip('/')}/paynow/result"
         return Paynow(PAYNOW_INTEGRATION_ID, PAYNOW_INTEGRATION_KEY,
-                      PAYNOW_RESULT_URL, "")
+                      "", result_url)
     except ImportError as e:
         print(f"[PAYNOW IMPORT ERROR] {e}")
         return None

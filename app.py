@@ -838,11 +838,14 @@ def initiate_ecocash_payment(phone_number, amount, reference, buyer_email="buyer
         return {"success": False, "error": "Payment gateway not configured."}
     try:
         from paynow import Paynow
+        # Paynow's constructor is (integration_id, integration_key, return_url,
+        # result_url) — result_url is the one Paynow actually requires (the
+        # server-to-server status callback handled by paynow_result() below).
         pn = Paynow(
             PAYNOW_INTEGRATION_ID,
             PAYNOW_INTEGRATION_KEY,
-            f"{BASE_URL}/paynow/result",
             "",
+            f"{BASE_URL}/paynow/result",
         )
         payment = pn.create_payment(reference, buyer_email)
         payment.add(f"T-Tech Connect Order {reference}", amount)
