@@ -423,19 +423,26 @@ def register():
             return err("An account with this email already exists.")
         if phone and conn.execute("SELECT id FROM users WHERE phone=?", (phone,)).fetchone():
             return err("An account with this phone number already exists.")
-        verify_token = secrets.token_urlsafe(32)
-        conn.execute(
-            "INSERT INTO users (full_name, email, password_hash, role, phone, is_email_verified, email_verify_token) VALUES (?,?,?,?,?,0,?)",
-            (full_name, email, generate_password_hash(password), role, phone or None, verify_token)
+        # No email-verification step: this platform is phone/WhatsApp-first and
+        # SendGrid isn't (always) configured, so accounts are verified immediately
+        # and the user is logged straight in rather than left waiting on an email.
+        cur = conn.execute(
+            "INSERT INTO users (full_name, email, password_hash, role, phone, is_email_verified) VALUES (?,?,?,?,?,1) RETURNING id",
+            (full_name, email, generate_password_hash(password), role, phone or None)
         )
+        user_id = cur.fetchone()["id"]
         conn.commit()
 
-    verify_url = url_for("accommodation.verify_email", token=verify_token, _external=True)
-    _send_verification_email(email, full_name, role, verify_url)
+    session.clear()
+    session["user_id"]    = user_id
+    session["user_name"]  = full_name
+    session["user_role"]  = role
+    session["user_email"] = email
 
+    dest = role_redirect(role)
     if request.is_json:
-        return jsonify({"success": True, "redirect": "/accommodation/check-email?email=" + email, "role": role})
-    return redirect("/accommodation/check-email?email=" + email)
+        return jsonify({"success": True, "redirect": dest, "role": role})
+    return redirect(dest)
 
 
 @accommodation_bp.route("/login", methods=["GET", "POST"])
