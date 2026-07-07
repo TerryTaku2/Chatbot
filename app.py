@@ -7439,6 +7439,15 @@ def seller_storefront(seller_phone):
     )
 
 
+# ── Legacy accommodation links (pre-merge URLs, stale bookmarks/messages) ────
+# Before the T-Tech-Connect1 merge, property links had no /accommodation
+# prefix. Old bookmarks, browser history entries, and previously-sent WhatsApp
+# messages can still point at the bare path, so redirect it permanently.
+@app.route("/landlord/property/<path:rest>")
+def _legacy_landlord_property_redirect(rest):
+    return redirect(f"/accommodation/landlord/property/{rest}", code=301)
+
+
 # ── Pagination-aware shop ─────────────────────────────────────────────────────
 
 @app.route("/shop")
