@@ -128,25 +128,9 @@ function clearError(input) {
   input.classList.remove('is-invalid');
 }
 
-// ── Sidebar toggle ───────────────────────────────────────────
-const toggleBtn = document.getElementById('sidebar-toggle');
-const sidebar   = document.getElementById('sidebar');
-if (toggleBtn && sidebar) {
-  toggleBtn.addEventListener('click', () => {
-    if (window.innerWidth <= 768) {
-      sidebar.classList.toggle('mobile-open');
-    } else {
-      sidebar.classList.toggle('collapsed');
-    }
-  });
-  document.addEventListener('click', e => {
-    if (window.innerWidth <= 768 &&
-        !sidebar.contains(e.target) &&
-        !toggleBtn.contains(e.target)) {
-      sidebar.classList.remove('mobile-open');
-    }
-  });
-}
+// Sidebar toggle now lives in sidebar-toggle.js, loaded by _sidebar.html on
+// every page that includes it (was duplicated here before, causing a
+// double-attached click handler).
 
 
 // ── Image upload (Section 6) ─────────────────────────────────

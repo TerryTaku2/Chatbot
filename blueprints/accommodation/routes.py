@@ -2416,7 +2416,7 @@ def saved_properties_page():
             JOIN users u ON p.landlord_id=u.id
             LEFT JOIN reviews r ON r.property_id=p.id
             WHERE sp.tenant_id=? AND p.is_active=1
-            GROUP BY p.id, u.full_name, u.is_verified ORDER BY sp.saved_at DESC
+            GROUP BY p.id, u.full_name, u.is_verified, sp.saved_at ORDER BY sp.saved_at DESC
         """, (uid,)).fetchall()
         prop_list = []
         for p in props:

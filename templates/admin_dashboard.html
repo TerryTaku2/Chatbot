@@ -15,8 +15,9 @@
     /* ── Layout ── */
     .shell{display:flex;min-height:100vh}
     .sidebar{width:220px;background:#075e54;color:#fff;flex-shrink:0;
-             display:flex;flex-direction:column;position:fixed;top:0;left:0;height:100vh;z-index:100}
-    .main{margin-left:220px;flex:1;display:flex;flex-direction:column}
+             display:flex;flex-direction:column;position:fixed;top:0;left:0;height:100vh;z-index:100;
+             overflow-y:auto}
+    .main{margin-left:220px;flex:1;display:flex;flex-direction:column;min-height:100vh}
 
     /* ── Sidebar ── */
     .sb-logo{padding:22px 20px 18px;border-bottom:1px solid rgba(255,255,255,.12)}
@@ -64,8 +65,8 @@
     .sec-head .count{font-size:12px;color:#9ca3af;margin-left:8px}
 
     /* ── Tables ── */
-    .table-wrap{background:#fff;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.06);overflow:hidden;margin-bottom:24px}
-    table{width:100%;border-collapse:collapse;font-size:13px}
+    .table-wrap{background:#fff;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.06);overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:24px}
+    table{width:100%;border-collapse:collapse;font-size:13px;min-width:600px}
     thead th{background:#f9fafb;padding:10px 14px;text-align:left;font-size:11px;
              font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.04em;
              white-space:nowrap}
@@ -191,10 +192,15 @@
     @keyframes spin{to{transform:rotate(360deg)}}
     .loading-row td{text-align:center;padding:28px}
 
+    .hamburger{display:none;background:none;border:none;font-size:22px;cursor:pointer;color:#374151}
+    @media(max-width:768px){.hamburger{display:block}}
+
     /* ── Responsive ── */
     @media(max-width:768px){
-      .sidebar{width:0;overflow:hidden}
+      .sidebar{transform:translateX(-100%);transition:transform .3s}
+      .sidebar.open{transform:translateX(0)}
       .main{margin-left:0}
+      .topbar{padding-left:14px}
       .content{padding:16px}
     }
   </style>
@@ -203,7 +209,7 @@
 <div class="shell">
 
 <!-- ── Sidebar ── -->
-<nav class="sidebar">
+<nav class="sidebar" id="sidebar">
   <div class="sb-logo">
     <div class="name">T-Tech Connect</div>
     <div class="role">Admin Dashboard</div>
@@ -262,6 +268,7 @@
 <!-- ── Main ── -->
 <div class="main">
   <div class="topbar">
+    <button class="hamburger" onclick="toggleSidebar()">☰</button>
     <div class="topbar-title" id="topbar-title">Dashboard Overview</div>
     <button class="topbar-refresh" onclick="refreshCurrent()">↻ Refresh</button>
   </div>
@@ -703,9 +710,14 @@ function showSection(name) {
   document.getElementById('topbar-title').textContent = TITLES[name] || name;
   currentSection = name;
   loadSection(name);
+  document.getElementById('sidebar').classList.remove('open');
 }
 
 function refreshCurrent() { loadSection(currentSection); }
+
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('open');
+}
 
 function loadSection(name) {
   if (name === 'overview')    { loadAuditPreview(); return; }

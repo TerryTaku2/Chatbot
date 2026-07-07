@@ -49,7 +49,8 @@
   background: var(--white);
   border: 1px solid var(--border);
   border-radius: 14px;
-  overflow: hidden;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 .admin-panel-header {
   display: flex; align-items: center; justify-content: space-between;
@@ -68,6 +69,7 @@
 /* Admin table */
 .admin-table {
   width: 100%;
+  min-width: 640px;
   border-collapse: collapse;
   font-size: .83rem;
 }
