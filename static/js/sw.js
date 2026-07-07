@@ -1,20 +1,17 @@
 /* ============================================================
-   T-Tech Connect — Service Worker
+   T-Tech Connect — Unified Service Worker
+   Covers the whole app (shop, seller portal, accommodation) so
+   there is exactly one installable PWA for the whole site.
    ============================================================ */
 
-const CACHE = 'ttech-v1';
+const CACHE = 'ttech-unified-v1';
 
 const PRECACHE = [
+  '/',
+  '/shop',
   '/accommodation/offline',
-  '/accommodation/static/css/landlord.css',
-  '/accommodation/static/css/dashboard.css',
-  '/accommodation/static/css/login.css',
-  '/accommodation/static/css/browse.css',
-  '/accommodation/static/css/for_tenants.css',
-  '/accommodation/static/js/login.js',
   '/accommodation/static/images/logo.png',
   '/accommodation/static/images/icon-192.png',
-  '/accommodation/static/images/icon-512.png',
 ];
 
 /* ── Install: pre-cache shell assets ── */
@@ -42,16 +39,21 @@ self.addEventListener('fetch', e => {
   const { request } = e;
   const url = new URL(request.url);
 
-  /* Skip: non-GET, API calls, Socket.IO */
+  /* Skip: non-GET, API calls, webhook, Socket.IO */
   if (
     request.method !== 'GET' ||
+    url.pathname.startsWith('/api/') ||
     url.pathname.startsWith('/accommodation/api/') ||
+    url.pathname.startsWith('/webhook') ||
+    url.pathname.startsWith('/webhooks/') ||
     url.pathname.startsWith('/socket.io/') ||
-    url.pathname.startsWith('/accommodation/auth/')
+    url.pathname.startsWith('/admin') ||
+    url.pathname.startsWith('/accommodation/admin') ||
+    url.pathname.startsWith('/seller/')
   ) return;
 
   /* Static assets — cache first, then network */
-  if (url.pathname.startsWith('/accommodation/static/')) {
+  if (url.pathname.startsWith('/static/') || url.pathname.startsWith('/accommodation/static/') || url.pathname.startsWith('/uploads/')) {
     e.respondWith(
       caches.match(request).then(cached => {
         if (cached) return cached;
@@ -65,7 +67,7 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  /* HTML pages — network first, fall back to cache, then offline */
+  /* HTML pages — network first, fall back to cache, then offline page */
   e.respondWith(
     fetch(request)
       .then(res => {

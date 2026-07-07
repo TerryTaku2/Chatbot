@@ -8,7 +8,7 @@ import functools
 import filetype
 from collections import defaultdict
 import requests
-from flask import Flask, request, jsonify, render_template, send_from_directory, session, redirect
+from flask import Flask, request, jsonify, render_template, send_from_directory, session, redirect, make_response
 from dotenv import load_dotenv
 from werkzeug.utils import secure_filename
 from db import (
@@ -7613,6 +7613,45 @@ def api_set_exchange_rate():
     set_exchange_rate("USD", "ZiG", rate)
     log_admin_action("web_admin", "set_exchange_rate", "settings", "USD/ZiG", str(rate))
     return jsonify({"ok": True, "message": f"Rate set to 1 USD = ZiG {rate}"})
+
+
+# ── Unified PWA (single installable app covering shop, seller portal & accommodation) ──
+
+@app.route("/manifest.json")
+def pwa_manifest():
+    return jsonify({
+        "name": "T-Tech Connect",
+        "short_name": "T-Tech",
+        "description": "Zimbabwe's marketplace — shop, sell & find accommodation, on WhatsApp or the web.",
+        "start_url": "/",
+        "scope": "/",
+        "display": "standalone",
+        "background_color": "#ffffff",
+        "theme_color": "#075e54",
+        "orientation": "portrait-primary",
+        "categories": ["shopping", "business", "real estate"],
+        "icons": [
+            {"src": "/accommodation/static/images/icon-72.png",  "sizes": "72x72",   "type": "image/png"},
+            {"src": "/accommodation/static/images/icon-96.png",  "sizes": "96x96",   "type": "image/png"},
+            {"src": "/accommodation/static/images/icon-128.png", "sizes": "128x128", "type": "image/png"},
+            {"src": "/accommodation/static/images/icon-144.png", "sizes": "144x144", "type": "image/png"},
+            {"src": "/accommodation/static/images/icon-152.png", "sizes": "152x152", "type": "image/png"},
+            {"src": "/accommodation/static/images/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+            {"src": "/accommodation/static/images/icon-384.png", "sizes": "384x384", "type": "image/png"},
+            {"src": "/accommodation/static/images/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"},
+        ]
+    })
+
+
+@app.route("/sw.js")
+def service_worker():
+    resp = make_response(
+        open(os.path.join(os.path.dirname(__file__), "static", "js", "sw.js")).read()
+    )
+    resp.headers["Content-Type"] = "application/javascript"
+    resp.headers["Service-Worker-Allowed"] = "/"
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
 
 
 # ── Terms & Privacy ───────────────────────────────────────────────────────────

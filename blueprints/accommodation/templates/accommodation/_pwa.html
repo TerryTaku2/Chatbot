@@ -1,6 +1,6 @@
-<link rel="manifest" href="/accommodation/manifest.json" />
+<link rel="manifest" href="/manifest.json" />
 <link rel="apple-touch-icon" href="/accommodation/static/images/icon-192.png" />
-<meta name="theme-color" content="#1d4ed8" />
+<meta name="theme-color" content="#075e54" />
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
@@ -71,7 +71,7 @@
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/accommodation/sw.js', { scope: '/accommodation/' }).catch(() => {});
+      navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
     });
   }
 </script>

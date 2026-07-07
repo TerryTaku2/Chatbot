@@ -11,7 +11,7 @@ from functools import wraps
 import requests as http_requests
 from flask import (
     render_template, request, redirect, url_for, session, jsonify,
-    flash, make_response, abort, current_app,
+    flash, abort, current_app,
 )
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
@@ -682,42 +682,10 @@ def join():
     return redirect("/accommodation/login#register")
 
 
-@accommodation_bp.route("/manifest.json")
-def pwa_manifest():
-    return jsonify({
-        "name": "T-Tech Connect",
-        "short_name": "T-Tech",
-        "description": "Connecting Tenants with Landlords",
-        "start_url": "/accommodation/",
-        "scope": "/accommodation/",
-        "display": "standalone",
-        "background_color": "#ffffff",
-        "theme_color": "#1d4ed8",
-        "orientation": "portrait-primary",
-        "categories": ["real estate", "housing"],
-        "icons": [
-            {"src": "/accommodation/static/images/icon-72.png",  "sizes": "72x72",   "type": "image/png"},
-            {"src": "/accommodation/static/images/icon-96.png",  "sizes": "96x96",   "type": "image/png"},
-            {"src": "/accommodation/static/images/icon-128.png", "sizes": "128x128", "type": "image/png"},
-            {"src": "/accommodation/static/images/icon-144.png", "sizes": "144x144", "type": "image/png"},
-            {"src": "/accommodation/static/images/icon-152.png", "sizes": "152x152", "type": "image/png"},
-            {"src": "/accommodation/static/images/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
-            {"src": "/accommodation/static/images/icon-384.png", "sizes": "384x384", "type": "image/png"},
-            {"src": "/accommodation/static/images/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"},
-        ]
-    })
-
-
-@accommodation_bp.route("/sw.js")
-def service_worker():
-    resp = make_response(
-        open(os.path.join(os.path.dirname(__file__), "static", "js", "sw.js")).read()
-    )
-    resp.headers["Content-Type"] = "application/javascript"
-    resp.headers["Service-Worker-Allowed"] = "/accommodation/"
-    resp.headers["Cache-Control"] = "no-cache"
-    return resp
-
+# Note: this blueprint used to have its own /manifest.json and /sw.js routes,
+# scoped to /accommodation/ only. Those are superseded by the unified,
+# root-scoped /manifest.json and /sw.js in app.py, which cover the whole app
+# (shop, seller portal, accommodation) as a single installable PWA.
 
 @accommodation_bp.route("/offline")
 def offline_page():
