@@ -85,7 +85,9 @@
         <select name="type" class="bselect" onchange="this.form.submit()">
           <option value="">All Types</option>
           {% for val, label in [('apartment','Apartment'),('house','House'),('room','Single Room'),
-                                ('cottage','Cottage'),('flat','Flat'),('studio','Studio'),('hostel','Hostel')] %}
+                                ('cottage','Cottage'),('flat','Flat'),('studio','Studio'),('hostel','Hostel'),
+                                ('shop','Shop / Retail'),('warehouse','Warehouse'),('farm','Farm'),
+                                ('office','Office Space'),('land','Land / Plot')] %}
           <option value="{{ val }}" {{ 'selected' if prop_type == val }}>{{ label }}</option>
           {% endfor %}
         </select>

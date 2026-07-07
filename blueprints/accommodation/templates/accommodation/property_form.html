@@ -86,7 +86,9 @@
             <div class="select-wrap">
               <select id="property_type" name="property_type" class="field-input">
                 {% set types = [('apartment','Apartment'),('house','House'),('room','Single Room'),
-                                ('cottage','Cottage'),('flat','Flat'),('studio','Studio'),('hostel','Hostel')] %}
+                                ('cottage','Cottage'),('flat','Flat'),('studio','Studio'),('hostel','Hostel'),
+                                ('shop','Shop / Retail'),('warehouse','Warehouse'),('farm','Farm'),
+                                ('office','Office Space'),('land','Land / Plot')] %}
                 {% for val, label in types %}
                   <option value="{{ val }}" {{ 'selected' if prop and prop.property_type == val }}>{{ label }}</option>
                 {% endfor %}
