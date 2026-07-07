@@ -48,13 +48,15 @@
     .section-sub{font-size:15px;color:#6b7280;max-width:560px;line-height:1.6;margin-bottom:48px}
 
     /* ── Choose path ── */
-    .path-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+    .path-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+    @media(max-width:900px){.path-grid{grid-template-columns:1fr 1fr}}
     @media(max-width:700px){.path-grid{grid-template-columns:1fr}}
     .path-card{border-radius:20px;padding:36px 32px;cursor:pointer;transition:transform .2s,box-shadow .2s;
                border:2px solid transparent;text-decoration:none;display:block}
     .path-card:hover{transform:translateY(-4px);box-shadow:0 16px 40px rgba(0,0,0,.12)}
     .path-card.buyer{background:linear-gradient(135deg,#f0fdf4,#dcfce7);border-color:#bbf7d0}
     .path-card.seller{background:linear-gradient(135deg,#eff6ff,#dbeafe);border-color:#bfdbfe}
+    .path-card.housing{background:linear-gradient(135deg,#fffbeb,#fef3c7);border-color:#fde68a}
     .path-card .pc-icon{font-size:44px;margin-bottom:16px}
     .path-card h3{font-size:22px;font-weight:800;color:#111827;margin-bottom:8px}
     .path-card p{font-size:14px;color:#374151;line-height:1.6;margin-bottom:20px}
@@ -163,6 +165,14 @@
         <p>List your products or services, manage orders, and grow your business reaching buyers on both WhatsApp and web.</p>
         <div class="pc-arrow" style="color:#1d4ed8">See my options ↓</div>
       </a>
+
+      <!-- Housing -->
+      <a class="path-card housing" onclick="togglePath('housing', this); return false;" href="#">
+        <div class="pc-icon">🏠</div>
+        <h3>I want to find housing</h3>
+        <p>Browse verified rental properties, message landlords, and book viewings — built for the T-Tech community.</p>
+        <div class="pc-arrow" style="color:#f59e0b">See my options ↓</div>
+      </a>
     </div>
 
     <!-- Buyer channels -->
@@ -264,6 +274,55 @@
       </div>
     </div>
 
+    <!-- Housing channels -->
+    <div class="channels-wrap" id="housing-channels">
+      <p class="channels-intro" style="border-left-color:#f59e0b">Choose how you want to find a place:</p>
+      <div class="channel-grid">
+
+        <div class="channel-card">
+          <div class="ch-top">
+            <div class="ch-icon">📱</div>
+            <div>
+              <h4>WhatsApp Bot</h4>
+              <span class="ch-tag ch-tag-wa">WhatsApp</span>
+            </div>
+          </div>
+          <p>Chat with our bot to browse available properties, ask about a listing, and book a viewing — all without leaving WhatsApp.</p>
+          <div class="best-for">Best for:</div>
+          <div class="tags">
+            <span class="tag">📵 Low data users</span>
+            <span class="tag">💬 Quick property enquiries</span>
+            <span class="tag">🔔 Viewing reminders</span>
+          </div>
+          <a class="ch-btn ch-btn-wa" href="https://wa.me/{{ wa_number }}?text=I+want+to+find+housing" target="_blank">
+            💬 Chat to Find Housing
+          </a>
+        </div>
+
+        <div class="channel-card">
+          <div class="ch-top">
+            <div class="ch-icon">🌐</div>
+            <div>
+              <h4>Housing Platform</h4>
+              <span class="ch-tag ch-tag-web">Website</span>
+            </div>
+          </div>
+          <p>Browse listings with photos, filter by price and city, message landlords directly, and manage bookings from a full dashboard.</p>
+          <div class="best-for">Best for:</div>
+          <div class="tags">
+            <span class="tag">🔍 Search & filter listings</span>
+            <span class="tag">📸 Photo galleries</span>
+            <span class="tag">📅 Book & track viewings</span>
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <a class="ch-btn ch-btn-blue" href="/accommodation/browse">🏠 Browse Properties</a>
+            <a class="ch-btn" style="background:#f3f4f6;color:#374151" href="/accommodation/login">🔑 Sign In</a>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
   </div>
 </section>
 
@@ -354,23 +413,20 @@
 </footer>
 
 <script>
-function togglePath(type, el) {
-  const buyerChannels  = document.getElementById('buyer-channels');
-  const sellerChannels = document.getElementById('seller-channels');
-  const cards          = document.querySelectorAll('.path-card');
+const PATH_BORDER_COLORS = {buyer: '#34d399', seller: '#60a5fa', housing: '#f59e0b'};
 
-  const targetChannels = type === 'buyer' ? buyerChannels : sellerChannels;
-  const otherChannels  = type === 'buyer' ? sellerChannels : buyerChannels;
+function togglePath(type, el) {
+  const allChannels   = document.querySelectorAll('.channels-wrap');
+  const cards         = document.querySelectorAll('.path-card');
+  const targetChannels = document.getElementById(type + '-channels');
   const isOpen         = targetChannels.classList.contains('open');
 
-  // Close both, reset card borders
-  buyerChannels.classList.remove('open');
-  sellerChannels.classList.remove('open');
+  allChannels.forEach(c => c.classList.remove('open'));
   cards.forEach(c => c.style.borderColor = '');
 
   if (!isOpen) {
     targetChannels.classList.add('open');
-    el.style.borderColor = type === 'buyer' ? '#34d399' : '#60a5fa';
+    el.style.borderColor = PATH_BORDER_COLORS[type] || '';
     targetChannels.scrollIntoView({behavior:'smooth', block:'nearest'});
   }
 }
