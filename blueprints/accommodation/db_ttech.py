@@ -109,6 +109,7 @@ def init_db():
         ("is_verified", "INTEGER DEFAULT 0"),
         ("is_email_verified", "INTEGER DEFAULT 1"),
         ("email_verify_token", "TEXT"),
+        ("pass_expiry", "TEXT"),
     ]:
         cursor.execute(f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col} {definition}")
 
@@ -164,6 +165,15 @@ def init_db():
             UNIQUE(student_id, property_id)
         )
     """)
+    # Payments used to gate access per-property (one paid unlock per property
+    # forever), so a UNIQUE(student_id, property_id) constraint prevented
+    # double-charging. Access is now a time-bound pass covering every
+    # property, so a tenant can legitimately buy/renew a pass more than once
+    # via the same property page — drop the constraint so those renewals get
+    # logged instead of silently no-op'ing.
+    cursor.execute("""
+        ALTER TABLE payments DROP CONSTRAINT IF EXISTS payments_student_id_property_id_key
+    """)
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS payment_requests (
@@ -185,8 +195,15 @@ def init_db():
             value TEXT NOT NULL
         )
     """)
+    # Flat "Connect Fee" access pass: one payment unlocks contact details for
+    # every landlord for connect_fee_duration_days, replacing the old
+    # per-property percentage-of-rent commission.
     cursor.execute("""
-        INSERT INTO settings (key, value) VALUES ('commission_rate', '5')
+        INSERT INTO settings (key, value) VALUES ('connect_fee_price', '10')
+        ON CONFLICT (key) DO NOTHING
+    """)
+    cursor.execute("""
+        INSERT INTO settings (key, value) VALUES ('connect_fee_duration_days', '14')
         ON CONFLICT (key) DO NOTHING
     """)
 

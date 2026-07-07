@@ -303,23 +303,24 @@
           <p style="font-size:.82rem;color:var(--text-muted);text-align:center">This is your property listing.</p>
           {% endif %}
         </div>
+        {% if pass_days_remaining is not none %}
+        <p class="commission-note" style="text-align:center;margin-top:.5rem">
+          🔓 Connect Fee active — {{ pass_days_remaining }} day{{ 's' if pass_days_remaining != 1 else '' }} remaining
+        </p>
+        {% endif %}
 
         {% else %}
-        <!-- ── Locked: pay commission ── -->
+        <!-- ── Locked: pay connect fee ── -->
         <div class="commission-card">
           <div class="commission-lock">
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
           </div>
           <h3 class="commission-title">Unlock Contact Details</h3>
-          <p class="commission-desc">Pay a one-time connect fee to access the landlord's phone, email and messaging.</p>
+          <p class="commission-desc">Pay a Connect Fee to unlock phone, email and messaging for every landlord on T-Tech Connect — valid {{ prop.connect_fee_duration_days }} days.</p>
 
           <div class="commission-breakdown">
-            <div class="commission-row">
-              <span>Monthly Rent</span>
-              <span>{{ prop.currency }} {{ "%.2f"|format(prop.price_per_month) }}</span>
-            </div>
             <div class="commission-row commission-row--total">
-              <span>Connect Fee ({{ prop.commission_pct }}%)</span>
+              <span>Connect Fee ({{ prop.connect_fee_duration_days }}-day pass)</span>
               <span>{{ prop.currency }} {{ "%.2f"|format(prop.commission) }}</span>
             </div>
           </div>
@@ -333,7 +334,7 @@
           <a href="/accommodation/login" class="btn-pay">Login to Pay</a>
           {% endif %}
 
-          <p class="commission-note">One-time fee per property. Contact details unlock instantly after payment.</p>
+          <p class="commission-note">One Connect Fee unlocks every landlord for {{ prop.connect_fee_duration_days }} days — no need to pay again per property.</p>
         </div>
         {% endif %}
 
@@ -495,7 +496,7 @@
     <div class="pay-amount-display">
       <span class="pay-amount-label">Amount Due</span>
       <span class="pay-amount-value" id="modal-amount-value">{{ prop.currency }} {{ "%.2f"|format(prop.commission) }}</span>
-      <span class="pay-amount-note" id="modal-rate-note">{{ prop.commission_pct }}% of {{ prop.currency }} {{ "%.2f"|format(prop.price_per_month) }}/month</span>
+      <span class="pay-amount-note" id="modal-rate-note">{{ prop.connect_fee_duration_days }}-day pass — unlocks every landlord</span>
     </div>
 
     <!-- ── Step 1: Enter EcoCash number ── -->
@@ -977,16 +978,15 @@ document.querySelectorAll('.star-pick').forEach(s => {
 <script src="https://cdn.socket.io/4.7.2/socket.io.min.js" crossorigin="anonymous"></script>
 <script>
 (function () {
-  const PRICE    = {{ prop.price_per_month | tojson }};
   const CURRENCY = {{ prop.currency | tojson }};
 
   const socket = io({ transports: ['websocket', 'polling'] });
-  socket.on('commission_rate_changed', function (data) {
-    const rate = data.rate;
-    const amt  = (PRICE * rate / 100).toFixed(2);
+  socket.on('connect_fee_changed', function (data) {
+    const amt      = parseFloat(data.price).toFixed(2);
+    const duration = data.duration_days;
 
-    var pctEl = document.querySelector('.commission-row--total span:first-child');
-    if (pctEl) pctEl.textContent = 'Connect Fee (' + rate + '%)';
+    var feeEl = document.querySelector('.commission-row--total span:first-child');
+    if (feeEl) feeEl.textContent = 'Connect Fee (' + duration + '-day pass)';
     var amtEl = document.querySelector('.commission-row--total span:last-child');
     if (amtEl) amtEl.textContent = CURRENCY + ' ' + amt;
 
@@ -996,7 +996,7 @@ document.querySelectorAll('.star-pick').forEach(s => {
     var modalAmt = document.getElementById('modal-amount-value');
     if (modalAmt) modalAmt.textContent = CURRENCY + ' ' + amt;
     var modalNote = document.getElementById('modal-rate-note');
-    if (modalNote) modalNote.textContent = rate + '% of ' + CURRENCY + ' ' + PRICE.toFixed(2) + '/month';
+    if (modalNote) modalNote.textContent = duration + '-day pass — unlocks every landlord';
 
     // Keep JS constants in sync for the EcoCash flow
     if (typeof PROP_AMT !== 'undefined') window.PROP_AMT = amt;

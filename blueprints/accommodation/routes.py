@@ -203,18 +203,59 @@ def get_unread_count(user_id):
         return row["cnt"] if row else 0
 
 
-def has_paid(student_id, property_id):
-    with get_db() as conn:
-        return bool(conn.execute(
-            "SELECT 1 FROM payments WHERE student_id=? AND property_id=?",
-            (student_id, property_id)
-        ).fetchone())
+def has_paid(student_id, property_id=None):
+    """Access is now a time-bound "Connect Fee" pass covering every landlord,
+    not a per-property unlock — property_id is accepted for call-site
+    compatibility but no longer affects the result."""
+    return has_active_pass(student_id)
 
 
-def get_commission_rate():
+def get_connect_fee_price():
     with get_db() as conn:
-        row = conn.execute("SELECT value FROM settings WHERE key='commission_rate'").fetchone()
-    return float(row["value"]) / 100 if row else 0.05
+        row = conn.execute("SELECT value FROM settings WHERE key='connect_fee_price'").fetchone()
+    return float(row["value"]) if row else 10.0
+
+
+def get_connect_fee_duration_days():
+    with get_db() as conn:
+        row = conn.execute("SELECT value FROM settings WHERE key='connect_fee_duration_days'").fetchone()
+    return int(row["value"]) if row else 14
+
+
+def get_pass_expiry(student_id):
+    """Returns the tenant's pass expiry as a datetime, or None if they've never had one."""
+    with get_db() as conn:
+        row = conn.execute("SELECT pass_expiry FROM users WHERE id=?", (student_id,)).fetchone()
+    if not row or not row["pass_expiry"]:
+        return None
+    try:
+        return datetime.fromisoformat(row["pass_expiry"])
+    except (TypeError, ValueError):
+        return None
+
+
+def has_active_pass(student_id):
+    expiry = get_pass_expiry(student_id)
+    return expiry is not None and datetime.utcnow() < expiry
+
+
+def _pass_days_remaining(student_id):
+    """Whole days left on an active pass, or None if there isn't one."""
+    expiry = get_pass_expiry(student_id)
+    if expiry is None or datetime.utcnow() >= expiry:
+        return None
+    return max(0, (expiry - datetime.utcnow()).days)
+
+
+def grant_pass(student_id):
+    """Starts (or restarts) a fresh connect-fee pass from now — renewing
+    early doesn't stack remaining time on top, matching the "buy a new pass"
+    model rather than an ever-extendable balance."""
+    expiry = datetime.utcnow() + timedelta(days=get_connect_fee_duration_days())
+    with get_db() as conn:
+        conn.execute("UPDATE users SET pass_expiry=? WHERE id=?", (expiry.isoformat(), student_id))
+        conn.commit()
+    return expiry
 
 
 def _notify(user_id, ntype, title, body="", link=""):
@@ -608,7 +649,8 @@ def dashboard():
                            shared=shared, student_friendly=student_friendly,
                            available_only=available_only,
                            unread_count=unread,
-                           commission_rate=round(get_commission_rate() * 100, 2))
+                           connect_fee_price=get_connect_fee_price(),
+                           pass_days_remaining=_pass_days_remaining(session["user_id"]))
 
 
 def _get_cities():
@@ -1166,11 +1208,11 @@ def pay_commission(pid):
     if method.lower() not in ALLOWED_METHODS:
         return jsonify({"error": "Invalid payment method"}), 400
 
-    amount = round(prop["price_per_month"] * get_commission_rate(), 2)
+    amount = get_connect_fee_price()
     with get_db() as conn:
         conn.execute(
             """INSERT INTO payments (student_id, property_id, amount, currency, reference)
-               VALUES (?,?,?,?,?) ON CONFLICT (student_id, property_id) DO NOTHING""",
+               VALUES (?,?,?,?,?)""",
             (uid, pid, amount, prop["currency"], f"[{method.lower()}] {reference}")
         )
         conn.commit()
@@ -1178,6 +1220,7 @@ def pay_commission(pid):
             "SELECT landlord_id, title FROM properties WHERE id=?", (pid,)
         ).fetchone()
         student_name = conn.execute("SELECT full_name FROM users WHERE id=?", (uid,)).fetchone()
+    grant_pass(uid)
     if landlord_row and student_name:
         _notify(
             landlord_row["landlord_id"], "commission_paid",
@@ -1199,9 +1242,11 @@ def ecocash_initiate(pid):
         return jsonify({"success": True, "already_paid": True})
 
     with get_db() as conn:
+        # Not scoped to this property — a pass purchase started from any
+        # property page is the same pending purchase for this tenant.
         existing_req = conn.execute(
-            "SELECT id FROM payment_requests WHERE student_id=? AND property_id=? AND status='pending'",
-            (uid, pid)
+            "SELECT id FROM payment_requests WHERE student_id=? AND status='pending'",
+            (uid,)
         ).fetchone()
     if existing_req:
         return jsonify({"success": True, "request_id": existing_req["id"], "already_pending": True})
@@ -1228,11 +1273,11 @@ def ecocash_initiate(pid):
     if not pn:
         return jsonify({"error": "EcoCash payments are not configured. Ask admin to set PAYNOW_INTEGRATION_ID and PAYNOW_INTEGRATION_KEY."}), 503
 
-    amount     = round(prop["price_per_month"] * get_commission_rate(), 2)
+    amount     = get_connect_fee_price()
     request_id = str(uuid.uuid4())
 
     payment = pn.create_payment(f"TTC-{request_id[:8]}", session.get("user_email", ""))
-    payment.add(f'Connect Fee: {prop["title"]}', amount)
+    payment.add(f"Connect Fee ({get_connect_fee_duration_days()}-day pass)", amount)
 
     try:
         response = pn.send_mobile(payment, phone, "ecocash")
@@ -1285,7 +1330,7 @@ def check_payment_status(pid, req_id):
             conn.execute("UPDATE payment_requests SET status='paid' WHERE id=?", (req_id,))
             conn.execute(
                 """INSERT INTO payments (student_id, property_id, amount, currency, reference)
-                   VALUES (?,?,?,?,?) ON CONFLICT (student_id, property_id) DO NOTHING""",
+                   VALUES (?,?,?,?,?)""",
                 (uid, pid, req["amount"], req["currency"], f'[EcoCash] {req["phone"]}')
             )
             conn.commit()
@@ -1295,6 +1340,7 @@ def check_payment_status(pid, req_id):
             student_name = conn.execute(
                 "SELECT full_name FROM users WHERE id=?", (uid,)
             ).fetchone()
+        grant_pass(uid)
         if prop and student_name:
             _notify(
                 prop["landlord_id"], "commission_paid",
@@ -1326,13 +1372,13 @@ def property_view(pid):
         return redirect(url_for("accommodation.dashboard"))
     d = {**dict(prop), "services": json.loads(prop["services"] or "[]"),
          "images": _get_images(pid)}
-    rate = get_commission_rate()
-    d["commission"] = round(d["price_per_month"] * rate, 2)
-    d["commission_pct"] = round(rate * 100, 1)
+    d["commission"] = get_connect_fee_price()
+    d["connect_fee_duration_days"] = get_connect_fee_duration_days()
 
     uid  = session["user_id"]
     role = session.get("user_role")
     paid = True if role in ("landlord", "admin") else has_paid(uid, pid)
+    pass_days_remaining = _pass_days_remaining(uid) if role == "student" else None
 
     with get_db() as conn:
         reviews_rows = conn.execute("""
@@ -1351,6 +1397,7 @@ def property_view(pid):
                            user_email=session.get("user_email"),
                            current_user_id=uid,
                            has_paid=paid,
+                           pass_days_remaining=pass_days_remaining,
                            reviews=[dict(r) for r in reviews_rows],
                            user_reviewed=user_reviewed,
                            unread_count=get_unread_count(uid))
@@ -2428,28 +2475,38 @@ def _admin_common():
 def admin_settings():
     if request.method == "POST":
         data = request.get_json() or {}
-        rate = data.get("commission_rate")
         try:
-            rate = float(rate)
-            if not (0 <= rate <= 100):
-                return jsonify({"error": "Rate must be between 0 and 100"}), 400
-            rate = round(rate, 2)
+            price = float(data.get("connect_fee_price"))
+            if not (0 <= price <= 1000):
+                return jsonify({"error": "Price must be between 0 and 1000"}), 400
+            price = round(price, 2)
         except (TypeError, ValueError):
-            return jsonify({"error": "Invalid rate value"}), 400
+            return jsonify({"error": "Invalid price value"}), 400
+        try:
+            duration_days = int(data.get("connect_fee_duration_days"))
+            if not (1 <= duration_days <= 90):
+                return jsonify({"error": "Duration must be between 1 and 90 days"}), 400
+        except (TypeError, ValueError):
+            return jsonify({"error": "Invalid duration value"}), 400
         with get_db() as conn:
             conn.execute(
-                "INSERT INTO settings (key, value) VALUES ('commission_rate', ?) "
+                "INSERT INTO settings (key, value) VALUES ('connect_fee_price', ?) "
                 "ON CONFLICT (key) DO UPDATE SET value = excluded.value",
-                (str(rate),)
+                (str(price),)
+            )
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES ('connect_fee_duration_days', ?) "
+                "ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+                (str(duration_days),)
             )
             conn.commit()
-        socketio.emit("commission_rate_changed", {"rate": rate})
-        return jsonify({"success": True, "commission_rate": rate})
+        socketio.emit("connect_fee_changed", {"price": price, "duration_days": duration_days})
+        return jsonify({"success": True, "connect_fee_price": price, "connect_fee_duration_days": duration_days})
 
-    with get_db() as conn:
-        row = conn.execute("SELECT value FROM settings WHERE key='commission_rate'").fetchone()
-    current_rate = float(row["value"]) if row else 5.0
-    return jsonify({"commission_rate": current_rate})
+    return jsonify({
+        "connect_fee_price": get_connect_fee_price(),
+        "connect_fee_duration_days": get_connect_fee_duration_days(),
+    })
 
 
 @accommodation_bp.route("/admin/test-email")
@@ -2499,18 +2556,27 @@ def admin_dashboard():
             ORDER BY pay.paid_at DESC LIMIT 6
         """).fetchall()
 
-    with get_db() as conn:
-        rate_row = conn.execute("SELECT value FROM settings WHERE key='commission_rate'").fetchone()
-    commission_rate = float(rate_row["value"]) if rate_row else 5.0
-    estimated_revenue = round((stats["total_monthly_rent"] or 0) * commission_rate / 100, 2)
+        pass_rows = conn.execute(
+            "SELECT pass_expiry FROM users WHERE pass_expiry IS NOT NULL"
+        ).fetchall()
+
+    now = datetime.utcnow()
+    active_passes = 0
+    for row in pass_rows:
+        try:
+            if datetime.fromisoformat(row["pass_expiry"]) > now:
+                active_passes += 1
+        except (TypeError, ValueError):
+            pass
 
     return render_template("accommodation/admin_dashboard.html",
                            stats=stats,
                            recent_users=recent_users,
                            recent_props=recent_props,
                            recent_payments=recent_payments,
-                           commission_rate=commission_rate,
-                           estimated_revenue=estimated_revenue,
+                           connect_fee_price=get_connect_fee_price(),
+                           connect_fee_duration_days=get_connect_fee_duration_days(),
+                           active_passes=active_passes,
                            **_admin_common())
 
 
