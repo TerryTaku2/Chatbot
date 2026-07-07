@@ -44,7 +44,8 @@ def get_paynow():
         from paynow import Paynow
         return Paynow(PAYNOW_INTEGRATION_ID, PAYNOW_INTEGRATION_KEY,
                       PAYNOW_RESULT_URL, "")
-    except ImportError:
+    except ImportError as e:
+        print(f"[PAYNOW IMPORT ERROR] {e}")
         return None
 
 

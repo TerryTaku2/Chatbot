@@ -5,6 +5,7 @@ python-dotenv==1.0.1
 filetype==1.2.0
 gunicorn==21.2.0
 paynow==1.0.5
+six==1.16.0
 psycopg2-binary==2.9.12
 flask-limiter==3.8.0
 flask-socketio==5.3.6
