@@ -1235,7 +1235,7 @@ def ecocash_initiate(pid):
         return jsonify({"error": f"Could not reach payment gateway: {str(e)}"}), 502
 
     if not response.success:
-        err = getattr(response, "errors", None) or "EcoCash payment failed to initiate"
+        err = getattr(response, "error", None) or "EcoCash payment failed to initiate"
         return jsonify({"error": str(err)}), 400
 
     with get_db() as conn:

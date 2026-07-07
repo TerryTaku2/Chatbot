@@ -853,7 +853,7 @@ def initiate_ecocash_payment(phone_number, amount, reference, buyer_email="buyer
         response = pn.send_mobile(payment, local_phone, mobile_method)
         if response.success:
             return {"success": True, "poll_url": response.poll_url, "reference": reference}
-        return {"success": False, "error": str(getattr(response, "errors", "Payment failed"))}
+        return {"success": False, "error": str(getattr(response, "error", "Payment failed"))}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
