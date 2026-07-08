@@ -21,7 +21,7 @@ from .db_ttech import get_db
 
 # ── Config ──────────────────────────────────────────────────────────────────
 
-SENDGRID_API_KEY = os.environ.get("SENDGRID_API_KEY", "")
+RESEND_API_KEY   = os.environ.get("RESEND_API_KEY", "")
 MAIL_FROM_EMAIL  = os.environ.get("MAIL_USERNAME", "terrencemuromba6@gmail.com")
 MAIL_FROM_NAME   = "T-Tech Connect"
 MAIL_REPLY_TO    = os.environ.get("CONTACT_EMAIL", "")
@@ -932,24 +932,24 @@ def forgot_password():
 
 
 def _send_email(to_email, subject, html_body):
-    if not SENDGRID_API_KEY:
-        current_app.logger.error("SENDGRID_API_KEY not set — email not sent")
+    if not RESEND_API_KEY:
+        current_app.logger.error("RESEND_API_KEY not set — email not sent")
         return False
     try:
         resp = http_requests.post(
-            "https://api.sendgrid.com/v3/mail/send",
-            headers={"Authorization": f"Bearer {SENDGRID_API_KEY}", "Content-Type": "application/json"},
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"},
             json={
-                "personalizations": [{"to": [{"email": to_email}]}],
-                "from": {"email": MAIL_FROM_EMAIL, "name": MAIL_FROM_NAME},
-                **({"reply_to": {"email": MAIL_REPLY_TO}} if MAIL_REPLY_TO else {}),
+                "from": f"{MAIL_FROM_NAME} <{MAIL_FROM_EMAIL}>",
+                "to": [to_email],
+                **({"reply_to": MAIL_REPLY_TO} if MAIL_REPLY_TO else {}),
                 "subject": subject,
-                "content": [{"type": "text/html", "value": html_body}]
+                "html": html_body,
             },
             timeout=10
         )
-        if resp.status_code not in (200, 202):
-            current_app.logger.error(f"SendGrid error {resp.status_code}: {resp.text}")
+        if resp.status_code not in (200, 201, 202):
+            current_app.logger.error(f"Resend error {resp.status_code}: {resp.text}")
             return False
         return True
     except Exception as e:
@@ -2624,7 +2624,7 @@ def admin_test_email():
                      f"<p>Test email from T-Tech Connect. Email is working correctly.</p><p>Sent to: {to}</p>")
     if ok:
         return jsonify({"success": True, "message": f"Test email sent to {to}"})
-    return jsonify({"success": False, "error": "Check SENDGRID_API_KEY env var or Render logs"}), 500
+    return jsonify({"success": False, "error": "Check RESEND_API_KEY env var or Render logs"}), 500
 
 
 @accommodation_bp.route("/admin")
