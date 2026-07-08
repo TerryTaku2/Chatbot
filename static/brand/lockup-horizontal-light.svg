@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 330 64">
+<rect x="8" y="8" width="48" height="48" rx="12" fill="#0F6E56"/>
+<line x1="21" y1="19" x2="43" y2="19" stroke="#FFFFFF" stroke-width="1.9" stroke-linecap="round"/>
+<line x1="21" y1="19" x2="21" y2="41" stroke="#FFFFFF" stroke-width="1.9" stroke-linecap="round"/>
+<line x1="43" y1="19" x2="21" y2="41" stroke="#FFFFFF" stroke-width="1.9" stroke-linecap="round"/>
+<circle cx="21" cy="19" r="3" fill="#FFFFFF"/>
+<circle cx="43" cy="19" r="3" fill="#FFFFFF"/>
+<circle cx="21" cy="41" r="3.5" fill="#F59E0B"/>
+<text x="68" y="40" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="600"><tspan fill="#0B4C3B">T-Tech</tspan><tspan fill="#8A5A0B"> Connect</tspan></text>
+</svg>

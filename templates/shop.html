@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <link rel="icon" href="/uploads/favicon.ico" sizes="any"/>
-  <link rel="icon" type="image/svg+xml" href="/uploads/icon-badge.svg"/>
-  <link rel="apple-touch-icon" href="/uploads/apple-touch-icon-180.png"/>
+  <link rel="icon" href="/static/brand/favicon.ico" sizes="any"/>
+  <link rel="icon" type="image/svg+xml" href="/static/brand/icon-badge.svg"/>
+  <link rel="apple-touch-icon" href="/static/brand/apple-touch-icon-180.png"/>
   <title>{% if page_title %}{{ page_title }} — {% endif %}T-Tech Connect Shop</title>
   {% include 'accommodation/_pwa.html' %}
   <style>
@@ -118,7 +118,7 @@
 
 <!-- Topbar -->
 <div class="topbar">
-  <a class="topbar-brand" href="/shop"><img src="/uploads/lockup-dark@2x.png" alt="T-Tech Connect" style="height:24px;width:auto;object-fit:contain"/></a>
+  <a class="topbar-brand" href="/shop"><img src="/static/brand/lockup-dark@2x.png" alt="T-Tech Connect" style="height:24px;width:auto;object-fit:contain"/></a>
   <form class="search-wrap" method="GET" action="/shop" id="search-form">
     <span class="search-icon">🔍</span>
     <input type="text" name="q" id="search-input" placeholder="Search products…" value="{{ query or '' }}" autocomplete="off"/>

@@ -7914,14 +7914,14 @@ def pwa_manifest():
         "orientation": "portrait-primary",
         "categories": ["shopping", "business", "real estate"],
         "icons": [
-            {"src": "/uploads/icon-16.png",   "sizes": "16x16",     "type": "image/png"},
-            {"src": "/uploads/icon-32.png",   "sizes": "32x32",     "type": "image/png"},
-            {"src": "/uploads/icon-48.png",   "sizes": "48x48",     "type": "image/png"},
-            {"src": "/uploads/icon-64.png",   "sizes": "64x64",     "type": "image/png"},
-            {"src": "/uploads/icon-128.png",  "sizes": "128x128",   "type": "image/png"},
-            {"src": "/uploads/icon-192.png",  "sizes": "192x192",   "type": "image/png", "purpose": "any maskable"},
-            {"src": "/uploads/icon-512.png",  "sizes": "512x512",   "type": "image/png", "purpose": "any maskable"},
-            {"src": "/uploads/icon-1024.png", "sizes": "1024x1024", "type": "image/png"},
+            {"src": "/static/brand/icon-16.png",   "sizes": "16x16",     "type": "image/png"},
+            {"src": "/static/brand/icon-32.png",   "sizes": "32x32",     "type": "image/png"},
+            {"src": "/static/brand/icon-48.png",   "sizes": "48x48",     "type": "image/png"},
+            {"src": "/static/brand/icon-64.png",   "sizes": "64x64",     "type": "image/png"},
+            {"src": "/static/brand/icon-128.png",  "sizes": "128x128",   "type": "image/png"},
+            {"src": "/static/brand/icon-192.png",  "sizes": "192x192",   "type": "image/png", "purpose": "any maskable"},
+            {"src": "/static/brand/icon-512.png",  "sizes": "512x512",   "type": "image/png", "purpose": "any maskable"},
+            {"src": "/static/brand/icon-1024.png", "sizes": "1024x1024", "type": "image/png"},
         ]
     })
 
