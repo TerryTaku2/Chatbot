@@ -179,6 +179,32 @@ def is_valid_phone(phone):
     return re.match(r"^\+?[\d\s\-]{7,15}$", phone)
 
 
+def _normalize_whatsapp_number(phone):
+    """WhatsApp's API wants bare international digits (e.g. 263771144966),
+    but users may enter +263771144966 or a local 0771144966 form."""
+    digits = re.sub(r"\D", "", phone)
+    if digits.startswith("0"):
+        digits = "263" + digits[1:]
+    return digits
+
+
+def _send_phone_otp(phone, code):
+    """Lazy-imports app.send_whatsapp_message — app.py registers this blueprint
+    before send_whatsapp_message is defined, so a top-level import would be
+    circular. By request time app.py has finished loading, so this is safe."""
+    try:
+        from app import send_whatsapp_message
+        data = send_whatsapp_message(
+            _normalize_whatsapp_number(phone),
+            f"Your T-Tech Connect verification code is: {code}\n\n"
+            "It expires in 10 minutes. Don't share this code with anyone."
+        )
+        return bool(data) and "error" not in data
+    except Exception as e:
+        current_app.logger.error(f"Phone OTP send failed: {e}")
+        return False
+
+
 def log_attempt(email, ip, success):
     with get_db() as conn:
         conn.execute("INSERT INTO login_attempts (email, ip_address, success) VALUES (?,?,?)",
@@ -542,30 +568,38 @@ def register():
     if len(password) < 8:
         return err("Password must be at least 8 characters.")
 
+    verify_token = secrets.token_urlsafe(32)
+
     with get_db() as conn:
         if conn.execute("SELECT id FROM users WHERE email=?", (email,)).fetchone():
             return err("An account with this email already exists.")
         if phone and conn.execute("SELECT id FROM users WHERE phone=?", (phone,)).fetchone():
             return err("An account with this phone number already exists.")
-        # No email-verification step: this platform is phone/WhatsApp-first and
-        # SendGrid isn't (always) configured, so accounts are verified immediately
-        # and the user is logged straight in rather than left waiting on an email.
         cur = conn.execute(
-            "INSERT INTO users (full_name, email, password_hash, role, phone, is_email_verified) VALUES (?,?,?,?,?,1) RETURNING id",
-            (full_name, email, generate_password_hash(password), role, phone or None)
+            "INSERT INTO users (full_name, email, password_hash, role, phone, "
+            "is_email_verified, email_verify_token) VALUES (?,?,?,?,?,0,?) RETURNING id",
+            (full_name, email, generate_password_hash(password), role, phone or None, verify_token)
         )
         user_id = cur.fetchone()["id"]
+
+        if phone:
+            code    = f"{secrets.randbelow(1000000):06d}"
+            expires = datetime.utcnow() + timedelta(minutes=10)
+            conn.execute(
+                "INSERT INTO phone_otps (user_id, code, expires_at) VALUES (?,?,?)",
+                (user_id, code, expires.isoformat())
+            )
         conn.commit()
 
-    session.clear()
-    session["user_id"]    = user_id
-    session["user_name"]  = full_name
-    session["user_role"]  = role
-    session["user_email"] = email
+    verify_url = url_for("accommodation.verify_email", token=verify_token, _external=True)
+    _send_verification_email(email, full_name, role, verify_url)
+    if phone:
+        _send_phone_otp(phone, code)
 
-    dest = role_redirect(role)
+    dest = url_for("accommodation.check_email_page", email=email)
     if request.is_json:
-        return jsonify({"success": True, "redirect": dest, "role": role})
+        return jsonify({"success": True, "redirect": dest, "role": role,
+                         "requires_verification": True, "has_phone": bool(phone)})
     return redirect(dest)
 
 
@@ -612,8 +646,8 @@ def login():
 
             if user and user["password_hash"] and check_password_hash(user["password_hash"], password):
                 log_attempt(identifier_lower, ip, True)
-                if not user["is_email_verified"]:
-                    msg = "Please verify your email address before logging in."
+                if not user["is_email_verified"] and not user["phone_verified"]:
+                    msg = "Please verify your email address or phone number before logging in."
                     if request.is_json:
                         return jsonify({"success": False, "error": msg, "unverified": True, "email": user["email"]}), 403
                     return redirect("/accommodation/check-email?email=" + user["email"])
@@ -886,8 +920,18 @@ def change_password():
 @accommodation_bp.route("/check-email")
 def check_email_page():
     email = request.args.get("email", "")
+    phone = None
+    if email:
+        with get_db() as conn:
+            user = conn.execute(
+                "SELECT phone FROM users WHERE email=? AND is_active=1 AND phone_verified=0",
+                (email,)
+            ).fetchone()
+        if user and user["phone"]:
+            phone = user["phone"]
     return render_template("accommodation/check_email.html",
                            email=email,
+                           phone=phone,
                            user_name=None,
                            user_role=None)
 
@@ -1081,6 +1125,70 @@ def resend_verification():
         conn.commit()
     verify_url = url_for("accommodation.verify_email", token=token, _external=True)
     _send_verification_email(email, user["full_name"], user["role"], verify_url)
+    return jsonify({"success": True})
+
+
+@accommodation_bp.route("/verify-phone-otp", methods=["POST"])
+@limiter.limit("10 per hour")
+def verify_phone_otp():
+    data  = request.get_json() or {}
+    email = (data.get("email") or "").strip().lower()
+    code  = (data.get("code") or "").strip()
+    if not email or not code:
+        return jsonify({"success": False, "error": "Email and code are required"}), 400
+
+    with get_db() as conn:
+        user = conn.execute(
+            "SELECT * FROM users WHERE email=? AND is_active=1", (email,)
+        ).fetchone()
+        if not user:
+            return jsonify({"success": False, "error": "Invalid or expired code"}), 400
+
+        otp = conn.execute(
+            "SELECT * FROM phone_otps WHERE user_id=? AND used=0 ORDER BY created_at DESC LIMIT 1",
+            (user["id"],)
+        ).fetchone()
+        if not otp or datetime.fromisoformat(otp["expires_at"]) < datetime.utcnow() or otp["attempts"] >= 5:
+            return jsonify({"success": False, "error": "Invalid or expired code. Request a new one."}), 400
+
+        if otp["code"] != code:
+            conn.execute("UPDATE phone_otps SET attempts=attempts+1 WHERE id=?", (otp["id"],))
+            conn.commit()
+            return jsonify({"success": False, "error": "Incorrect code. Please try again."}), 400
+
+        conn.execute("UPDATE phone_otps SET used=1 WHERE id=?", (otp["id"],))
+        conn.execute("UPDATE users SET phone_verified=1 WHERE id=?", (user["id"],))
+        conn.execute("UPDATE users SET last_login=CURRENT_TIMESTAMP, last_seen=CURRENT_TIMESTAMP WHERE id=?", (user["id"],))
+        conn.commit()
+
+    session.clear()
+    session["user_id"]    = user["id"]
+    session["user_name"]  = user["full_name"]
+    session["user_role"]  = user["role"]
+    session["user_email"] = user["email"]
+    return jsonify({"success": True, "redirect": role_redirect(user["role"])})
+
+
+@accommodation_bp.route("/resend-phone-otp", methods=["POST"])
+@limiter.limit("5 per hour")
+def resend_phone_otp():
+    email = (request.get_json() or {}).get("email", "").strip().lower()
+    if not email:
+        return jsonify({"error": "Email required"}), 400
+    with get_db() as conn:
+        user = conn.execute(
+            "SELECT * FROM users WHERE email=? AND is_active=1 AND phone_verified=0", (email,)
+        ).fetchone()
+        if not user or not user["phone"]:
+            return jsonify({"success": True})
+        code    = f"{secrets.randbelow(1000000):06d}"
+        expires = datetime.utcnow() + timedelta(minutes=10)
+        conn.execute(
+            "INSERT INTO phone_otps (user_id, code, expires_at) VALUES (?,?,?)",
+            (user["id"], code, expires.isoformat())
+        )
+        conn.commit()
+    _send_phone_otp(user["phone"], code)
     return jsonify({"success": True})
 
 

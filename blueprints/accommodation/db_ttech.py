@@ -111,6 +111,7 @@ def init_db():
         ("email_verify_token", "TEXT"),
         ("pass_expiry", "TEXT"),
         ("deleted_at", "TEXT"),
+        ("phone_verified", "INTEGER DEFAULT 0"),
     ]:
         cursor.execute(f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col} {definition}")
 
@@ -224,6 +225,18 @@ def init_db():
             comment     TEXT DEFAULT '',
             created_at  TEXT DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(property_id, reviewer_id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS phone_otps (
+            id         SERIAL PRIMARY KEY,
+            user_id    INTEGER NOT NULL REFERENCES users(id),
+            code       TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            attempts   INTEGER DEFAULT 0,
+            used       INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     """)
 

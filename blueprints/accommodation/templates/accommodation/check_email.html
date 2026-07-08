@@ -57,6 +57,28 @@
           Resend verification email
         </button>
 
+        {% if phone %}
+        <div style="margin:1.5rem 0;padding-top:1.5rem;border-top:1px solid #e5e7eb;text-align:left">
+          <p style="margin:0 0 .35rem;font-size:.9rem;font-weight:600;color:#111827">Or verify instantly with WhatsApp</p>
+          <p style="margin:0 0 1rem;font-size:.85rem;color:#6b7280">
+            We sent a 6-digit code to <strong style="color:#111827">{{ phone }}</strong> on WhatsApp.
+          </p>
+          <div style="display:flex;gap:.5rem;margin-bottom:.75rem">
+            <input type="text" id="otp-input" maxlength="6" inputmode="numeric" placeholder="000000"
+              style="flex:1;padding:.7rem .9rem;border:1.5px solid #e5e7eb;border-radius:10px;font-size:1.1rem;font-weight:700;letter-spacing:.25em;text-align:center;outline:none;box-sizing:border-box"
+              onfocus="this.style.borderColor='#075e54'" onblur="this.style.borderColor='#e5e7eb'" />
+            <button onclick="verifyOtp()"
+              style="padding:.7rem 1.25rem;background:#075e54;color:#fff;border:none;border-radius:10px;font-weight:600;font-size:.9rem;cursor:pointer;white-space:nowrap">
+              Verify
+            </button>
+          </div>
+          <button id="resend-otp-btn" onclick="resendOtp()"
+            style="background:none;border:none;padding:0;font-size:.8rem;color:#6b7280;text-decoration:underline;cursor:pointer">
+            Resend code
+          </button>
+        </div>
+        {% endif %}
+
         <a href="/accommodation/login" style="display:block;font-size:.875rem;color:#6b7280;text-decoration:none">
           ← Back to login
         </a>
@@ -97,6 +119,54 @@
           btn.disabled = false;
           btn.textContent = 'Resend verification email';
         }, 30000);
+      }
+    }
+
+    function showAlert(msg, ok) {
+      const alert = document.getElementById('js-alert');
+      alert.style.display = '';
+      alert.style.background = ok ? '#f0fdf4' : '#fef2f2';
+      alert.style.border = ok ? '1px solid #bbf7d0' : '1px solid #fecaca';
+      alert.style.color = ok ? '#166534' : '#991b1b';
+      alert.textContent = msg;
+    }
+
+    async function verifyOtp() {
+      const input = document.getElementById('otp-input');
+      const code  = input.value.trim();
+      if (code.length !== 6) { showAlert('Enter the 6-digit code.', false); return; }
+      try {
+        const res  = await fetch('/accommodation/verify-phone-otp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, code })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showAlert('Phone verified! Redirecting…', true);
+          setTimeout(() => { window.location.href = data.redirect || '/accommodation/dashboard'; }, 800);
+        } else {
+          showAlert(data.error || 'Verification failed.', false);
+        }
+      } catch {
+        showAlert('Network error. Please try again.', false);
+      }
+    }
+
+    async function resendOtp() {
+      const btn = document.getElementById('resend-otp-btn');
+      btn.disabled = true;
+      try {
+        await fetch('/accommodation/resend-phone-otp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email })
+        });
+        showAlert('New code sent via WhatsApp.', true);
+      } catch {
+        showAlert('Failed to resend. Please try again.', false);
+      } finally {
+        setTimeout(() => { btn.disabled = false; }, 30000);
       }
     }
   </script>
