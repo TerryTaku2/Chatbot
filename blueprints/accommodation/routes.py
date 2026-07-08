@@ -24,6 +24,7 @@ from .db_ttech import get_db
 SENDGRID_API_KEY = os.environ.get("SENDGRID_API_KEY", "")
 MAIL_FROM_EMAIL  = os.environ.get("MAIL_USERNAME", "terrencemuromba6@gmail.com")
 MAIL_FROM_NAME   = "T-Tech Connect"
+MAIL_REPLY_TO    = os.environ.get("CONTACT_EMAIL", "")
 
 # Same secret the chatbot side uses to call *this* blueprint's /api/* routes
 # (see app.py's TTECH_API_KEY) — one shared value now that it's one process.
@@ -941,6 +942,7 @@ def _send_email(to_email, subject, html_body):
             json={
                 "personalizations": [{"to": [{"email": to_email}]}],
                 "from": {"email": MAIL_FROM_EMAIL, "name": MAIL_FROM_NAME},
+                **({"reply_to": {"email": MAIL_REPLY_TO}} if MAIL_REPLY_TO else {}),
                 "subject": subject,
                 "content": [{"type": "text/html", "value": html_body}]
             },
@@ -1584,30 +1586,32 @@ def api_conversations():
     uid = session["user_id"]
     with get_db() as conn:
         rows = conn.execute("""
-            SELECT
-                c.id, c.subject, c.property_id, c.updated_at,
-                p.title as property_title,
-                u.id as other_id,
-                CASE WHEN u.role='admin' THEN 'T-Tech Support' ELSE u.full_name END as other_name,
-                u.role as other_role,
-                u.last_seen as other_last_seen,
-                (SELECT content FROM messages WHERE conversation_id=c.id
-                 AND is_deleted=0 ORDER BY sent_at DESC LIMIT 1) as last_msg,
-                (SELECT sent_at FROM messages WHERE conversation_id=c.id
-                 AND is_deleted=0 ORDER BY sent_at DESC LIMIT 1) as last_msg_time,
-                (SELECT sender_id FROM messages WHERE conversation_id=c.id
-                 AND is_deleted=0 ORDER BY sent_at DESC LIMIT 1) as last_sender_id,
-                (SELECT COUNT(*) FROM messages m2
-                 JOIN conversation_members cm2 ON m2.conversation_id=cm2.conversation_id AND cm2.user_id=?
-                 WHERE m2.conversation_id=c.id AND m2.sender_id!=?
-                   AND (m2.sent_at > cm2.last_read_at OR cm2.last_read_at IS NULL)
-                   AND m2.is_deleted=0) as unread
-            FROM conversations c
-            JOIN conversation_members cm ON c.id = cm.conversation_id AND cm.user_id = ?
-            JOIN conversation_members cm2 ON c.id = cm2.conversation_id AND cm2.user_id != ?
-            JOIN users u ON cm2.user_id = u.id
-            LEFT JOIN properties p ON c.property_id = p.id
-            ORDER BY COALESCE(last_msg_time, c.updated_at) DESC
+            WITH conv_data AS (
+                SELECT
+                    c.id, c.subject, c.property_id, c.updated_at,
+                    p.title as property_title,
+                    u.id as other_id,
+                    CASE WHEN u.role='admin' THEN 'T-Tech Support' ELSE u.full_name END as other_name,
+                    u.role as other_role,
+                    u.last_seen as other_last_seen,
+                    (SELECT content FROM messages WHERE conversation_id=c.id
+                     AND is_deleted=0 ORDER BY sent_at DESC LIMIT 1) as last_msg,
+                    (SELECT sent_at FROM messages WHERE conversation_id=c.id
+                     AND is_deleted=0 ORDER BY sent_at DESC LIMIT 1) as last_msg_time,
+                    (SELECT sender_id FROM messages WHERE conversation_id=c.id
+                     AND is_deleted=0 ORDER BY sent_at DESC LIMIT 1) as last_sender_id,
+                    (SELECT COUNT(*) FROM messages m2
+                     JOIN conversation_members cm2 ON m2.conversation_id=cm2.conversation_id AND cm2.user_id=?
+                     WHERE m2.conversation_id=c.id AND m2.sender_id!=?
+                       AND (m2.sent_at > cm2.last_read_at OR cm2.last_read_at IS NULL)
+                       AND m2.is_deleted=0) as unread
+                FROM conversations c
+                JOIN conversation_members cm ON c.id = cm.conversation_id AND cm.user_id = ?
+                JOIN conversation_members cm2 ON c.id = cm2.conversation_id AND cm2.user_id != ?
+                JOIN users u ON cm2.user_id = u.id
+                LEFT JOIN properties p ON c.property_id = p.id
+            )
+            SELECT * FROM conv_data ORDER BY COALESCE(last_msg_time, updated_at) DESC
         """, (uid, uid, uid, uid)).fetchall()
     return jsonify([dict(r) for r in rows])
 
