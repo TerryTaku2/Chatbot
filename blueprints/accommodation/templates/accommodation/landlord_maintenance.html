@@ -29,7 +29,7 @@
       <div style="display:flex;gap:.5rem;">
         {% for s in ['open','in_progress','resolved','closed'] %}
         <a href="?status={{ s }}" class="btn-secondary" style="font-size:.8rem;padding:.4rem .8rem;
-           {% if status_filter == s %}background:#1d4ed8;color:#fff;border-color:#1d4ed8;{% endif %}">
+           {% if status_filter == s %}background:#075e54;color:#fff;border-color:#075e54;{% endif %}">
           {{ {'open':'Open','in_progress':'In Progress','resolved':'Resolved','closed':'Closed'}[s] }}
         </a>
         {% endfor %}

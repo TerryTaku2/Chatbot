@@ -5,9 +5,9 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --primary:        #1d4ed8;
-  --primary-dark:   #1e3a8a;
-  --primary-light:  #dbeafe;
+  --primary:        #075e54;
+  --primary-dark:   #064e44;
+  --primary-light:  #dcfce7;
   --sidebar-w:      240px;
   --topbar-h:       60px;
   --text-primary:   #111827;
@@ -64,7 +64,7 @@ html, body {
 .user-pill { display: flex; align-items: center; gap: .6rem; }
 .user-avatar {
   width: 34px; height: 34px;
-  background: linear-gradient(135deg, #1d4ed8, #7c3aed);
+  background: linear-gradient(135deg, #075e54, #7c3aed);
   border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   color: #fff; font-weight: 700; font-size: .85rem; flex-shrink: 0;
@@ -80,7 +80,7 @@ html, body {
 }
 .role-landlord { background: #fef3c7; color: #92400e; }
 .role-admin     { background: #ede9fe; color: #5b21b6; }
-.role-student   { background: #dbeafe; color: #1e40af; }
+.role-student   { background: #dcfce7; color: #064e46; }
 
 .btn-logout {
   display: flex; align-items: center; gap: .4rem;
@@ -176,7 +176,7 @@ html, body {
 }
 .flash-success { background: #f0fdf4; border: 1px solid #86efac; color: #16a34a; }
 .flash-error   { background: #fef2f2; border: 1px solid #fca5a5; color: #dc2626; }
-.flash-info    { background: #eff6ff; border: 1px solid #93c5fd; color: #1d4ed8; }
+.flash-info    { background: #f0fdf4; border: 1px solid #6ee7b7; color: #075e54; }
 
 /* ── Page header ─────────────────────────────────────────── */
 .page-header {
@@ -213,7 +213,7 @@ html, body {
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
 }
-.stat-blue   .stat-icon { background: #dbeafe; color: #1d4ed8; }
+.stat-blue   .stat-icon { background: #dcfce7; color: #075e54; }
 .stat-green  .stat-icon { background: #dcfce7; color: #16a34a; }
 .stat-red    .stat-icon { background: #fee2e2; color: #dc2626; }
 .stat-amber  .stat-icon { background: #fef3c7; color: #d97706; }
@@ -304,7 +304,7 @@ html, body {
 .services-row { display: flex; flex-wrap: wrap; gap: .35rem; }
 .svc-chip {
   font-size: .72rem;
-  background: #f0f4ff;
+  background: #f0fdf4;
   color: var(--primary);
   padding: .2rem .5rem;
   border-radius: 6px;
@@ -336,8 +336,8 @@ html, body {
   text-decoration: none;
   transition: all .15s;
 }
-.btn-view  { border-color: #bfdbfe; background: #eff6ff; color: var(--primary); }
-.btn-view:hover { background: #dbeafe; }
+.btn-view  { border-color: #bbf7d0; background: #f0fdf4; color: var(--primary); }
+.btn-view:hover { background: #dcfce7; }
 .btn-edit  { border-color: #d1d5db; background: var(--white); color: var(--text-secondary); }
 .btn-edit:hover { background: var(--bg); color: var(--text-primary); }
 .btn-delete { border-color: #fca5a5; background: #fff; color: #dc2626; }
@@ -356,10 +356,10 @@ html, body {
   font-family: inherit;
   cursor: pointer;
   text-decoration: none;
-  box-shadow: 0 3px 10px rgba(29,78,216,.35);
+  box-shadow: 0 3px 10px rgba(7,94,84,.35);
   transition: all .2s;
 }
-.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 5px 16px rgba(29,78,216,.4); }
+.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 5px 16px rgba(7,94,84,.4); }
 
 .btn-outline {
   display: inline-flex; align-items: center; gap: .45rem;
@@ -474,7 +474,7 @@ html, body {
 .services-view-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: .5rem; }
 .svc-view-item {
   padding: .5rem .75rem;
-  background: #f0f4ff;
+  background: #f0fdf4;
   border-radius: 8px;
   font-size: .82rem;
   font-weight: 500;
@@ -491,7 +491,7 @@ html, body {
 .landlord-row { display: flex; align-items: center; gap: .75rem; margin-bottom: 1.1rem; }
 .landlord-avatar {
   width: 44px; height: 44px;
-  background: linear-gradient(135deg, #1d4ed8, #7c3aed);
+  background: linear-gradient(135deg, #075e54, #7c3aed);
   border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   color: #fff; font-weight: 700; font-size: 1.1rem;
@@ -511,14 +511,14 @@ html, body {
 }
 .contact-phone { background: #f0fdf4; color: #16a34a; }
 .contact-phone:hover { background: #dcfce7; }
-.contact-email { background: #eff6ff; color: var(--primary); }
-.contact-email:hover { background: #dbeafe; }
+.contact-email { background: #f0fdf4; color: var(--primary); }
+.contact-email:hover { background: #dcfce7; }
 .contact-chat {
-  background: linear-gradient(135deg, #1d4ed8, #7c3aed);
+  background: linear-gradient(135deg, #075e54, #7c3aed);
   color: #fff; border: none; cursor: pointer;
   font-family: inherit; font-size: .85rem; font-weight: 600;
   width: 100%; justify-content: center;
-  box-shadow: 0 3px 10px rgba(29,78,216,.3);
+  box-shadow: 0 3px 10px rgba(7,94,84,.3);
 }
 .contact-chat:hover { opacity: .92; transform: translateY(-1px); }
 
@@ -544,7 +544,7 @@ html, body {
 /* ── Commission lock card ────────────────────────────────── */
 .commission-card {
   background: var(--white);
-  border: 1.5px solid #e0e7ff;
+  border: 1.5px solid #d1fae5;
   border-radius: var(--radius);
   padding: 1.5rem;
   text-align: center;
@@ -552,8 +552,8 @@ html, body {
 }
 .commission-lock {
   width: 56px; height: 56px;
-  background: #eff6ff;
-  color: #1d4ed8;
+  background: #f0fdf4;
+  color: #075e54;
   border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   margin: 0 auto .85rem;
@@ -582,7 +582,7 @@ html, body {
 .btn-pay {
   display: flex; align-items: center; justify-content: center; gap: .5rem;
   width: 100%;
-  background: linear-gradient(135deg, #1d4ed8, #4f46e5);
+  background: linear-gradient(135deg, #075e54, #0d9488);
   color: #fff;
   border: none; border-radius: 10px;
   padding: .85rem 1rem;
@@ -590,7 +590,7 @@ html, body {
   cursor: pointer; text-decoration: none;
   transition: opacity .2s, transform .15s;
   margin-bottom: .75rem;
-  box-shadow: 0 4px 14px rgba(29,78,216,.35);
+  box-shadow: 0 4px 14px rgba(7,94,84,.35);
 }
 .btn-pay:hover { opacity: .9; transform: translateY(-1px); }
 .commission-note { font-size: .72rem; color: #9ca3af; line-height: 1.5; }
@@ -615,9 +615,9 @@ html, body {
   display: inline-flex;
   align-items: center;
   gap: .25rem;
-  background: #eff6ff;
-  color: #1d4ed8;
-  border: 1px solid #bfdbfe;
+  background: #f0fdf4;
+  color: #075e54;
+  border: 1px solid #bbf7d0;
   border-radius: 99px;
   font-size: .7rem;
   font-weight: 600;
@@ -660,8 +660,8 @@ html, body {
 
 /* ── Review Form ────────────────────────────────────────────── */
 .review-form-card {
-  background: #f0f4ff;
-  border: 1.5px solid #bfdbfe;
+  background: #f0fdf4;
+  border: 1.5px solid #bbf7d0;
   border-radius: 12px;
   padding: 1.1rem 1.15rem;
   margin-top: .75rem;
@@ -683,10 +683,10 @@ html, body {
   box-sizing: border-box;
   background: #fff;
 }
-.review-textarea:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,.12); }
+.review-textarea:focus { border-color: #10b981; box-shadow: 0 0 0 3px rgba(16,185,129,.12); }
 .review-submit {
   margin-top: .6rem;
-  background: #1d4ed8;
+  background: #075e54;
   color: #fff;
   border: none;
   border-radius: 8px;
@@ -697,7 +697,7 @@ html, body {
   font-family: inherit;
   transition: background .2s;
 }
-.review-submit:hover { background: #1e3a8a; }
+.review-submit:hover { background: #064e44; }
 .already-reviewed {
   background: #f0fdf4;
   border: 1px solid #bbf7d0;
@@ -713,9 +713,9 @@ html, body {
 
 /* ── Admin Verify Button ────────────────────────────────────── */
 .btn-verify {
-  background: #eff6ff;
-  color: #1d4ed8;
-  border: 1px solid #bfdbfe;
+  background: #f0fdf4;
+  color: #075e54;
+  border: 1px solid #bbf7d0;
   border-radius: 6px;
   padding: .28rem .65rem;
   font-size: .78rem;
@@ -728,7 +728,7 @@ html, body {
   align-items: center;
   gap: .3rem;
 }
-.btn-verify:hover { background: #dbeafe; }
+.btn-verify:hover { background: #dcfce7; }
 .btn-unverify {
   background: #fff7ed;
   color: #c2410c;

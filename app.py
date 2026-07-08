@@ -82,6 +82,11 @@ from db import (
     save_buyer_profile, get_buyer_profile, get_message_count,
     # live stats & featured picks
     get_live_stats, set_product_featured, get_featured_admin_picks,
+    # seller marketing campaigns
+    create_marketing_campaign, get_marketing_campaign, get_marketing_campaign_by_ref,
+    activate_marketing_campaign, mark_marketing_campaign_posted,
+    get_seller_marketing_campaigns, get_all_marketing_campaigns,
+    get_due_subscription_campaigns, get_expired_marketing_campaigns, expire_marketing_campaign,
 )
 
 load_dotenv()
@@ -96,16 +101,28 @@ if _missing_env:
 
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY")
+app.config.update(
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SECURE=not app.debug,
+    # Opt-in CSRF checking (see csrf.protect() calls at individual <form>-backed
+    # views below) rather than blanket-protecting every route — most POST/PUT/
+    # DELETE endpoints here are same-origin JSON fetch() calls already outside
+    # simple cross-site form reach, and enforcing tokens on all of them would
+    # require threading a token through dozens of unrelated API calls.
+    WTF_CSRF_CHECK_DEFAULT=False,
+)
 init_db()
 
 # ── Accommodation blueprint (T-Tech Connect1, merged into this process) ──────
-from blueprints.accommodation import accommodation_bp, socketio, limiter
+from blueprints.accommodation import accommodation_bp, socketio, limiter, csrf
 from blueprints.accommodation.db_ttech import init_db as init_ttech_db
 
 app.register_blueprint(accommodation_bp)
 socketio.init_app(app)
 limiter.init_app(app)
 limiter.limit("200 per day;50 per hour")(accommodation_bp)
+csrf.init_app(app)
 init_ttech_db()
 
 # Clean up stale sessions on startup
@@ -531,6 +548,27 @@ def verify_webhook_signature(req) -> bool:
     return hmac.compare_digest(signature, expected)
 
 
+def verify_paynow_hash(form) -> bool:
+    """Validate the `hash` field Paynow sends on /paynow/result callbacks.
+
+    Paynow computes this as SHA512(concat of all field values in the order
+    sent, excluding `hash`, + integration_key.lower()), uppercased — same
+    algorithm the `paynow` package uses internally to verify its own
+    initiate-transaction responses. Without this check, anyone can POST a
+    fabricated status=paid to this endpoint and unlock a viewing fee or
+    activate a marketing campaign for free.
+    """
+    if not PAYNOW_INTEGRATION_KEY:
+        return False  # can't verify without a key — fail closed, this endpoint moves money
+    received_hash = form.get("hash", "")
+    if not received_hash:
+        return False
+    concatenated = "".join(str(v) for k, v in form.items() if k.lower() != "hash")
+    concatenated += PAYNOW_INTEGRATION_KEY.lower()
+    computed_hash = hashlib.sha512(concatenated.encode("utf-8")).hexdigest().upper()
+    return hmac.compare_digest(computed_hash, received_hash.upper())
+
+
 # ── Image / media helpers ─────────────────────────────────────────────────────
 
 def save_image(file_obj):
@@ -768,11 +806,15 @@ def detect_service_intent(text):
 
 # ── Facebook Graph API auto-poster ────────────────────────────────────────────
 
-def post_to_facebook(message, image_url=None):
-    """Post to the Facebook Page. Returns post_id or None."""
+def post_to_facebook(message, image_url=None, force=False):
+    """Post to the Facebook Page. Returns post_id or None.
+
+    force=True skips the free/global auto_post_facebook admin toggle — used
+    by paid seller marketing campaigns, which are gated on payment instead.
+    """
     if not FACEBOOK_PAGE_TOKEN or not FACEBOOK_PAGE_ID:
         return None
-    if get_setting("auto_post_facebook", "0") != "1":
+    if not force and get_setting("auto_post_facebook", "0") != "1":
         return None
     try:
         if image_url:
@@ -830,6 +872,133 @@ def auto_post_service(service):
     return post_id
 
 
+# ── Instagram / X auto-posters (paid seller marketing campaigns only) ────────
+
+INSTAGRAM_BUSINESS_ACCOUNT_ID = os.getenv("INSTAGRAM_BUSINESS_ACCOUNT_ID", "")
+X_API_KEY        = os.getenv("X_API_KEY", "")
+X_API_SECRET     = os.getenv("X_API_SECRET", "")
+X_ACCESS_TOKEN   = os.getenv("X_ACCESS_TOKEN", "")
+X_ACCESS_SECRET  = os.getenv("X_ACCESS_SECRET", "")
+
+
+def post_to_instagram(message, image_url=None, force=False):
+    """Post to the linked Instagram Business Account. Returns post_id or None.
+
+    IG's Graph API requires an image for feed posts, and auth reuses the
+    same Facebook Page access token (IG Business accounts are linked to a
+    Page). Only ever called from paid campaigns, so no free/global gate.
+    """
+    if not force:
+        return None
+    if not INSTAGRAM_BUSINESS_ACCOUNT_ID or not FACEBOOK_PAGE_TOKEN:
+        return None
+    if not image_url:
+        # IG feed posts require an image — silently skip, same as an
+        # unconfigured platform, rather than logging a fake "post".
+        return None
+    try:
+        create = requests.post(
+            f"https://graph.facebook.com/v19.0/{INSTAGRAM_BUSINESS_ACCOUNT_ID}/media",
+            data={"image_url": image_url, "caption": message, "access_token": FACEBOOK_PAGE_TOKEN},
+            timeout=15,
+        ).json()
+        creation_id = create.get("id")
+        if not creation_id:
+            print(f"[IG ERROR] {create}")
+            return None
+        publish = requests.post(
+            f"https://graph.facebook.com/v19.0/{INSTAGRAM_BUSINESS_ACCOUNT_ID}/media_publish",
+            data={"creation_id": creation_id, "access_token": FACEBOOK_PAGE_TOKEN},
+            timeout=15,
+        ).json()
+        return publish.get("id")
+    except Exception as e:
+        print(f"[IG ERROR] {e}")
+        return None
+
+
+def post_to_twitter(message, image_url=None, force=False):
+    """Post a tweet from the business account. Returns tweet id or None."""
+    if not force:
+        return None
+    if not (X_API_KEY and X_API_SECRET and X_ACCESS_TOKEN and X_ACCESS_SECRET):
+        return None
+    try:
+        from requests_oauthlib import OAuth1
+
+        auth = OAuth1(X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_SECRET)
+        text = message if len(message) <= 280 else message[:277] + "..."
+        payload = {"text": text}
+
+        if image_url:
+            media_resp = requests.get(image_url, timeout=15)
+            media_resp.raise_for_status()
+            upload = requests.post(
+                "https://upload.twitter.com/1.1/media/upload.json",
+                auth=auth,
+                files={"media": media_resp.content},
+                timeout=20,
+            ).json()
+            media_id = upload.get("media_id_string")
+            if media_id:
+                payload["media"] = {"media_ids": [media_id]}
+
+        resp = requests.post(
+            "https://api.twitter.com/2/tweets", auth=auth, json=payload, timeout=15
+        ).json()
+        return resp.get("data", {}).get("id")
+    except Exception as e:
+        print(f"[X ERROR] {e}")
+        return None
+
+
+_MARKETING_POSTERS = {
+    "facebook":  post_to_facebook,
+    "instagram": post_to_instagram,
+    "x":         post_to_twitter,
+}
+
+
+def _marketing_message(product):
+    wa_link = f"https://wa.me/{WA_BUSINESS_NUMBER}?text=search+{product['name'].replace(' ', '+')}"
+    return (
+        f"🆕 *{product['name']}*\n"
+        f"📦 {product['category']}\n"
+        f"💰 ${product['price']:.2f}\n\n"
+        f"{product.get('description', '')}\n\n"
+        f"🛒 Order on WhatsApp: {wa_link}\n"
+        f"#TechConnect #Zimbabwe #ShopOnline"
+    )
+
+
+def run_marketing_campaign(campaign_id):
+    """Post the campaign's target product(s) to each of its chosen platforms."""
+    campaign = get_marketing_campaign(campaign_id)
+    if not campaign or campaign["status"] != "active":
+        return
+
+    if campaign["product_id"]:
+        products = [p for p in [get_product_by_id(campaign["product_id"])] if p]
+    else:
+        products = [p for p in get_seller_products(campaign["seller_phone"]) if p["status"] == "approved"]
+
+    platforms = [p for p in campaign["platforms"].split(",") if p in _MARKETING_POSTERS]
+
+    for product in products:
+        product   = dict(product)
+        msg       = _marketing_message(product)
+        image_url = f"{BASE_URL}/uploads/{product['image_path']}" if product.get("image_path") else None
+        for platform in platforms:
+            post_id = _MARKETING_POSTERS[platform](msg, image_url, force=True)
+            if post_id:
+                log_social_post(
+                    platform, post_id, product_id=product["id"],
+                    status="sent", campaign_id=campaign_id,
+                )
+
+    mark_marketing_campaign_posted(campaign_id)
+
+
 # ── Paynow / EcoCash payment ──────────────────────────────────────────────────
 
 def initiate_ecocash_payment(phone_number, amount, reference, buyer_email="buyer@ttech.co.zw", mobile_method="ecocash"):
@@ -859,6 +1028,26 @@ def initiate_ecocash_payment(phone_number, amount, reference, buyer_email="buyer
         return {"success": False, "error": str((response.data or {}).get("error", "Payment failed"))}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+def check_paynow_status(poll_url):
+    """Ask Paynow directly whether a mobile-money transaction actually completed.
+
+    Used before trusting a buyer's "paid" reply in the WhatsApp checkout flow —
+    the reply alone proves nothing, but Paynow's poll_url is a value we obtained
+    ourselves at initiation time, and the response comes back over a direct
+    server-to-server HTTPS call that can't be forged by the buyer.
+    """
+    if not PAYNOW_INTEGRATION_ID or not PAYNOW_INTEGRATION_KEY or not poll_url:
+        return False
+    try:
+        from paynow import Paynow
+        pn = Paynow(PAYNOW_INTEGRATION_ID, PAYNOW_INTEGRATION_KEY, "", f"{BASE_URL}/paynow/result")
+        status = pn.check_transaction_status(poll_url)
+        return bool(getattr(status, "paid", False))
+    except Exception as e:
+        print(f"⚠️ Paynow status check failed: {e}")
+        return False
 
 
 # ── Cart formatters ───────────────────────────────────────────────────────────
@@ -3763,6 +3952,20 @@ def handle_session(phone, msg_text, session):
     # ── Checkout: payment confirmation ────────────────────────────────────────
     if state == "ctx_checkout_pending":
         if msg_text == "paid":
+            poll_url = data.get("poll_url")
+            # EcoCash was initiated through Paynow, which gave us this poll_url —
+            # confirm with Paynow directly rather than trusting the buyer's word.
+            # (InnBucks/OneMoney/Bank Transfer have no poll_url: those are manual
+            # transfers with no programmatic status check, so they still fall
+            # through to admin/seller manual verification, same as before.)
+            if poll_url and not check_paynow_status(poll_url):
+                return (
+                    "⏳ *We haven't received confirmation of that payment yet.*\n\n"
+                    "If you already approved the EcoCash prompt, please wait a "
+                    "minute and reply *paid* again.\n\n"
+                    "_Reply *0* to cancel and choose a different payment method._"
+                )
+            gateway_verified = bool(poll_url)
             items            = get_cart(phone)
             ref              = data.get("reference", "")
             total            = data.get("total", 0)
@@ -3792,27 +3995,42 @@ def handle_session(phone, msg_text, session):
                     if product["listed_by"]:
                         d_note = (f"\n📍 Deliver to: {delivery_address}"
                                   if delivery_type == "delivery" else "\n🏪 Buyer will self-collect.")
+                        verify_line = (
+                            "✅ Payment verified automatically via Paynow."
+                            if gateway_verified else
+                            "⚠️ Please verify payment before dispatching."
+                        )
                         send_whatsapp_message(
                             product["listed_by"],
                             f"💰 *New Paid Order!* ({pay_method})\n\n"
                             f"Ref: *{order_ref}*\n"
                             f"Item: {item['name']} × {item['quantity']}\n"
                             f"Buyer: {phone}{d_note}\n\n"
-                            "⚠️ Please verify payment before dispatching."
+                            f"{verify_line}"
                         )
             clear_cart(phone)
             clear_session(phone)
             d_admin = (f"\n📍 Deliver to: {delivery_address}" if delivery_type == "delivery" else "")
+            admin_verify_line = (
+                "✅ Payment verified automatically via Paynow."
+                if gateway_verified else
+                "⚠️ Verify payment before releasing order."
+            )
             notify_admin(
                 f"💰 *{pay_method} Order* {ref}\n"
                 f"Buyer: {phone}\nTotal: {_zig_price(total)}\n"
                 f"Items: {', '.join(placed)}{d_admin}\n"
-                "⚠️ Verify payment before releasing order."
+                f"{admin_verify_line}"
             )
             buyer_note = (
                 "📍 A delivery agent will contact you. 🚚"
                 if delivery_type == "delivery"
                 else "🏪 Please collect from the seller."
+            )
+            buyer_verify_note = (
+                "✅ Your EcoCash payment has been verified with Paynow."
+                if gateway_verified else
+                "⏳ Admin will verify your payment and confirm your order."
             )
             return (
                 f"✅ *Payment Confirmation Received!*\n"
@@ -3821,7 +4039,7 @@ def handle_session(phone, msg_text, session):
                 f"💳 Method : {pay_method}\n"
                 f"Total  : {_zig_price(total)}\n\n"
                 f"{buyer_note}\n\n"
-                "⏳ Admin will verify your payment and confirm your order.\n\n"
+                f"{buyer_verify_note}\n\n"
                 f"🔗 Track your order:\n{BASE_URL}/track/{ref}\n\n"
                 "_Reply *0* for the main menu._"
             )
@@ -6194,6 +6412,24 @@ def cron_re_engage():
     return jsonify({"sent": sent_, "status": "ok"}), 200
 
 
+@app.route("/cron/marketing-reposts", methods=["POST", "GET"])
+def cron_marketing_reposts():
+    """Re-posts active subscription campaigns on a schedule and expires lapsed ones."""
+    if CRON_SECRET and request.headers.get("X-Cron-Secret") != CRON_SECRET:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    interval_days = int(get_setting("marketing_repost_interval_days", "7") or 7)
+    due = get_due_subscription_campaigns(interval_days)
+    for campaign in due:
+        run_marketing_campaign(campaign["id"])
+
+    expired = get_expired_marketing_campaigns()
+    for campaign in expired:
+        expire_marketing_campaign(campaign["id"])
+
+    return jsonify({"reposted": len(due), "expired": len(expired), "status": "ok"}), 200
+
+
 @app.route("/uploads/<filename>")
 def uploaded_file(filename):
     return send_from_directory(UPLOAD_FOLDER, filename)
@@ -6716,6 +6952,12 @@ def api_admin_audit():
     return jsonify(get_audit_log(limit=100))
 
 
+@app.route("/admin/api/marketing/campaigns")
+@admin_required
+def api_admin_marketing_campaigns():
+    return jsonify([dict(r) for r in get_all_marketing_campaigns()])
+
+
 @app.route("/admin/api/settings", methods=["GET"])
 @admin_required
 def api_get_settings():
@@ -6723,6 +6965,9 @@ def api_get_settings():
         "commission_rate", "service_commission_rate", "accommodation_commission_rate",
         "contact_phone", "contact_email", "contact_website", "contact_location",
         "auto_post_facebook", "newsletter_enabled", "paynow_enabled",
+        "marketing_boost_fee", "marketing_sub_fee", "marketing_sub_period_days",
+        "marketing_repost_interval_days", "marketing_platform_facebook",
+        "marketing_platform_instagram", "marketing_platform_x",
     ]
     return jsonify({k: get_setting(k, "") for k in keys})
 
@@ -7120,7 +7365,12 @@ def analytics_web():
 @app.route("/paynow/result", methods=["POST"])
 def paynow_result():
     """Paynow sends payment confirmation here."""
-    form   = request.form
+    form = request.form
+
+    if not verify_paynow_hash(form):
+        print(f"⚠️ Paynow /result hash verification failed — rejecting. ref={form.get('reference', '?')}")
+        return "Invalid hash", 400
+
     status = form.get("status", "").lower()
     ref    = form.get("reference", "")
 
@@ -7159,10 +7409,31 @@ def paynow_result():
             f"Tenant : {viewing['phone']}\nProp   : {viewing['property_title']}"
         )
     else:
-        # Not a viewing fee — could be a product order payment; just notify admin
-        notify_admin(
-            f"💰 *Paynow Payment Confirmed*\nRef: {ref}\nAmount: ${form.get('amount', '?')}"
-        )
+        campaign = get_marketing_campaign_by_ref(ref)
+        if campaign:
+            provider    = campaign["payment_method"].split(":")[0]
+            plan_type   = campaign["plan_type"]
+            period_days = int(get_setting("marketing_sub_period_days", "30")) if plan_type == "subscription" else None
+            activate_marketing_campaign(campaign["id"], period_days=period_days)
+            run_marketing_campaign(campaign["id"])
+            label = _PAYNOW_LABEL.get(provider, provider.title())
+            send_whatsapp_message(
+                campaign["seller_phone"],
+                f"✅ *{label} Payment Confirmed!*\n\n"
+                f"Your *{plan_type}* marketing campaign is now live on "
+                f"{campaign['platforms'].replace(',', ', ')}. 📢"
+            )
+            notify_admin(
+                f"📢 *Marketing Campaign Paid — {plan_type}*\n"
+                f"Seller  : {campaign['seller_phone']}\n"
+                f"Ref     : {ref}\nFee     : ${campaign['fee_amount']:.2f}\n"
+                f"Platforms: {campaign['platforms']}"
+            )
+        else:
+            # Not a viewing fee or marketing campaign — could be a product order payment
+            notify_admin(
+                f"💰 *Paynow Payment Confirmed*\nRef: {ref}\nAmount: ${form.get('amount', '?')}"
+            )
 
     return "OK", 200
 
@@ -8189,6 +8460,101 @@ def seller_api_orders_export():
         mimetype="text/csv",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
+
+
+# ── Seller Marketing API ──────────────────────────────────────────────────────
+
+_MARKETING_PLATFORM_SETTINGS = {
+    "facebook":  "marketing_platform_facebook",
+    "instagram": "marketing_platform_instagram",
+    "x":         "marketing_platform_x",
+}
+
+
+def _enabled_marketing_platforms():
+    return [p for p, key in _MARKETING_PLATFORM_SETTINGS.items() if get_setting(key, "0") == "1"]
+
+
+@app.route("/seller/api/marketing/pricing")
+@seller_required
+def seller_api_marketing_pricing():
+    return jsonify({
+        "platforms":   _enabled_marketing_platforms(),
+        "boost_fee":   float(get_setting("marketing_boost_fee", "5") or 0),
+        "sub_fee":     float(get_setting("marketing_sub_fee", "15") or 0),
+        "sub_period_days": int(get_setting("marketing_sub_period_days", "30") or 30),
+    })
+
+
+@app.route("/seller/api/marketing/campaigns")
+@seller_required
+def seller_api_marketing_campaigns():
+    rows = get_seller_marketing_campaigns(session["seller_phone"])
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/seller/api/marketing/status/<int:campaign_id>")
+@seller_required
+def seller_api_marketing_status(campaign_id):
+    campaign = get_marketing_campaign(campaign_id)
+    if not campaign or campaign["seller_phone"] != session["seller_phone"]:
+        return jsonify({"ok": False, "message": "Campaign not found"}), 404
+    return jsonify({"ok": True, "status": campaign["status"]})
+
+
+@app.route("/seller/api/marketing/start", methods=["POST"])
+@seller_required
+def seller_api_marketing_start():
+    phone = session["seller_phone"]
+    data  = request.get_json() or {}
+
+    plan_type = data.get("plan_type", "")
+    if plan_type not in ("boost", "subscription"):
+        return jsonify({"ok": False, "message": "Choose a boost or a subscription plan."}), 400
+
+    platforms = [p for p in data.get("platforms", []) if p in _enabled_marketing_platforms()]
+    if not platforms:
+        return jsonify({"ok": False, "message": "Select at least one available platform."}), 400
+
+    product_id = None
+    if plan_type == "boost":
+        product_id = data.get("product_id")
+        product    = product_id and get_product_by_id(product_id)
+        if not product or product["listed_by"] != phone:
+            return jsonify({"ok": False, "message": "Select one of your own products to boost."}), 400
+        if product["status"] != "approved":
+            return jsonify({"ok": False, "message": "Only approved products can be boosted."}), 400
+
+    payment_phone = (data.get("payment_phone") or "").strip().replace(" ", "")
+    provider      = data.get("provider", "ecocash")
+    if provider not in _PAYNOW_METHOD:
+        return jsonify({"ok": False, "message": "Invalid payment method."}), 400
+    if not (payment_phone.isdigit() and len(payment_phone) >= 9):
+        return jsonify({"ok": False, "message": "Enter a valid mobile money number, e.g. 0774128219"}), 400
+
+    fee = float(get_setting("marketing_boost_fee" if plan_type == "boost" else "marketing_sub_fee", "0") or 0)
+    if fee <= 0:
+        return jsonify({"ok": False, "message": "Marketing is not available right now."}), 400
+
+    campaign_id = create_marketing_campaign(phone, product_id, plan_type, ",".join(platforms), fee)
+    reference   = f"MKT-{campaign_id}-{uuid.uuid4().hex[:8].upper()}"
+
+    result = initiate_ecocash_payment(
+        payment_phone, fee, reference, mobile_method=_PAYNOW_METHOD.get(provider, provider)
+    )
+    if not result["success"]:
+        return jsonify({"ok": False, "message": result.get("error", "Payment failed to initiate.")}), 400
+
+    from db import get_connection as _gc
+    conn = _gc()
+    conn.execute(
+        "UPDATE marketing_campaigns SET payment_method = ? WHERE id = ?",
+        (f"{provider}:{payment_phone}:{reference}", campaign_id)
+    )
+    conn.commit()
+    conn.close()
+
+    return jsonify({"ok": True, "campaign_id": campaign_id, "message": "Check your phone to approve the payment."})
 
 
 if __name__ == "__main__":

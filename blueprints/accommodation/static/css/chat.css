@@ -4,7 +4,7 @@
 
 :root {
   --chat-left-w:   340px;
-  --bubble-mine:   #1d4ed8;
+  --bubble-mine:   #075e54;
   --bubble-theirs: #ffffff;
   --chat-bg:       #eef2f7;
 }
@@ -65,7 +65,7 @@
   outline: none;
   transition: all .2s;
 }
-.conv-search:focus { border-color: var(--primary); background: #fff; box-shadow: 0 0 0 3px rgba(59,130,246,.15); }
+.conv-search:focus { border-color: var(--primary); background: #fff; box-shadow: 0 0 0 3px rgba(16,185,129,.15); }
 
 /* Conversation list */
 .conv-list {
@@ -87,8 +87,8 @@
   transition: background .15s;
   position: relative;
 }
-.conv-item:hover  { background: #f8faff; }
-.conv-item.active { background: #eff6ff; }
+.conv-item:hover  { background: #f0fdf4; }
+.conv-item.active { background: #f0fdf4; }
 .conv-item.active::before {
   content: '';
   position: absolute;
@@ -107,7 +107,7 @@
   position: relative;
 }
 .conv-avatar.av-landlord { background: linear-gradient(135deg, #d97706, #b45309); }
-.conv-avatar.av-student  { background: linear-gradient(135deg, #1d4ed8, #7c3aed); }
+.conv-avatar.av-student  { background: linear-gradient(135deg, #075e54, #7c3aed); }
 .conv-avatar.av-admin    { background: linear-gradient(135deg, #16a34a, #15803d); }
 .conv-avatar.av-default  { background: linear-gradient(135deg, #6b7280, #4b5563); }
 
@@ -245,7 +245,7 @@
 .thread-avatar {
   width: 40px; height: 40px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #1d4ed8, #7c3aed);
+  background: linear-gradient(135deg, #075e54, #7c3aed);
   color: #fff;
   display: flex; align-items: center; justify-content: center;
   font-weight: 700; font-size: .9rem;
@@ -263,14 +263,14 @@
   padding: .4rem .85rem;
   font-size: .78rem; font-weight: 500;
   color: var(--primary);
-  background: #eff6ff;
-  border: 1px solid #bfdbfe;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
   border-radius: 99px;
   text-decoration: none;
   white-space: nowrap;
   transition: all .2s;
 }
-.thread-prop-link:hover { background: #dbeafe; }
+.thread-prop-link:hover { background: #dcfce7; }
 
 /* Messages area */
 .messages-area {
@@ -355,7 +355,7 @@
   gap: .3rem;
 }
 .msg-row.mine .msg-time { color: rgba(255,255,255,.55); }
-.tick-icon { color: #93c5fd; }
+.tick-icon { color: #6ee7b7; }
 .tick-icon.read { color: #22c55e; }
 
 /* Typing indicator */
@@ -437,7 +437,7 @@
 .msg-textarea:focus {
   border-color: var(--primary);
   background: #fff;
-  box-shadow: 0 0 0 3px rgba(59,130,246,.15);
+  box-shadow: 0 0 0 3px rgba(16,185,129,.15);
 }
 .msg-textarea::placeholder { color: var(--text-muted); }
 
@@ -451,7 +451,7 @@
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
   transition: background .2s, transform .15s, box-shadow .2s;
-  box-shadow: 0 3px 10px rgba(29,78,216,.3);
+  box-shadow: 0 3px 10px rgba(7,94,84,.3);
 }
 .send-btn:hover:not(:disabled) { background: var(--primary-dark); transform: scale(1.05); }
 .send-btn:active:not(:disabled) { transform: scale(.96); }

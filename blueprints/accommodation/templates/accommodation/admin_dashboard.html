@@ -125,25 +125,25 @@
               <span style="position:absolute;left:.7rem;top:50%;transform:translateY(-50%);color:#6b7280;font-weight:600;pointer-events:none">$</span>
               <input type="number" id="price-input" value="{{ connect_fee_price }}" min="0" max="1000" step="0.5"
                 style="width:100%;padding:.6rem .85rem .6rem 1.6rem;border:1.5px solid #e5e7eb;border-radius:8px;font-size:1rem;font-weight:700;color:#111827;outline:none;box-sizing:border-box"
-                onfocus="this.style.borderColor='#1d4ed8'" onblur="this.style.borderColor='#e5e7eb'" />
+                onfocus="this.style.borderColor='#075e54'" onblur="this.style.borderColor='#e5e7eb'" />
             </div>
             <div style="position:relative;width:110px">
               <input type="number" id="duration-input" value="{{ connect_fee_duration_days }}" min="1" max="90" step="1"
                 style="width:100%;padding:.6rem 3.2rem .6rem .85rem;border:1.5px solid #e5e7eb;border-radius:8px;font-size:1rem;font-weight:700;color:#111827;outline:none;box-sizing:border-box"
-                onfocus="this.style.borderColor='#1d4ed8'" onblur="this.style.borderColor='#e5e7eb'" />
+                onfocus="this.style.borderColor='#075e54'" onblur="this.style.borderColor='#e5e7eb'" />
               <span style="position:absolute;right:.6rem;top:50%;transform:translateY(-50%);color:#6b7280;font-weight:600;pointer-events:none">days</span>
             </div>
             <button onclick="saveRate()"
-              style="padding:.55rem 1.25rem;background:#1d4ed8;color:#fff;border:none;border-radius:8px;font-weight:600;font-size:.875rem;cursor:pointer">
+              style="padding:.55rem 1.25rem;background:#075e54;color:#fff;border:none;border-radius:8px;font-weight:600;font-size:.875rem;cursor:pointer">
               Save
             </button>
           </div>
           <p id="rate-msg" style="margin:.5rem 0 0;font-size:.8rem;display:none"></p>
         </div>
-        <div style="background:#f8faff;border:1px solid #e0e7ff;border-radius:10px;padding:.85rem 1.25rem;min-width:200px">
+        <div style="background:#f0fdf4;border:1px solid #d1fae5;border-radius:10px;padding:.85rem 1.25rem;min-width:200px">
           <p style="margin:0 0 .25rem;font-size:.78rem;color:#6b7280;font-weight:500">Current pass</p>
           <p style="margin:0;font-size:.875rem;color:#374151">
-            <strong id="example-fee" style="color:#1d4ed8">${{ "%.2f"|format(connect_fee_price) }}</strong>
+            <strong id="example-fee" style="color:#075e54">${{ "%.2f"|format(connect_fee_price) }}</strong>
             for <span id="example-days">{{ connect_fee_duration_days }}</span> days of unlimited landlord contact
           </p>
         </div>

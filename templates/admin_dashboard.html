@@ -250,6 +250,9 @@
     <div class="sb-link" onclick="showSection('broadcast')">
       <span class="icon">📢</span> Broadcast
     </div>
+    <div class="sb-link" onclick="showSection('marketing')">
+      <span class="icon">🚀</span> Marketing
+    </div>
     <div class="sb-link" onclick="showSection('settings')">
       <span class="icon">⚙️</span> Settings
     </div>
@@ -541,6 +544,46 @@
       <button class="btn-primary" onclick="saveSettings()">Save All Settings</button>
     </div>
 
+    <!-- ── Marketing ── -->
+    <div class="section-page" id="page-marketing">
+      <div class="settings-section">
+        <h3>💵 Marketing Fees (USD)</h3>
+        <div class="settings-grid">
+          <div class="field"><label>One-time boost</label><input type="number" id="s-marketing_boost_fee" min="0" step="0.5" placeholder="5"></div>
+          <div class="field"><label>Subscription (per cycle)</label><input type="number" id="s-marketing_sub_fee" min="0" step="0.5" placeholder="15"></div>
+          <div class="field"><label>Subscription cycle (days)</label><input type="number" id="s-marketing_sub_period_days" min="1" step="1" placeholder="30"></div>
+          <div class="field"><label>Repost every (days)</label><input type="number" id="s-marketing_repost_interval_days" min="1" step="1" placeholder="7"></div>
+        </div>
+      </div>
+      <div class="settings-section">
+        <h3>📡 Platforms offered to sellers</h3>
+        <div class="toggle-row">
+          <span class="toggle-label">Facebook</span>
+          <button class="toggle" id="t-marketing_platform_facebook" onclick="toggleSetting('marketing_platform_facebook',this)"></button>
+        </div>
+        <div class="toggle-row">
+          <span class="toggle-label">Instagram</span>
+          <button class="toggle" id="t-marketing_platform_instagram" onclick="toggleSetting('marketing_platform_instagram',this)"></button>
+        </div>
+        <div class="toggle-row">
+          <span class="toggle-label">X (Twitter)</span>
+          <button class="toggle" id="t-marketing_platform_x" onclick="toggleSetting('marketing_platform_x',this)"></button>
+        </div>
+      </div>
+      <button class="btn-primary" onclick="saveSettings()">Save Marketing Settings</button>
+
+      <div class="sec-header" style="margin-top:24px">
+        <div><h2>Campaigns</h2><p>Seller-paid marketing campaigns and their status</p></div>
+        <button class="btn-secondary" onclick="fetchMarketingCampaigns()">↻ Refresh</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Date</th><th>Seller</th><th>Plan</th><th>Platforms</th><th>Fee</th><th>Status</th></tr></thead>
+          <tbody id="marketing-body"><tr class="loading-row"><td colspan="6"><div class="spinner"></div></td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- ── Audit log ── -->
     <div class="section-page" id="page-audit">
       <div class="table-wrap">
@@ -696,7 +739,7 @@ const TITLES = {
   orders:'Order Management',     enquiries:'Enquiries',
   delivery:'Delivery Agents',    commission:'Connect Fee Rates',
   broadcast:'Broadcast Message', settings:'Settings',
-  audit:'Audit Log',
+  audit:'Audit Log',         marketing:'Marketing Campaigns',
 };
 
 function showSection(name) {
@@ -730,6 +773,7 @@ function loadSection(name) {
   if (name === 'commission')  { fetchCommission(); return; }
   if (name === 'settings')    { fetchSettings(); return; }
   if (name === 'audit')       { fetchAudit(); return; }
+  if (name === 'marketing')   { fetchSettings(); fetchMarketingCampaigns(); return; }
 }
 
 /* ─────────────────────────────────────────────────────────
@@ -770,6 +814,7 @@ const BADGE_MAP = {
   pending:'badge-pending', approved:'badge-approved', rejected:'badge-rejected',
   suspended:'badge-suspended', fulfilled:'badge-fulfilled',
   cancelled:'badge-cancelled', confirmed:'badge-confirmed',
+  active:'badge-approved', expired:'badge-cancelled', failed:'badge-rejected',
 };
 function badge(status) {
   const cls = BADGE_MAP[status] || 'badge-pending';
@@ -1153,7 +1198,8 @@ async function sendBroadcast() {
    ───────────────────────────────────────────────────────── */
 async function fetchSettings() {
   settingsCache = await api('/admin/api/settings');
-  const toggles = ['auto_post_facebook','newsletter_enabled','paynow_enabled'];
+  const toggles = ['auto_post_facebook','newsletter_enabled','paynow_enabled',
+                    'marketing_platform_facebook','marketing_platform_instagram','marketing_platform_x'];
   for (const [k, v] of Object.entries(settingsCache)) {
     const el = document.getElementById('s-' + k);
     if (el) el.value = v;
@@ -1171,7 +1217,9 @@ function toggleSetting(key, btn) {
 
 async function saveSettings() {
   const keys = ['commission_rate','service_commission_rate','accommodation_commission_rate',
-                'contact_phone','contact_email','contact_website','contact_location'];
+                'contact_phone','contact_email','contact_website','contact_location',
+                'marketing_boost_fee','marketing_sub_fee','marketing_sub_period_days',
+                'marketing_repost_interval_days'];
   const body = { ...settingsCache };
   keys.forEach(k => {
     const el = document.getElementById('s-' + k);
@@ -1179,6 +1227,24 @@ async function saveSettings() {
   });
   const res = await api('/admin/api/settings', 'POST', body);
   toast(res.message, res.ok);
+}
+
+/* ─────────────────────────────────────────────────────────
+   Marketing campaigns
+   ───────────────────────────────────────────────────────── */
+async function fetchMarketingCampaigns() {
+  document.getElementById('marketing-body').innerHTML = loadingRow(6);
+  const rows  = await api('/admin/api/marketing/campaigns');
+  const tbody = document.getElementById('marketing-body');
+  tbody.innerHTML = rows.length ? rows.map(r => `
+    <tr>
+      <td style="font-size:11px;white-space:nowrap">${(r.created_at||'').slice(0,16)}</td>
+      <td style="font-size:11px">${r.seller_phone}</td>
+      <td>${r.plan_type}</td>
+      <td style="font-size:11px">${r.platforms}</td>
+      <td>$${Number(r.fee_amount).toFixed(2)}</td>
+      <td>${badge(r.status)}</td>
+    </tr>`).join('') : emptyRow(6,'No marketing campaigns yet.');
 }
 
 /* ─────────────────────────────────────────────────────────

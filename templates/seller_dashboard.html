@@ -162,6 +162,9 @@
       <button class="sb-link" onclick="showSection('earnings')" id="nav-earnings">
         <span class="icon">💰</span> Earnings
       </button>
+      <button class="sb-link" onclick="showSection('marketing')" id="nav-marketing">
+        <span class="icon">📢</span> Marketing
+      </button>
     </nav>
     <div class="sb-footer">
       <a href="/shop" target="_blank">🏪 View Storefront</a>
@@ -530,6 +533,64 @@
         </div>
       </div>
 
+      <!-- Marketing -->
+      <div class="section-page" id="page-marketing">
+        <div class="sec-header">
+          <div><h2>Marketing</h2><p>Pay to auto-promote your products on social media</p></div>
+        </div>
+
+        <div class="form-card" style="margin-bottom:20px">
+          <div id="marketing-unavailable" style="display:none;color:#6b7280">
+            Marketing isn't available right now — check back later.
+          </div>
+          <form id="marketing-form" style="display:none">
+            <div class="form-grid">
+              <div class="form-group">
+                <label>Plan</label>
+                <select id="mkt-plan-type" onchange="onMarketingPlanChange()">
+                  <option value="boost">One-time boost (single product)</option>
+                  <option value="subscription">Subscription (all approved products, auto-reposted)</option>
+                </select>
+              </div>
+              <div class="form-group" id="mkt-product-group">
+                <label>Product to boost</label>
+                <select id="mkt-product-id"></select>
+              </div>
+              <div class="form-group full">
+                <label>Platforms</label>
+                <div id="mkt-platforms" style="display:flex;gap:16px;flex-wrap:wrap"></div>
+              </div>
+              <div class="form-group">
+                <label>Payment method</label>
+                <select id="mkt-provider">
+                  <option value="ecocash">EcoCash</option>
+                  <option value="onemoney">OneMoney</option>
+                  <option value="innbucks">InnBucks</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Mobile money number</label>
+                <input type="text" id="mkt-phone" placeholder="0774128219"/>
+              </div>
+            </div>
+            <p id="mkt-fee-label" style="margin:12px 0;font-weight:600;color:#065f46"></p>
+            <button class="btn-primary" type="submit" id="mkt-submit-btn">Pay & Launch</button>
+            <span id="mkt-status" style="margin-left:12px;color:#6b7280"></span>
+          </form>
+        </div>
+
+        <div class="sec-header" style="margin-top:8px">
+          <div><h2 style="font-size:15px">Your Campaigns</h2></div>
+          <button class="btn-secondary" onclick="fetchMarketing()">↻ Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Plan</th><th>Platforms</th><th>Fee</th><th>Status</th></tr></thead>
+            <tbody id="marketing-body"><tr><td colspan="5" class="loading">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
     </div><!-- /content -->
   </div><!-- /main -->
 </div><!-- /layout -->
@@ -545,7 +606,7 @@ function showSection(name) {
   document.getElementById('page-' + name).classList.add('active');
   const nav = document.getElementById('nav-' + name);
   if (nav) nav.classList.add('active');
-  const titles = {overview:'Overview',products:'My Products',services:'My Services',orders:'Incoming Orders',inventory:'Inventory & Profit',earnings:'Earnings'};
+  const titles = {overview:'Overview',products:'My Products',services:'My Services',orders:'Incoming Orders',inventory:'Inventory & Profit',earnings:'Earnings',marketing:'Marketing'};
   document.getElementById('topbar-title').textContent = titles[name] || name;
   currentSection = name;
   loadSection(name);
@@ -560,6 +621,7 @@ function loadSection(name) {
   if (name === 'orders')    { fetchOrders(); return; }
   if (name === 'inventory') { fetchInventory(); return; }
   if (name === 'earnings')  { fetchEarnings(); return; }
+  if (name === 'marketing') { fetchMarketing(); return; }
 }
 
 function toggleSidebar() {
@@ -592,6 +654,8 @@ function badge(status) {
     pending:'badge-pending', approved:'badge-approved', rejected:'badge-rejected',
     confirmed:'badge-confirmed', fulfilled:'badge-fulfilled', cancelled:'badge-cancelled',
     fixed:'badge-fixed', hourly:'badge-hourly', quote:'badge-quote',
+    active:'badge-approved', expired:'badge-cancelled', failed:'badge-rejected',
+    pending_payment:'badge-pending',
   };
   return `<span class="badge ${map[status]||'badge-pending'}">${status}</span>`;
 }
@@ -768,6 +832,109 @@ async function fetchEarnings() {
         <td style="font-size:12px;color:#6b7280">${esc(p.notes||'—')}</td>
       </tr>`).join('')
     : '<tr><td colspan="5"><div class="empty-state">No payouts recorded yet.</div></td></tr>';
+}
+
+/* ── Marketing ── */
+let _mktProducts  = [];
+let _mktPricing   = null;
+let _mktPollTimer = null;
+
+async function fetchMarketing() {
+  document.getElementById('marketing-body').innerHTML = '<tr><td colspan="5" class="loading">Loading…</td></tr>';
+
+  const [pricing, products, campaigns] = await Promise.all([
+    api('/seller/api/marketing/pricing'),
+    api('/seller/api/products'),
+    api('/seller/api/marketing/campaigns'),
+  ]);
+
+  _mktPricing  = pricing;
+  _mktProducts = (products || []).filter(p => p.status === 'approved');
+
+  const form        = document.getElementById('marketing-form');
+  const unavailable = document.getElementById('marketing-unavailable');
+  if (!pricing.platforms || !pricing.platforms.length) {
+    form.style.display = 'none';
+    unavailable.style.display = 'block';
+  } else {
+    form.style.display = 'block';
+    unavailable.style.display = 'none';
+
+    const labels = {facebook:'Facebook', instagram:'Instagram', x:'X (Twitter)'};
+    document.getElementById('mkt-platforms').innerHTML = pricing.platforms.map(p => `
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400">
+        <input type="checkbox" name="mkt-platform" value="${p}" style="width:auto" checked/> ${labels[p] || p}
+      </label>`).join('');
+
+    document.getElementById('mkt-product-id').innerHTML = _mktProducts.length
+      ? _mktProducts.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')
+      : '<option value="">No approved products yet</option>';
+
+    onMarketingPlanChange();
+  }
+
+  document.getElementById('marketing-body').innerHTML = campaigns.length
+    ? campaigns.map(c => `
+      <tr>
+        <td style="font-size:11px;white-space:nowrap">${(c.created_at||'').slice(0,16)}</td>
+        <td>${esc(c.plan_type)}</td>
+        <td style="font-size:12px">${esc((c.platforms||'').replace(/,/g,', '))}</td>
+        <td>$${(+c.fee_amount).toFixed(2)}</td>
+        <td>${badge(c.status)}</td>
+      </tr>`).join('')
+    : '<tr><td colspan="5"><div class="empty-state">No campaigns yet.</div></td></tr>';
+}
+
+function onMarketingPlanChange() {
+  const planType = document.getElementById('mkt-plan-type').value;
+  document.getElementById('mkt-product-group').style.display = planType === 'boost' ? '' : 'none';
+  const fee = planType === 'boost' ? _mktPricing.boost_fee : _mktPricing.sub_fee;
+  document.getElementById('mkt-fee-label').textContent = planType === 'boost'
+    ? `Fee: $${(+fee).toFixed(2)} one-time`
+    : `Fee: $${(+fee).toFixed(2)} every ${_mktPricing.sub_period_days} days`;
+}
+
+document.getElementById('marketing-form').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const planType  = document.getElementById('mkt-plan-type').value;
+  const platforms = Array.from(document.querySelectorAll('input[name="mkt-platform"]:checked')).map(el => el.value);
+  const phone     = document.getElementById('mkt-phone').value.trim();
+  const provider  = document.getElementById('mkt-provider').value;
+
+  if (!platforms.length) { toast('Select at least one platform.', false); return; }
+  if (!phone) { toast('Enter your mobile money number.', false); return; }
+
+  const body = { plan_type: planType, platforms, payment_phone: phone, provider };
+  if (planType === 'boost') body.product_id = +document.getElementById('mkt-product-id').value;
+
+  const btn = document.getElementById('mkt-submit-btn');
+  btn.disabled = true; btn.textContent = 'Sending payment request…';
+  const res = await api('/seller/api/marketing/start', 'POST', body);
+  toast(res.message, res.ok);
+
+  if (res.ok) {
+    document.getElementById('mkt-status').textContent = 'Check your phone to approve the payment…';
+    pollMarketingStatus(res.campaign_id);
+  } else {
+    btn.disabled = false; btn.textContent = 'Pay & Launch';
+  }
+});
+
+function pollMarketingStatus(campaignId) {
+  clearInterval(_mktPollTimer);
+  let attempts = 0;
+  _mktPollTimer = setInterval(async () => {
+    attempts++;
+    const res = await api(`/seller/api/marketing/status/${campaignId}`);
+    if (res.status === 'active' || res.status === 'failed' || attempts > 30) {
+      clearInterval(_mktPollTimer);
+      const btn = document.getElementById('mkt-submit-btn');
+      btn.disabled = false; btn.textContent = 'Pay & Launch';
+      document.getElementById('mkt-status').textContent = res.status === 'active'
+        ? '✅ Campaign live!' : (attempts > 30 ? 'Still pending — check Your Campaigns below.' : '❌ Payment failed.');
+      fetchMarketing();
+    }
+  }, 4000);
 }
 
 // Load overview on page load

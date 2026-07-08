@@ -10,3 +10,4 @@ psycopg2-binary==2.9.12
 flask-limiter==3.8.0
 flask-socketio==5.3.6
 simple-websocket==1.0.0
+requests-oauthlib==2.0.0

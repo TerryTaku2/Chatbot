@@ -176,7 +176,7 @@
             <div class="review-card">
               <div class="review-header">
                 <div style="display:flex;align-items:center;gap:.6rem">
-                  <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#3b82f6,#8b5cf6);color:#fff;font-size:.8rem;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+                  <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#10b981,#8b5cf6);color:#fff;font-size:.8rem;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">
                     {{ rv.reviewer_name[0].upper() if rv.reviewer_name else 'T' }}
                   </div>
                   <div>
@@ -361,7 +361,7 @@
     <!-- Header -->
     <div style="display:flex;align-items:center;justify-content:space-between;padding:1.1rem 1.25rem;border-bottom:1px solid #e5e7eb">
       <div style="display:flex;align-items:center;gap:.7rem">
-        <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#1d4ed8,#7c3aed);color:#fff;font-weight:700;font-size:.9rem;display:flex;align-items:center;justify-content:center">
+        <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#075e54,#7c3aed);color:#fff;font-weight:700;font-size:.9rem;display:flex;align-items:center;justify-content:center">
           {{ prop.landlord_name[0].upper() if prop.landlord_name else 'L' }}
         </div>
         <div>
@@ -379,7 +379,7 @@
         rows="5"
         maxlength="2000"
         style="width:100%;border:1.5px solid #e5e7eb;border-radius:10px;padding:.75rem 1rem;font-size:.9rem;font-family:inherit;resize:vertical;outline:none;transition:border-color .2s;box-sizing:border-box"
-        onfocus="this.style.borderColor='#1d4ed8'" onblur="this.style.borderColor='#e5e7eb'"
+        onfocus="this.style.borderColor='#075e54'" onblur="this.style.borderColor='#e5e7eb'"
       ></textarea>
       <div id="compose-error" style="display:none;color:#dc2626;font-size:.8rem;margin-top:.4rem"></div>
     </div>
@@ -387,7 +387,7 @@
     <!-- Footer -->
     <div style="display:flex;align-items:center;justify-content:flex-end;gap:.65rem;padding:.85rem 1.25rem;background:#f9fafb;border-top:1px solid #e5e7eb">
       <button onclick="closeComposeModal()" style="padding:.55rem 1.1rem;border:1.5px solid #e5e7eb;border-radius:8px;background:#fff;cursor:pointer;font-size:.875rem;font-weight:500">Cancel</button>
-      <button id="compose-send-btn" onclick="sendFirstMessage()" style="padding:.55rem 1.25rem;background:#1d4ed8;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:.875rem;font-weight:600;display:flex;align-items:center;gap:.5rem">
+      <button id="compose-send-btn" onclick="sendFirstMessage()" style="padding:.55rem 1.25rem;background:#075e54;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:.875rem;font-weight:600;display:flex;align-items:center;gap:.5rem">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
         <span id="compose-btn-text">Send Message</span>
       </button>
@@ -541,7 +541,7 @@
     <!-- ── Step 2: Awaiting PIN ── -->
     <div id="step-waiting" style="display:none;text-align:center;padding:.5rem 0">
       <div class="phone-pulse">
-        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#1d4ed8" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#075e54" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
       </div>
       <h4 style="font-size:1rem;font-weight:700;margin:.75rem 0 .3rem;color:#111827">Check your phone!</h4>
       <p style="font-size:.85rem;color:#6b7280;line-height:1.55;margin-bottom:1rem">
@@ -611,13 +611,13 @@
 .pay-modal-close:hover { color: #374151; }
 .pay-modal-header { display: flex; align-items: center; gap: .85rem; margin-bottom: 1.5rem; }
 .pay-modal-icon {
-  width: 48px; height: 48px; border-radius: 12px; background: #eff6ff; color: #1d4ed8;
+  width: 48px; height: 48px; border-radius: 12px; background: #f0fdf4; color: #075e54;
   display: flex; align-items: center; justify-content: center; flex-shrink: 0;
 }
 .pay-modal-title { font-size: 1.1rem; font-weight: 700; margin-bottom: .1rem; }
 .pay-modal-sub { font-size: .8rem; color: #6b7280; }
 .pay-amount-display {
-  background: linear-gradient(135deg, #1d4ed8, #4f46e5); border-radius: 12px;
+  background: linear-gradient(135deg, #075e54, #0d9488); border-radius: 12px;
   padding: 1.25rem 1.5rem; color: #fff; text-align: center; margin-bottom: 1.5rem;
   display: flex; flex-direction: column; gap: .25rem;
 }
@@ -626,7 +626,7 @@
 .pay-amount-note  { font-size: .75rem; opacity: .75; }
 .ecocash-badge {
   display: flex; align-items: center; gap: .5rem;
-  background: #eff6ff; color: #1d4ed8; border: 1.5px solid #bfdbfe;
+  background: #f0fdf4; color: #075e54; border: 1.5px solid #bbf7d0;
   border-radius: 8px; padding: .6rem 1rem; font-size: .82rem; font-weight: 600;
   margin-bottom: 1rem;
 }
@@ -638,7 +638,7 @@
   display: flex; align-items: stretch; border: 1.5px solid #e5e7eb; border-radius: 8px;
   overflow: hidden; transition: border-color .2s;
 }
-.phone-input-wrap:focus-within { border-color: #1d4ed8; box-shadow: 0 0 0 3px rgba(29,78,216,.12); }
+.phone-input-wrap:focus-within { border-color: #075e54; box-shadow: 0 0 0 3px rgba(7,94,84,.12); }
 .phone-prefix {
   background: #f3f4f6; padding: 0 .75rem; font-size: .85rem; color: #6b7280; font-weight: 500;
   display: flex; align-items: center; border-right: 1.5px solid #e5e7eb; white-space: nowrap;
@@ -655,13 +655,13 @@
   background: #f9fafb; border: 1.5px solid #e5e7eb; border-radius: 8px; padding: .45rem .85rem;
   transition: border-color .15s, background .15s;
 }
-.pay-method-opt:has(input:checked) { border-color: #1d4ed8; background: #eff6ff; color: #1d4ed8; font-weight: 600; }
+.pay-method-opt:has(input:checked) { border-color: #075e54; background: #f0fdf4; color: #075e54; font-weight: 600; }
 .pay-method-opt input { display: none; }
 .pay-input {
   width: 100%; padding: .72rem 1rem; border: 1.5px solid #e5e7eb; border-radius: 8px;
   font-size: .9rem; font-family: inherit; outline: none; transition: border-color .2s; box-sizing: border-box;
 }
-.pay-input:focus { border-color: #1d4ed8; box-shadow: 0 0 0 3px rgba(29,78,216,.12); }
+.pay-input:focus { border-color: #075e54; box-shadow: 0 0 0 3px rgba(7,94,84,.12); }
 .pay-input.is-invalid { border-color: #dc2626; }
 .pay-input-error { font-size: .75rem; color: #dc2626; margin-top: .3rem; display: block; }
 .pay-modal-alert {
@@ -674,17 +674,17 @@
 
 /* Waiting animation */
 .phone-pulse {
-  width: 72px; height: 72px; border-radius: 50%; background: #eff6ff;
+  width: 72px; height: 72px; border-radius: 50%; background: #f0fdf4;
   display: flex; align-items: center; justify-content: center; margin: 0 auto .25rem;
   animation: pulse 1.6s ease-in-out infinite;
 }
 @keyframes pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(29,78,216,.35); }
-  50%       { box-shadow: 0 0 0 14px rgba(29,78,216,0); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(7,94,84,.35); }
+  50%       { box-shadow: 0 0 0 14px rgba(7,94,84,0); }
 }
 .waiting-dots { display: flex; gap: .4rem; justify-content: center; margin-top:.5rem }
 .waiting-dots span {
-  width: 8px; height: 8px; border-radius: 50%; background: #1d4ed8;
+  width: 8px; height: 8px; border-radius: 50%; background: #075e54;
   animation: dot-bounce 1.4s ease-in-out infinite;
 }
 .waiting-dots span:nth-child(2) { animation-delay: .2s; }

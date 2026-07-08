@@ -5,13 +5,13 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --primary:      #1d4ed8;
-  --primary-dark: #1e3a8a;
+  --primary:      #075e54;
+  --primary-dark: #064e44;
   --text-primary: #111827;
   --text-second:  #6b7280;
   --text-muted:   #9ca3af;
   --border:       #e5e7eb;
-  --bg:           #f0f4ff;
+  --bg:           #f0fdf4;
   --white:        #ffffff;
   --radius:       12px;
   --radius-sm:    8px;
@@ -62,7 +62,7 @@ html, body {
   border: 1.5px solid var(--primary);
   background: transparent;
 }
-.nav-btn-outline:hover { background: #eff6ff; }
+.nav-btn-outline:hover { background: #f0fdf4; }
 .nav-btn-solid {
   background: var(--primary);
   color: var(--white);
@@ -72,7 +72,7 @@ html, body {
 
 /* ── Hero ────────────────────────────────────────────────── */
 .browse-hero {
-  background: linear-gradient(135deg, #1d4ed8 0%, #1e3a8a 100%);
+  background: linear-gradient(135deg, #075e54 0%, #064e44 100%);
   color: #fff;
   padding: 3.5rem 2rem 2.5rem;
   text-align: center;
@@ -306,7 +306,7 @@ html, body {
   font-size: .72rem;
   font-weight: 500;
   color: var(--primary);
-  background: #eff6ff;
+  background: #f0fdf4;
   padding: .2rem .55rem;
   border-radius: 99px;
 }
@@ -388,7 +388,7 @@ html, body {
 
 /* ── CTA banner ──────────────────────────────────────────── */
 .browse-cta {
-  background: linear-gradient(135deg, #1d4ed8, #1e3a8a);
+  background: linear-gradient(135deg, #075e54, #064e44);
   border-radius: var(--radius);
   padding: 2.5rem 2rem;
   margin-bottom: 2rem;
@@ -459,9 +459,9 @@ html, body {
   display: inline-flex;
   align-items: center;
   gap: .25rem;
-  background: #eff6ff;
-  color: #1d4ed8;
-  border: 1px solid #bfdbfe;
+  background: #f0fdf4;
+  color: #075e54;
+  border: 1px solid #bbf7d0;
   border-radius: 99px;
   font-size: .7rem;
   font-weight: 600;

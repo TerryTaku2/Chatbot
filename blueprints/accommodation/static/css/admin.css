@@ -105,7 +105,7 @@
 .user-cell { display: flex; align-items: center; gap: .65rem; }
 .user-cell-avatar {
   width: 34px; height: 34px; border-radius: 50%;
-  background: linear-gradient(135deg, #1d4ed8, #7c3aed);
+  background: linear-gradient(135deg, #075e54, #7c3aed);
   color: #fff; font-weight: 700; font-size: .85rem;
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
@@ -118,7 +118,7 @@
   padding: .2rem .6rem; border-radius: 99px;
   text-transform: capitalize;
 }
-.role-student  { background: #dbeafe; color: #1e40af; }
+.role-student  { background: #dcfce7; color: #064e46; }
 .role-landlord { background: #ede9fe; color: #5b21b6; }
 .role-admin    { background: #fef3c7; color: #92400e; }
 

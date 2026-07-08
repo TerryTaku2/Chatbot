@@ -884,9 +884,9 @@ def _send_reset_email(to_email, name, reset_url):
         html_body = f"""
         <!DOCTYPE html>
         <html>
-        <body style="margin:0;padding:0;background:#f0f4ff;font-family:Inter,system-ui,sans-serif">
+        <body style="margin:0;padding:0;background:#f0fdf4;font-family:Inter,system-ui,sans-serif">
           <div style="max-width:560px;margin:40px auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08)">
-            <div style="background:linear-gradient(135deg,#1d4ed8,#1e3a8a);padding:32px;text-align:center">
+            <div style="background:linear-gradient(135deg,#075e54,#064e44);padding:32px;text-align:center">
               <h1 style="color:#fff;margin:0;font-size:22px;font-weight:700">T-Tech Connect</h1>
               <p style="color:rgba(255,255,255,.8);margin:6px 0 0;font-size:14px">Connecting Tenants with Landlords</p>
             </div>
@@ -897,7 +897,7 @@ def _send_reset_email(to_email, name, reset_url):
               </p>
               <div style="text-align:center;margin:0 0 28px">
                 <a href="{reset_url}"
-                   style="display:inline-block;padding:14px 32px;background:#1d4ed8;color:#fff;text-decoration:none;border-radius:10px;font-weight:600;font-size:15px">
+                   style="display:inline-block;padding:14px 32px;background:#075e54;color:#fff;text-decoration:none;border-radius:10px;font-weight:600;font-size:15px">
                   Reset My Password
                 </a>
               </div>
@@ -924,9 +924,9 @@ def _send_verification_email(to_email, name, role, verify_url):
     role_label = "Tenant" if role == "student" else role.capitalize()
     try:
         html_body = f"""
-        <!DOCTYPE html><html><body style="margin:0;padding:0;background:#f0f4ff;font-family:Inter,system-ui,sans-serif">
+        <!DOCTYPE html><html><body style="margin:0;padding:0;background:#f0fdf4;font-family:Inter,system-ui,sans-serif">
           <div style="max-width:560px;margin:40px auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08)">
-            <div style="background:linear-gradient(135deg,#1d4ed8,#1e3a8a);padding:32px;text-align:center">
+            <div style="background:linear-gradient(135deg,#075e54,#064e44);padding:32px;text-align:center">
               <h1 style="color:#fff;margin:0;font-size:22px;font-weight:700">Welcome to T-Tech Connect!</h1>
               <p style="color:rgba(255,255,255,.8);margin:6px 0 0;font-size:14px">Connecting Tenants with Landlords</p>
             </div>
@@ -940,7 +940,7 @@ def _send_verification_email(to_email, name, role, verify_url):
               </p>
               <div style="text-align:center;margin:0 0 28px">
                 <a href="{verify_url}"
-                   style="display:inline-block;padding:14px 32px;background:#1d4ed8;color:#fff;text-decoration:none;border-radius:10px;font-weight:600;font-size:15px">
+                   style="display:inline-block;padding:14px 32px;background:#075e54;color:#fff;text-decoration:none;border-radius:10px;font-weight:600;font-size:15px">
                   Verify My Email Address
                 </a>
               </div>

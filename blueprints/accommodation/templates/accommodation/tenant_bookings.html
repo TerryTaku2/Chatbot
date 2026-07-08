@@ -44,7 +44,7 @@
             <p style="margin:.25rem 0 0;font-size:.875rem;">Rent: <strong>${{ '%.2f'|format(b.price_per_month) }}/mo</strong></p>
             {% if b.proposed_move_in %}<p style="margin:.25rem 0 0;font-size:.875rem;">Proposed move-in: {{ b.proposed_move_in }}</p>{% endif %}
             {% if b.message %}<p style="margin:.75rem 0 0;background:#f9fafb;border-radius:8px;padding:.75rem;font-size:.875rem;color:#374151;">Your message: "{{ b.message }}"</p>{% endif %}
-            {% if b.landlord_notes %}<p style="margin:.5rem 0 0;background:#eff6ff;border-radius:8px;padding:.75rem;font-size:.875rem;color:#1e40af;">Landlord: "{{ b.landlord_notes }}"</p>{% endif %}
+            {% if b.landlord_notes %}<p style="margin:.5rem 0 0;background:#f0fdf4;border-radius:8px;padding:.75rem;font-size:.875rem;color:#064e46;">Landlord: "{{ b.landlord_notes }}"</p>{% endif %}
           </div>
           <span style="font-size:.75rem;padding:.25rem .75rem;border-radius:999px;font-weight:600;white-space:nowrap;
             background:{% if b.status=='pending' %}#fef3c7{% elif b.status=='accepted' %}#d1fae5{% else %}#fee2e2{% endif %};

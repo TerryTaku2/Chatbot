@@ -407,6 +407,26 @@ def init_db():
         )
     """)
 
+    # ── Seller-paid marketing campaigns ───────────────────────────────────────
+    cursor.execute(f"""
+        CREATE TABLE IF NOT EXISTS marketing_campaigns (
+            id             SERIAL PRIMARY KEY,
+            seller_phone   TEXT NOT NULL,
+            product_id     INTEGER,
+            plan_type      TEXT NOT NULL,
+            platforms      TEXT NOT NULL,
+            fee_amount     DOUBLE PRECISION NOT NULL,
+            status         TEXT NOT NULL DEFAULT 'pending_payment',
+            payment_method TEXT DEFAULT '',
+            starts_at      TEXT,
+            expires_at     TEXT,
+            last_posted_at TEXT,
+            created_at     TEXT DEFAULT {NOW_SQL}
+        )
+    """)
+
+    cursor.execute("ALTER TABLE social_posts ADD COLUMN IF NOT EXISTS campaign_id INTEGER")
+
     # ── Promo / discount codes ────────────────────────────────────────────────
     cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS promo_codes (
@@ -805,7 +825,8 @@ def get_seller_products(phone):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT id, name, price, stock_qty, status, created_at
+        SELECT id, name, category, price, stock_qty, status, created_at,
+               description, image_path
         FROM products WHERE listed_by = ?
         ORDER BY created_at DESC
     """, (phone,))
@@ -1669,12 +1690,125 @@ def get_newsletter_phones():
 
 # ── Social post log ───────────────────────────────────────────────────────────
 
-def log_social_post(platform, post_id, product_id=None, service_id=None, status="sent"):
+def log_social_post(platform, post_id, product_id=None, service_id=None, status="sent", campaign_id=None):
     conn = get_connection()
     conn.execute("""
-        INSERT INTO social_posts (product_id, service_id, platform, post_id, status)
-        VALUES (?, ?, ?, ?, ?)
-    """, (product_id, service_id, platform, post_id or "", status))
+        INSERT INTO social_posts (product_id, service_id, platform, post_id, status, campaign_id)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (product_id, service_id, platform, post_id or "", status, campaign_id))
+    conn.commit()
+    conn.close()
+
+
+# ── Seller-paid marketing campaigns ─────────────────────────────────────────
+
+def create_marketing_campaign(seller_phone, product_id, plan_type, platforms, fee_amount, payment_method=""):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO marketing_campaigns
+            (seller_phone, product_id, plan_type, platforms, fee_amount, payment_method)
+        VALUES (?, ?, ?, ?, ?, ?)
+        RETURNING id
+    """, (seller_phone, product_id, plan_type, platforms, fee_amount, payment_method))
+    campaign_id = cursor.fetchone()["id"]
+    conn.commit()
+    conn.close()
+    return campaign_id
+
+
+def get_marketing_campaign(campaign_id):
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT * FROM marketing_campaigns WHERE id = ?", (campaign_id,)
+    ).fetchone()
+    conn.close()
+    return row
+
+
+def get_marketing_campaign_by_ref(reference):
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT * FROM marketing_campaigns WHERE payment_method LIKE ? AND status='pending_payment' LIMIT 1",
+        (f"%:{reference}",)
+    ).fetchone()
+    conn.close()
+    return row
+
+
+def activate_marketing_campaign(campaign_id, period_days=None):
+    conn = get_connection()
+    if period_days:
+        conn.execute(f"""
+            UPDATE marketing_campaigns
+            SET status = 'active', starts_at = {NOW_SQL},
+                expires_at = to_char((NOW() AT TIME ZONE 'UTC') + make_interval(days => ?), 'YYYY-MM-DD HH24:MI:SS')
+            WHERE id = ?
+        """, (int(period_days), campaign_id))
+    else:
+        conn.execute(f"""
+            UPDATE marketing_campaigns
+            SET status = 'active', starts_at = {NOW_SQL}, expires_at = NULL
+            WHERE id = ?
+        """, (campaign_id,))
+    conn.commit()
+    conn.close()
+
+
+def mark_marketing_campaign_posted(campaign_id):
+    conn = get_connection()
+    conn.execute(f"""
+        UPDATE marketing_campaigns SET last_posted_at = {NOW_SQL} WHERE id = ?
+    """, (campaign_id,))
+    conn.commit()
+    conn.close()
+
+
+def get_seller_marketing_campaigns(seller_phone):
+    conn = get_connection()
+    rows = conn.execute("""
+        SELECT * FROM marketing_campaigns WHERE seller_phone = ?
+        ORDER BY created_at DESC
+    """, (seller_phone,)).fetchall()
+    conn.close()
+    return rows
+
+
+def get_all_marketing_campaigns():
+    conn = get_connection()
+    rows = conn.execute("""
+        SELECT * FROM marketing_campaigns ORDER BY created_at DESC LIMIT 200
+    """).fetchall()
+    conn.close()
+    return rows
+
+
+def get_due_subscription_campaigns(repost_interval_days):
+    conn = get_connection()
+    rows = conn.execute(f"""
+        SELECT * FROM marketing_campaigns
+        WHERE plan_type = 'subscription' AND status = 'active'
+          AND (expires_at IS NULL OR expires_at > {NOW_SQL})
+          AND (last_posted_at IS NULL
+               OR last_posted_at < to_char((NOW() AT TIME ZONE 'UTC') - make_interval(days => ?), 'YYYY-MM-DD HH24:MI:SS'))
+    """, (int(repost_interval_days),)).fetchall()
+    conn.close()
+    return rows
+
+
+def get_expired_marketing_campaigns():
+    conn = get_connection()
+    rows = conn.execute(f"""
+        SELECT * FROM marketing_campaigns
+        WHERE status = 'active' AND expires_at IS NOT NULL AND expires_at <= {NOW_SQL}
+    """).fetchall()
+    conn.close()
+    return rows
+
+
+def expire_marketing_campaign(campaign_id):
+    conn = get_connection()
+    conn.execute("UPDATE marketing_campaigns SET status = 'expired' WHERE id = ?", (campaign_id,))
     conn.commit()
     conn.close()
 

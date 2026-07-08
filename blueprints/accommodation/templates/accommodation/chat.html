@@ -21,10 +21,10 @@
     <a href="{{ '/accommodation/admin' if user_role == 'admin' else ('/accommodation/landlord' if user_role == 'landlord' else '/accommodation/dashboard') }}" class="logo-wrap">
       <div class="logo-icon">
         <svg width="26" height="26" viewBox="0 0 40 40" fill="none">
-          <rect width="40" height="40" rx="10" fill="#1e40af"/>
+          <rect width="40" height="40" rx="10" fill="#064e46"/>
           <path d="M8 14h24M8 20h16M8 26h20" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
           <circle cx="30" cy="26" r="5" fill="white"/>
-          <path d="M28 26l1.5 1.5L32 24" stroke="#1e40af" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M28 26l1.5 1.5L32 24" stroke="#064e46" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
       </div>
       <span class="logo-text">T-Tech Connect</span>
@@ -56,7 +56,7 @@
         <h2 class="conv-panel-title" style="margin:0">Messages</h2>
         {% if user_role == 'admin' %}
         <button id="new-msg-btn" onclick="openNewMsgModal()" title="New conversation"
-          style="background:#1d4ed8;color:#fff;border:none;border-radius:8px;padding:.35rem .7rem;cursor:pointer;font-size:.78rem;font-weight:600;display:flex;align-items:center;gap:.35rem">
+          style="background:#075e54;color:#fff;border:none;border-radius:8px;padding:.35rem .7rem;cursor:pointer;font-size:.78rem;font-weight:600;display:flex;align-items:center;gap:.35rem">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           New
         </button>
@@ -160,7 +160,7 @@
         <svg style="position:absolute;left:.75rem;top:50%;transform:translateY(-50%);color:#9ca3af;pointer-events:none" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <input id="user-search-input" type="text" placeholder="Search by name or email…"
           style="width:100%;padding:.6rem .85rem .6rem 2.2rem;border:1.5px solid #e5e7eb;border-radius:8px;font-size:.875rem;font-family:inherit;outline:none;box-sizing:border-box;transition:border-color .2s"
-          onfocus="this.style.borderColor='#1d4ed8'" onblur="this.style.borderColor='#e5e7eb'"
+          onfocus="this.style.borderColor='#075e54'" onblur="this.style.borderColor='#e5e7eb'"
           oninput="searchUsers(this.value)" />
       </div>
     </div>
@@ -222,13 +222,13 @@ function searchUsers(q) {
         results.innerHTML = '<div style="text-align:center;padding:2rem;color:#9ca3af;font-size:.875rem">No users found.</div>';
         return;
       }
-      const roleColors = { student: '#1e40af', landlord: '#5b21b6', admin: '#92400e' };
-      const roleBg     = { student: '#dbeafe', landlord: '#ede9fe', admin: '#fef3c7' };
+      const roleColors = { student: '#064e46', landlord: '#5b21b6', admin: '#92400e' };
+      const roleBg     = { student: '#dcfce7', landlord: '#ede9fe', admin: '#fef3c7' };
       results.innerHTML = users.map(u => `
         <div onclick="startConvWith(${u.id})"
           style="display:flex;align-items:center;gap:.75rem;padding:.85rem 1.25rem;cursor:pointer;border-bottom:1px solid #f3f4f6;transition:background .15s"
-          onmouseover="this.style.background='#f8faff'" onmouseout="this.style.background=''">
-          <div style="width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,#1d4ed8,#7c3aed);color:#fff;font-weight:700;font-size:.9rem;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+          onmouseover="this.style.background='#f0fdf4'" onmouseout="this.style.background=''">
+          <div style="width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,#075e54,#7c3aed);color:#fff;font-weight:700;font-size:.9rem;display:flex;align-items:center;justify-content:center;flex-shrink:0">
             ${escHtmlChat(u.full_name[0].toUpperCase())}
           </div>
           <div style="flex:1;min-width:0">
