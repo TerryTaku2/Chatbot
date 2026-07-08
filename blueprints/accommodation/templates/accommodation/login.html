@@ -4,7 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>T-Tech Connect | Login</title>
-  <link rel="icon" type="image/png" href="{{ url_for('accommodation.static', filename='images/logo.png') }}" />
+  <link rel="icon" href="/uploads/favicon.ico" sizes="any" />
+  <link rel="icon" type="image/svg+xml" href="/uploads/icon-badge.svg" />
+  <link rel="apple-touch-icon" href="/uploads/apple-touch-icon-180.png" />
   {% include 'accommodation/_pwa.html' %}
   <link rel="stylesheet" href="{{ url_for('accommodation.static', filename='css/login.css') }}" />
   <link href="https://fonts.bunny.net/css?family=inter:300,400,500,600,700&display=swap" rel="stylesheet" />
@@ -24,7 +26,7 @@
     <div class="brand-panel">
       <div class="brand-content">
         <div class="logo-wrap">
-          <img src="{{ url_for('accommodation.static', filename='images/logo.png') }}" alt="T-Tech Connect" style="height:80px;width:auto;object-fit:contain;filter:drop-shadow(0 2px 8px rgba(0,0,0,.15))" />
+          <img src="/uploads/lockup-dark@2x.png" alt="T-Tech Connect" style="height:44px;width:auto;object-fit:contain;filter:drop-shadow(0 2px 8px rgba(0,0,0,.15))" />
         </div>
 
         <h1 class="brand-headline">Your Accommodation,<br />Simplified.</h1>
