@@ -89,6 +89,9 @@
                       onclick="toggleUser({{ u.id }})">
                 {{ 'Active' if u.is_active else 'Inactive' }}
               </button>
+              {% if u.purge_in_days is not none %}
+              <div class="cell-sub">Auto-deletes in {{ u.purge_in_days }}d</div>
+              {% endif %}
             </td>
             <td>
               {% if u.role == 'landlord' %}
@@ -162,8 +165,13 @@ async function setRole(select) {
 // Store original values for rollback
 document.querySelectorAll('.role-select').forEach(s => s.dataset.original = s.value);
 
+const PURGE_DAYS = {{ purge_days }};
+
 async function deleteUser(uid, name) {
-  if (!confirm(`Permanently delete "${name}"? This cannot be undone.`)) return;
+  const warning = PURGE_DAYS > 0
+    ? `They'll be deactivated immediately and permanently deleted in ${PURGE_DAYS} day${PURGE_DAYS === 1 ? '' : 's'}.`
+    : `They'll be deactivated immediately. Permanent auto-delete is currently disabled in Settings.`;
+  if (!confirm(`Delete "${name}"?\n\n${warning}`)) return;
   const res  = await fetch(`/accommodation/admin/users/${uid}/delete`, { method: 'POST' });
   const data = await res.json();
   if (data.success) {

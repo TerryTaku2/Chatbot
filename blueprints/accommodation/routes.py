@@ -36,6 +36,10 @@ PAYNOW_INTEGRATION_KEY = os.environ.get("PAYNOW_INTEGRATION_KEY", "")
 PAYNOW_RESULT_URL      = os.environ.get("PAYNOW_RESULT_URL", "")
 ECOCASH_MERCHANT       = "0774128219"
 
+# Shared with app.py's own /cron/* endpoints — same secret, same convention
+# (external scheduler hits these over HTTP; no in-process scheduler).
+CRON_SECRET = os.environ.get("CRON_SECRET", "")
+
 
 def get_paynow():
     if not PAYNOW_INTEGRATION_ID or not PAYNOW_INTEGRATION_KEY:
@@ -220,6 +224,68 @@ def get_connect_fee_duration_days():
     with get_db() as conn:
         row = conn.execute("SELECT value FROM settings WHERE key='connect_fee_duration_days'").fetchone()
     return int(row["value"]) if row else 14
+
+
+def get_user_purge_after_days():
+    """Days after soft-delete before a user is hard-deleted. 0 = auto-purge disabled."""
+    with get_db() as conn:
+        row = conn.execute("SELECT value FROM settings WHERE key='user_purge_after_days'").fetchone()
+    return int(row["value"]) if row else 30
+
+
+def _hard_delete_user(conn, uid):
+    """Permanently removes a user and every row that references them, including
+    properties they own as a landlord and those properties' own dependents."""
+    prop_ids = [r["id"] for r in conn.execute(
+        "SELECT id FROM properties WHERE landlord_id=?", (uid,)).fetchall()]
+
+    for pid in prop_ids:
+        conn.execute("DELETE FROM messages WHERE conversation_id IN "
+                      "(SELECT id FROM conversations WHERE property_id=?)", (pid,))
+        conn.execute("DELETE FROM conversation_members WHERE conversation_id IN "
+                      "(SELECT id FROM conversations WHERE property_id=?)", (pid,))
+        conn.execute("DELETE FROM conversations WHERE property_id=?", (pid,))
+        conn.execute("DELETE FROM property_images WHERE property_id=?", (pid,))
+        conn.execute("DELETE FROM reviews WHERE property_id=?", (pid,))
+        conn.execute("DELETE FROM maintenance_requests WHERE property_id=?", (pid,))
+        conn.execute("DELETE FROM saved_properties WHERE property_id=?", (pid,))
+        conn.execute("DELETE FROM payments WHERE property_id=?", (pid,))
+        conn.execute("DELETE FROM payment_requests WHERE property_id=?", (pid,))
+        conn.execute("DELETE FROM tenancies WHERE property_id=?", (pid,))
+        conn.execute("DELETE FROM bookings WHERE property_id=?", (pid,))
+    conn.execute("DELETE FROM properties WHERE landlord_id=?", (uid,))
+
+    # This user's own participation elsewhere (as tenant/reviewer/sender/etc.)
+    conn.execute("DELETE FROM messages WHERE sender_id=?", (uid,))
+    conn.execute("DELETE FROM conversation_members WHERE user_id=?", (uid,))
+    conn.execute("DELETE FROM payments WHERE student_id=?", (uid,))
+    conn.execute("DELETE FROM payment_requests WHERE student_id=?", (uid,))
+    conn.execute("DELETE FROM reviews WHERE reviewer_id=?", (uid,))
+    conn.execute("DELETE FROM password_resets WHERE user_id=?", (uid,))
+    conn.execute("DELETE FROM bookings WHERE tenant_id=? OR landlord_id=?", (uid, uid))
+    conn.execute("DELETE FROM tenancies WHERE tenant_id=? OR landlord_id=?", (uid, uid))
+    conn.execute("DELETE FROM notifications WHERE user_id=?", (uid,))
+    conn.execute("DELETE FROM maintenance_requests WHERE tenant_id=?", (uid,))
+    conn.execute("DELETE FROM saved_properties WHERE tenant_id=?", (uid,))
+
+    conn.execute("DELETE FROM users WHERE id=?", (uid,))
+
+
+def _purge_deleted_users():
+    """Hard-deletes soft-deleted users past the configured retention window.
+    Returns how many were purged."""
+    days = get_user_purge_after_days()
+    if days <= 0:
+        return 0
+    cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT id FROM users WHERE is_active=0 AND deleted_at IS NOT NULL AND deleted_at < ?",
+            (cutoff,)
+        ).fetchall()
+        for r in rows:
+            _hard_delete_user(conn, r["id"])
+    return len(rows)
 
 
 def get_pass_expiry(student_id):
@@ -2475,37 +2541,64 @@ def _admin_common():
 def admin_settings():
     if request.method == "POST":
         data = request.get_json() or {}
-        try:
-            price = float(data.get("connect_fee_price"))
-            if not (0 <= price <= 1000):
-                return jsonify({"error": "Price must be between 0 and 1000"}), 400
-            price = round(price, 2)
-        except (TypeError, ValueError):
-            return jsonify({"error": "Invalid price value"}), 400
-        try:
-            duration_days = int(data.get("connect_fee_duration_days"))
-            if not (1 <= duration_days <= 90):
-                return jsonify({"error": "Duration must be between 1 and 90 days"}), 400
-        except (TypeError, ValueError):
-            return jsonify({"error": "Invalid duration value"}), 400
+        updates = {}
+
+        if "connect_fee_price" in data:
+            try:
+                price = float(data.get("connect_fee_price"))
+                if not (0 <= price <= 1000):
+                    return jsonify({"error": "Price must be between 0 and 1000"}), 400
+                updates["connect_fee_price"] = str(round(price, 2))
+            except (TypeError, ValueError):
+                return jsonify({"error": "Invalid price value"}), 400
+
+        if "connect_fee_duration_days" in data:
+            try:
+                duration_days = int(data.get("connect_fee_duration_days"))
+                if not (1 <= duration_days <= 90):
+                    return jsonify({"error": "Duration must be between 1 and 90 days"}), 400
+                updates["connect_fee_duration_days"] = str(duration_days)
+            except (TypeError, ValueError):
+                return jsonify({"error": "Invalid duration value"}), 400
+
+        if "user_purge_after_days" in data:
+            try:
+                purge_days = int(data.get("user_purge_after_days"))
+                if not (0 <= purge_days <= 365):
+                    return jsonify({"error": "Auto-delete window must be between 0 and 365 days"}), 400
+                updates["user_purge_after_days"] = str(purge_days)
+            except (TypeError, ValueError):
+                return jsonify({"error": "Invalid auto-delete window value"}), 400
+
+        if not updates:
+            return jsonify({"error": "No valid settings provided"}), 400
+
         with get_db() as conn:
-            conn.execute(
-                "INSERT INTO settings (key, value) VALUES ('connect_fee_price', ?) "
-                "ON CONFLICT (key) DO UPDATE SET value = excluded.value",
-                (str(price),)
-            )
-            conn.execute(
-                "INSERT INTO settings (key, value) VALUES ('connect_fee_duration_days', ?) "
-                "ON CONFLICT (key) DO UPDATE SET value = excluded.value",
-                (str(duration_days),)
-            )
+            for key, value in updates.items():
+                conn.execute(
+                    "INSERT INTO settings (key, value) VALUES (?, ?) "
+                    "ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+                    (key, value)
+                )
             conn.commit()
-        socketio.emit("connect_fee_changed", {"price": price, "duration_days": duration_days})
-        return jsonify({"success": True, "connect_fee_price": price, "connect_fee_duration_days": duration_days})
+
+        if "connect_fee_price" in updates or "connect_fee_duration_days" in updates:
+            socketio.emit("connect_fee_changed", {
+                "price": get_connect_fee_price(),
+                "duration_days": get_connect_fee_duration_days(),
+            })
+
+        return jsonify({
+            "success": True,
+            "connect_fee_price": get_connect_fee_price(),
+            "connect_fee_duration_days": get_connect_fee_duration_days(),
+            "user_purge_after_days": get_user_purge_after_days(),
+        })
 
     return jsonify({
         "connect_fee_price": get_connect_fee_price(),
         "connect_fee_duration_days": get_connect_fee_duration_days(),
+        "user_purge_after_days": get_user_purge_after_days(),
     })
 
 
@@ -2576,6 +2669,7 @@ def admin_dashboard():
                            recent_payments=recent_payments,
                            connect_fee_price=get_connect_fee_price(),
                            connect_fee_duration_days=get_connect_fee_duration_days(),
+                           user_purge_after_days=get_user_purge_after_days(),
                            active_passes=active_passes,
                            **_admin_common())
 
@@ -2583,6 +2677,11 @@ def admin_dashboard():
 @accommodation_bp.route("/admin/users")
 @admin_required
 def admin_users():
+    try:
+        _purge_deleted_users()
+    except Exception as e:
+        current_app.logger.error(f"Lazy user purge failed: {e}")
+
     q           = request.args.get("q", "").strip()
     role_filter = request.args.get("role", "").strip()
     filters, params = [], []
@@ -2595,11 +2694,27 @@ def admin_users():
     where = ("WHERE " + " AND ".join(filters)) if filters else ""
     with get_db() as conn:
         users = conn.execute(
-            f"SELECT id,full_name,email,role,is_active,is_verified,phone,created_at,last_login "
+            f"SELECT id,full_name,email,role,is_active,is_verified,phone,created_at,last_login,deleted_at "
             f"FROM users {where} ORDER BY created_at DESC", params
         ).fetchall()
-    return render_template("accommodation/admin_users.html", users=users,
-                           q=q, role_filter=role_filter, **_admin_common())
+
+    purge_days = get_user_purge_after_days()
+    now = datetime.utcnow()
+    enriched = []
+    for u in users:
+        u = dict(u)
+        u["purge_in_days"] = None
+        if not u["is_active"] and u.get("deleted_at") and purge_days > 0:
+            try:
+                deleted_dt = datetime.fromisoformat(u["deleted_at"])
+                u["purge_in_days"] = max(purge_days - (now - deleted_dt).days, 0)
+            except (TypeError, ValueError):
+                pass
+        enriched.append(u)
+
+    return render_template("accommodation/admin_users.html", users=enriched,
+                           q=q, role_filter=role_filter, purge_days=purge_days,
+                           **_admin_common())
 
 
 @accommodation_bp.route("/admin/users/<int:uid>/toggle", methods=["POST"])
@@ -2656,9 +2771,20 @@ def admin_user_delete(uid):
     with get_db() as conn:
         if not conn.execute("SELECT id FROM users WHERE id=?", (uid,)).fetchone():
             return jsonify({"error": "User not found"}), 404
-        conn.execute("UPDATE users SET is_active=0 WHERE id=?", (uid,))
+        conn.execute("UPDATE users SET is_active=0, deleted_at=? WHERE id=?",
+                     (datetime.utcnow().isoformat(), uid))
         conn.commit()
-    return jsonify({"success": True})
+    return jsonify({"success": True, "purge_after_days": get_user_purge_after_days()})
+
+
+@accommodation_bp.route("/cron/purge-deleted-users", methods=["POST", "GET"])
+def cron_purge_deleted_users():
+    """Call from Render's cron job, UptimeRobot, or any scheduler — same
+    convention as app.py's top-level /cron/* endpoints."""
+    if CRON_SECRET and request.headers.get("X-Cron-Secret") != CRON_SECRET:
+        return jsonify({"error": "Unauthorized"}), 401
+    purged = _purge_deleted_users()
+    return jsonify({"purged": purged, "status": "ok"}), 200
 
 
 @accommodation_bp.route("/admin/properties")

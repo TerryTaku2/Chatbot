@@ -152,6 +152,32 @@
       </div>
     </div>
 
+    <!-- Deleted User Retention Setting -->
+    <div class="admin-panel" style="margin-top:1.5rem">
+      <div class="admin-panel-header">
+        <h3 class="admin-panel-title">Deleted Users — Auto-Delete</h3>
+        <span style="font-size:.8rem;color:#6b7280">Deleted users are deactivated immediately, then permanently removed after this many days</span>
+      </div>
+      <div style="padding:1.25rem;display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap">
+        <div style="flex:1;min-width:220px">
+          <p style="margin:0 0 .35rem;font-size:.85rem;color:#6b7280">Days to keep a deleted account before it's permanently erased (0 disables auto-delete)</p>
+          <div style="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap">
+            <div style="position:relative;width:110px">
+              <input type="number" id="purge-days-input" value="{{ user_purge_after_days }}" min="0" max="365" step="1"
+                style="width:100%;padding:.6rem 3.2rem .6rem .85rem;border:1.5px solid #e5e7eb;border-radius:8px;font-size:1rem;font-weight:700;color:#111827;outline:none;box-sizing:border-box"
+                onfocus="this.style.borderColor='#075e54'" onblur="this.style.borderColor='#e5e7eb'" />
+              <span style="position:absolute;right:.6rem;top:50%;transform:translateY(-50%);color:#6b7280;font-weight:600;pointer-events:none">days</span>
+            </div>
+            <button onclick="savePurgeDays()"
+              style="padding:.55rem 1.25rem;background:#075e54;color:#fff;border:none;border-radius:8px;font-weight:600;font-size:.875rem;cursor:pointer">
+              Save
+            </button>
+          </div>
+          <p id="purge-msg" style="margin:.5rem 0 0;font-size:.8rem;display:none"></p>
+        </div>
+      </div>
+    </div>
+
     <!-- Recent Payments -->
     <div class="admin-panel" style="margin-top:1.5rem">
       <div class="admin-panel-header">
@@ -217,6 +243,37 @@ async function saveRate() {
     if (data.success) {
       msg.style.color = '#16a34a';
       msg.textContent = `✓ Connect fee saved as $${price.toFixed(2)} / ${days} days`;
+    } else {
+      msg.style.color = '#dc2626';
+      msg.textContent = data.error || 'Failed to save.';
+    }
+  } catch {
+    msg.style.display = ''; msg.style.color = '#dc2626';
+    msg.textContent = 'Network error. Try again.';
+  }
+}
+
+async function savePurgeDays() {
+  const daysInp = document.getElementById('purge-days-input');
+  const msg     = document.getElementById('purge-msg');
+  const days    = parseInt(daysInp.value);
+  if (isNaN(days) || days < 0 || days > 365) {
+    msg.style.display = ''; msg.style.color = '#dc2626';
+    msg.textContent = 'Enter a value between 0 and 365 days.'; return;
+  }
+  try {
+    const res  = await fetch('/accommodation/admin/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_purge_after_days: days })
+    });
+    const data = await res.json();
+    msg.style.display = '';
+    if (data.success) {
+      msg.style.color = '#16a34a';
+      msg.textContent = days === 0
+        ? '✓ Auto-delete disabled — deleted users will only be deactivated.'
+        : `✓ Deleted users will be permanently removed after ${days} day${days === 1 ? '' : 's'}.`;
     } else {
       msg.style.color = '#dc2626';
       msg.textContent = data.error || 'Failed to save.';

@@ -110,6 +110,7 @@ def init_db():
         ("is_email_verified", "INTEGER DEFAULT 1"),
         ("email_verify_token", "TEXT"),
         ("pass_expiry", "TEXT"),
+        ("deleted_at", "TEXT"),
     ]:
         cursor.execute(f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col} {definition}")
 
@@ -204,6 +205,13 @@ def init_db():
     """)
     cursor.execute("""
         INSERT INTO settings (key, value) VALUES ('connect_fee_duration_days', '14')
+        ON CONFLICT (key) DO NOTHING
+    """)
+    # Deleted users are soft-deactivated first (is_active=0, deleted_at set); a
+    # cron job (or the admin users page as a lazy fallback) hard-deletes them
+    # once this many days have passed. 0 disables auto-purge entirely.
+    cursor.execute("""
+        INSERT INTO settings (key, value) VALUES ('user_purge_after_days', '30')
         ON CONFLICT (key) DO NOTHING
     """)
 
