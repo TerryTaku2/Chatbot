@@ -362,7 +362,7 @@
           <div class="img-thumb-grid" id="existing-thumb-grid">
             {% for img in prop.images %}
             <div class="img-thumb-item" id="img-{{ img.id }}" data-id="{{ img.id }}">
-              <img src="{{ url_for('accommodation.static', filename='uploads/properties/' + img.filename) }}"
+              <img src="{{ url_for('accommodation.property_image', filename=img.filename) }}"
                    alt="Property photo" class="img-thumb" />
               {% if img.is_primary %}<span class="img-cover-badge">Cover</span>{% endif %}
               <div class="img-thumb-actions">

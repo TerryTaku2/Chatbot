@@ -38,7 +38,7 @@
       <div class="prop-card">
         {% if p.cover_image %}
         <div class="prop-img-wrap">
-          <img src="{{ url_for('accommodation.static', filename='uploads/properties/' ~ p.cover_image) }}" alt="{{ p.title }}" class="prop-img" />
+          <img src="{{ url_for('accommodation.property_image', filename=p.cover_image) }}" alt="{{ p.title }}" class="prop-img" />
         </div>
         {% else %}
         <div class="prop-img-wrap prop-img-placeholder">

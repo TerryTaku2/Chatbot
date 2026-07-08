@@ -131,7 +131,7 @@
       <!-- Cover image -->
       {% if p.cover_image %}
       <div class="bprop-cover">
-        <img src="{{ url_for('accommodation.static', filename='uploads/properties/' + p.cover_image) }}"
+        <img src="{{ url_for('accommodation.property_image', filename=p.cover_image) }}"
              alt="{{ p.title }}" class="bprop-cover-img" />
       </div>
       {% else %}

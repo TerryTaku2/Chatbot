@@ -11,7 +11,7 @@ from functools import wraps
 import requests as http_requests
 from flask import (
     render_template, request, redirect, url_for, session, jsonify,
-    flash, abort, current_app,
+    flash, abort, current_app, send_from_directory,
 )
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
@@ -62,6 +62,16 @@ ALLOWED_EXT   = {"jpg", "jpeg", "png", "webp"}
 DATA_DIR      = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "static"))
 UPLOAD_FOLDER = os.path.join(DATA_DIR, "uploads", "properties")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+
+@accommodation_bp.route("/uploads/properties/<path:filename>")
+def property_image(filename):
+    # Not served via the blueprint's `static` route — that always reads from
+    # the bundled static/ folder on the app image, ignoring DATA_DIR. When
+    # DATA_DIR points at a separate persistent disk (as it should in
+    # production), uploaded images live there instead, so they need this
+    # dedicated route reading from UPLOAD_FOLDER.
+    return send_from_directory(UPLOAD_FOLDER, filename)
 
 
 # ── Decorators ────────────────────────────────────────────────────────────────
@@ -1800,7 +1810,7 @@ def api_properties():
             d["images"] = [
                 {
                     "filename": i["filename"],
-                    "url": f'/accommodation/static/uploads/properties/{i["filename"]}',
+                    "url": url_for("accommodation.property_image", filename=i["filename"]),
                     "is_primary": bool(i["is_primary"]),
                 }
                 for i in imgs

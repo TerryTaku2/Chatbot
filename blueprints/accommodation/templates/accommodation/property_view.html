@@ -53,16 +53,16 @@
     <div class="gallery-wrap">
       <div class="gallery-main">
         <img id="gallery-hero"
-             src="{{ url_for('accommodation.static', filename='uploads/properties/' + prop.images[0].filename) }}"
+             src="{{ url_for('accommodation.property_image', filename=prop.images[0].filename) }}"
              alt="{{ prop.title }}" class="gallery-hero-img" />
       </div>
       {% if prop.images|length > 1 %}
       <div class="gallery-thumbs">
         {% for img in prop.images %}
         <div class="gallery-thumb {% if loop.first %}gallery-thumb--active{% endif %}"
-             data-src="{{ url_for('accommodation.static', filename='uploads/properties/' + img.filename) }}"
+             data-src="{{ url_for('accommodation.property_image', filename=img.filename) }}"
              onclick="gallerySelect(this)">
-          <img src="{{ url_for('accommodation.static', filename='uploads/properties/' + img.filename) }}"
+          <img src="{{ url_for('accommodation.property_image', filename=img.filename) }}"
                alt="Photo {{ loop.index }}" />
           {% if img.is_primary %}<span class="gallery-cover-badge">Cover</span>{% endif %}
         </div>
