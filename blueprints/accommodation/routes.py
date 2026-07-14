@@ -743,11 +743,12 @@ def dashboard():
 
         props = conn.execute(f"""
             SELECT p.*, u.full_name as landlord_name, u.is_verified as landlord_verified,
+                   u.is_official_account as is_official,
                    COALESCE(AVG(r.rating), 0) as avg_rating, COUNT(r.id) as review_count
             FROM properties p JOIN users u ON p.landlord_id=u.id
             LEFT JOIN reviews r ON r.property_id=p.id
             WHERE {where}
-            GROUP BY p.id, u.full_name, u.is_verified
+            GROUP BY p.id, u.full_name, u.is_verified, u.is_official_account
             ORDER BY p.created_at DESC
         """, params).fetchall()
 
@@ -827,11 +828,12 @@ def browse():
 
         props = conn.execute(f"""
             SELECT p.*, u.full_name as landlord_name, u.is_verified as landlord_verified,
+                   u.is_official_account as is_official,
                    COALESCE(AVG(r.rating), 0) as avg_rating, COUNT(r.id) as review_count
             FROM properties p JOIN users u ON p.landlord_id=u.id
             LEFT JOIN reviews r ON r.property_id=p.id
             WHERE {where}
-            GROUP BY p.id, u.full_name, u.is_verified
+            GROUP BY p.id, u.full_name, u.is_verified, u.is_official_account
             ORDER BY p.created_at DESC
         """, params).fetchall()
 
@@ -1453,12 +1455,13 @@ def property_view(pid):
         prop = conn.execute(
             """SELECT p.*, u.full_name as landlord_name, u.id as landlord_user_id,
                       u.is_verified as landlord_verified,
+                      u.is_official_account as is_official,
                       COALESCE(AVG(r.rating), 0) as avg_rating,
                       COUNT(r.id) as review_count
                FROM properties p JOIN users u ON p.landlord_id = u.id
                LEFT JOIN reviews r ON r.property_id = p.id
                WHERE p.id=? AND p.is_active=1
-               GROUP BY p.id, u.full_name, u.id, u.is_verified""", (pid,)
+               GROUP BY p.id, u.full_name, u.id, u.is_verified, u.is_official_account""", (pid,)
         ).fetchone()
     if not prop:
         flash("Property not found.", "error")
@@ -1809,7 +1812,8 @@ def api_properties():
     city   = request.args.get("city")
     query  = """
         SELECT p.*, u.full_name as landlord_name, u.phone as landlord_phone,
-               u.is_verified as landlord_verified
+               u.is_verified as landlord_verified,
+               u.is_official_account as is_official
         FROM properties p
         JOIN users u ON p.landlord_id = u.id
         WHERE p.is_active=1
@@ -1830,7 +1834,7 @@ def api_properties():
             d["images"] = [
                 {
                     "filename": i["filename"],
-                    "url": url_for("accommodation.property_image", filename=i["filename"]),
+                    "url": f"{CHATBOT_BASE_URL}{url_for('accommodation.property_image', filename=i['filename'])}",
                     "is_primary": bool(i["is_primary"]),
                 }
                 for i in imgs
@@ -2510,6 +2514,7 @@ def api_saved_properties():
     with get_db() as conn:
         props = conn.execute("""
             SELECT p.*, u.full_name as landlord_name, u.is_verified as landlord_verified,
+                   u.is_official_account as is_official,
                    COALESCE(AVG(r.rating),0) as avg_rating, COUNT(r.id) as review_count,
                    sp.saved_at
             FROM saved_properties sp
@@ -2517,7 +2522,7 @@ def api_saved_properties():
             JOIN users u ON p.landlord_id=u.id
             LEFT JOIN reviews r ON r.property_id=p.id
             WHERE sp.tenant_id=? AND p.is_active=1
-            GROUP BY p.id, u.full_name, u.is_verified, sp.saved_at
+            GROUP BY p.id, u.full_name, u.is_verified, u.is_official_account, sp.saved_at
             ORDER BY sp.saved_at DESC
         """, (uid,)).fetchall()
         prop_list = []
@@ -2541,13 +2546,14 @@ def saved_properties_page():
     with get_db() as conn:
         props = conn.execute("""
             SELECT p.*, u.full_name as landlord_name, u.is_verified as landlord_verified,
+                   u.is_official_account as is_official,
                    COALESCE(AVG(r.rating),0) as avg_rating, COUNT(r.id) as review_count
             FROM saved_properties sp
             JOIN properties p ON sp.property_id=p.id
             JOIN users u ON p.landlord_id=u.id
             LEFT JOIN reviews r ON r.property_id=p.id
             WHERE sp.tenant_id=? AND p.is_active=1
-            GROUP BY p.id, u.full_name, u.is_verified, sp.saved_at ORDER BY sp.saved_at DESC
+            GROUP BY p.id, u.full_name, u.is_verified, u.is_official_account, sp.saved_at ORDER BY sp.saved_at DESC
         """, (uid,)).fetchall()
         prop_list = []
         for p in props:
@@ -2672,7 +2678,7 @@ def admin_dashboard():
 
         recent_props = conn.execute("""
             SELECT p.id,p.title,p.status,p.price_per_month,p.currency,p.created_at,
-                   u.full_name AS landlord_name
+                   u.full_name AS landlord_name, u.is_official_account AS is_official
             FROM properties p JOIN users u ON p.landlord_id=u.id
             WHERE p.is_active=1 ORDER BY p.created_at DESC LIMIT 6
         """).fetchall()
@@ -2843,7 +2849,7 @@ def admin_properties():
         params.append(status_filter)
     with get_db() as conn:
         props = conn.execute(
-            f"SELECT p.*,u.full_name AS landlord_name FROM properties p "
+            f"SELECT p.*,u.full_name AS landlord_name,u.is_official_account AS is_official FROM properties p "
             f"JOIN users u ON p.landlord_id=u.id WHERE {' AND '.join(filters)} "
             f"ORDER BY p.created_at DESC", params
         ).fetchall()

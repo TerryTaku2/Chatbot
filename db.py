@@ -59,6 +59,7 @@ def init_db():
         ("currency",          "TEXT DEFAULT 'USD'"),
         ("cost_price",        "DOUBLE PRECISION NOT NULL DEFAULT 0"),
         ("featured",          "INTEGER DEFAULT 0"),
+        ("is_official",       "INTEGER NOT NULL DEFAULT 0"),
     ]:
         cursor.execute(f"ALTER TABLE products ADD COLUMN IF NOT EXISTS {col} {definition}")
 
@@ -199,6 +200,7 @@ def init_db():
         "id_photo TEXT DEFAULT ''",
         "selfie_photo TEXT DEFAULT ''",
         "location TEXT DEFAULT ''",
+        "is_official INTEGER NOT NULL DEFAULT 0",
     ]:
         cursor.execute(f"ALTER TABLE sellers ADD COLUMN IF NOT EXISTS {col}")
 
@@ -313,6 +315,7 @@ def init_db():
         ("offers_delivery", "INTEGER DEFAULT 0"),
         ("delivery_info",   "TEXT DEFAULT ''"),
         ("extra_services",  "TEXT DEFAULT ''"),
+        ("is_official",     "INTEGER NOT NULL DEFAULT 0"),
     ]:
         cursor.execute(f"ALTER TABLE services ADD COLUMN IF NOT EXISTS {col} {definition}")
 
@@ -732,8 +735,15 @@ def add_product(name, category, price, stock_qty, description,
                 stock_unit="pcs", seller_location="",
                 offers_delivery=0, delivery_info="", extra_services="",
                 payment_methods="", currency="USD"):
-    rate       = float(get_setting("commission_rate", "10")) / 100
-    commission = round(price * stock_qty * rate, 2)
+    seller      = get_seller(listed_by) if listed_by else None
+    is_official = bool(seller and seller.get("is_official"))
+    if is_official:
+        commission = 0.0
+        status     = "approved"
+    else:
+        rate       = float(get_setting("commission_rate", "10")) / 100
+        commission = round(price * stock_qty * rate, 2)
+        status     = "pending"
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
@@ -741,13 +751,13 @@ def add_product(name, category, price, stock_qty, description,
             (name, category, price, commission, stock_qty, description,
              image_path, listed_by, status, product_type, product_file_path,
              stock_unit, seller_location, offers_delivery, delivery_info,
-             extra_services, payment_methods, currency)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             extra_services, payment_methods, currency, is_official)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING id
     """, (name, category, price, commission, stock_qty, description,
-          image_path, listed_by, product_type, product_file_path,
+          image_path, listed_by, status, product_type, product_file_path,
           stock_unit, seller_location, offers_delivery, delivery_info,
-          extra_services, payment_methods, currency))
+          extra_services, payment_methods, currency, int(is_official)))
     product_id = cursor.fetchone()["id"]
     conn.commit()
     conn.close()
@@ -767,7 +777,7 @@ def search_products(query):
         cursor.execute("""
             SELECT p.id, p.name, p.category, p.price, p.stock_qty, p.description,
                    p.image_path, p.product_type, p.stock_unit, p.seller_location,
-                   p.offers_delivery, p.listed_by,
+                   p.offers_delivery, p.listed_by, p.is_official,
                    s.name AS seller_name, s.business_name, s.location AS seller_city,
                    ROUND(COALESCE(AVG(r.rating), 0)::numeric, 1) AS avg_rating,
                    COUNT(r.id) AS review_count
@@ -918,7 +928,7 @@ def get_products_by_category(category):
     cursor.execute("""
         SELECT p.id, p.name, p.category, p.price, p.stock_qty, p.description,
                p.image_path, p.product_type, p.stock_unit, p.seller_location,
-               p.offers_delivery, p.listed_by,
+               p.offers_delivery, p.listed_by, p.is_official,
                s.name AS seller_name, s.business_name, s.location AS seller_city,
                ROUND(COALESCE(AVG(r.rating), 0)::numeric, 1) AS avg_rating,
                COUNT(r.id) AS review_count
@@ -1306,18 +1316,23 @@ def get_seller_phone_list():
 def add_service(title, category, description, price_type, price,
                 service_area, provider_phone, provider_name="", provider_business="",
                 seller_location="", offers_delivery=0, delivery_info="", extra_services=""):
+    seller      = get_seller(provider_phone) if provider_phone else None
+    is_official = bool(seller and seller.get("is_official"))
+    status      = "approved" if is_official else "pending"
     conn   = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO services
             (title, category, description, price_type, price,
              service_area, provider_phone, provider_name, provider_business,
-             seller_location, offers_delivery, delivery_info, extra_services)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             seller_location, offers_delivery, delivery_info, extra_services,
+             status, is_official)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING id
     """, (title, category, description, price_type, price,
           service_area, provider_phone, provider_name, provider_business,
-          seller_location, offers_delivery, delivery_info, extra_services))
+          seller_location, offers_delivery, delivery_info, extra_services,
+          status, int(is_official)))
     service_id = cursor.fetchone()["id"]
     conn.commit()
     conn.close()
@@ -2102,7 +2117,7 @@ def get_featured_products(limit=12):
     cursor = conn.cursor()
     cursor.execute("""
         SELECT p.id, p.name, p.category, p.price, p.stock_qty,
-               p.image_path, p.product_type, p.stock_unit,
+               p.image_path, p.product_type, p.stock_unit, p.is_official,
                ROUND(COALESCE(AVG(r.rating), 0)::numeric, 1) AS avg_rating,
                COUNT(r.id) AS review_count
         FROM products p

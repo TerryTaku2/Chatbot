@@ -143,6 +143,9 @@
     <div class="sb-brand">
       <h2>🛍️ {{ seller.business_name }}</h2>
       <p>{{ seller.name }}</p>
+      {% if seller.is_official %}
+      <p style="color:#0d6e54;font-weight:700;font-size:12px;margin-top:4px">🏢 Official T-Tech Connect Account</p>
+      {% endif %}
     </div>
     <nav class="sb-nav">
       <button class="sb-link active" onclick="showSection('overview')" id="nav-overview">

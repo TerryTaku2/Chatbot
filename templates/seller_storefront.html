@@ -74,6 +74,7 @@
   <div class="seller-name">{{ seller.business_name }}</div>
   <div class="seller-loc">📍 {{ seller.location or 'Zimbabwe' }}</div>
   <div class="badges">
+    {% if seller.is_official %}<span class="badge">🏢 Official T-Tech Connect</span>{% endif %}
     <span class="badge">✅ Verified Seller</span>
     {% if total_orders >= 10 %}<span class="badge">🏆 Trusted ({{ total_orders }}+ orders)</span>{% endif %}
     {% if trust >= 70 %}<span class="badge">⭐ Top Rated</span>{% endif %}

@@ -112,6 +112,7 @@ def init_db():
         ("pass_expiry", "TEXT"),
         ("deleted_at", "TEXT"),
         ("phone_verified", "INTEGER DEFAULT 0"),
+        ("is_official_account", "INTEGER DEFAULT 0"),
     ]:
         cursor.execute(f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col} {definition}")
 
@@ -397,6 +398,12 @@ def init_db():
                 "INSERT INTO users (full_name, email, password_hash, role, is_email_verified) VALUES (?,?,?,?,1)",
                 (name, email, generate_password_hash(pwd), role)
             )
+
+    official_email = os.environ.get("ADMIN_EMAIL", "admin@ttech.ac.zw")
+    cursor.execute(
+        "UPDATE users SET is_official_account = 1 WHERE email = ? AND is_official_account IS DISTINCT FROM 1",
+        (official_email,)
+    )
 
     landlord = cursor.execute("SELECT id FROM users WHERE email = 'landlord@ttech.ac.zw'").fetchone()
     if landlord:

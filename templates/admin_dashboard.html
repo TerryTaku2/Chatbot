@@ -868,7 +868,7 @@ function renderSellers() {
   tbody.innerHTML = rows.map(s => `
     <tr>
       <td><div class="td-name">${esc(s.name)}</div><div class="td-sub">Since ${(s.registered_at||'').slice(0,10)}</div></td>
-      <td>${esc(s.business_name)}</td>
+      <td>${esc(s.business_name)}${s.is_official ? ' <span class="badge" style="background:#0d6e54;color:#fff">OFFICIAL</span>' : ''}</td>
       <td style="font-family:monospace;font-size:12px">${esc(s.phone)}</td>
       <td>${esc(s.location) || '—'}</td>
       <td>${badge(s.status)}</td>
@@ -946,9 +946,12 @@ function renderProducts() {
     const typeBadge = p.product_type === 'digital'
       ? '<span class="badge" style="background:#f5f3ff;color:#7c3aed;border:1px solid #ddd6fe;font-size:9px;margin-left:4px">DIGITAL</span>'
       : '';
+    const officialBadge = p.is_official
+      ? '<span class="badge" style="background:#0d6e54;color:#fff;font-size:9px;margin-left:4px">OFFICIAL</span>'
+      : '';
     return `<tr>
       <td>${thumb}</td>
-      <td><div class="td-name">${esc(p.name)}${typeBadge}</div><div class="td-sub">ID: ${p.id}</div></td>
+      <td><div class="td-name">${esc(p.name)}${typeBadge}${officialBadge}</div><div class="td-sub">ID: ${p.id}</div></td>
       <td>${esc(p.category)}</td>
       <td>$${(+p.price).toFixed(2)}</td>
       <td>${p.product_type === 'digital' ? '∞' : p.stock_qty}</td>
@@ -1034,8 +1037,11 @@ function renderServices() {
   if (!rows.length) { tbody.innerHTML = emptyRow(7, 'No services found.'); return; }
   tbody.innerHTML = rows.map(s => {
     const price = s.price_type==='hourly' ? `$${s.price}/hr` : s.price_type==='fixed' ? `$${s.price}` : 'Quote';
+    const officialBadge = s.is_official
+      ? '<span class="badge" style="background:#0d6e54;color:#fff;font-size:9px;margin-left:4px">OFFICIAL</span>'
+      : '';
     return `<tr>
-      <td><div class="td-name">${esc(s.title)}</div></td>
+      <td><div class="td-name">${esc(s.title)}${officialBadge}</div></td>
       <td>${esc(s.category)}</td>
       <td>${price}</td>
       <td>${esc(s.service_area) || '—'}</td>

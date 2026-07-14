@@ -687,7 +687,10 @@ def format_numbered_products(results, title="🔍 *Results:*"):
         city   = row.get("seller_city") or row.get("seller_location") or ""
         rating = row.get("avg_rating") or 0
         category    = row.get("category") or ""
-        feat_badge  = "⭐ *Featured* | " if is_featured else ""
+        if row.get("is_official"):
+            feat_badge = "🏢 *T-Tech Connect* | "
+        else:
+            feat_badge = "⭐ *Featured* | " if is_featured else ""
         cat_line    = f"    📁 {category}\n" if category else ""
         seller_line = ""
         if seller:
@@ -1200,10 +1203,12 @@ def format_service_list(services, title="🔧 *Services Found:*"):
         cat_line = f"    📂 {cat}\n" if cat else ""
         provider = s.get("provider_business") or s.get("provider_name") or ""
         prov_line = f"    🏢 {provider}\n" if provider else ""
+        official_line = "    ✅ *Official T-Tech Connect listing*\n" if s.get("is_official") else ""
         lines.append(
             f"{NUM_EMOJI[i]}  *{s['title']}*\n"
             f"{cat_line}"
             f"{prov_line}"
+            f"{official_line}"
             f"    {_star_str(s.get('avg_rating', 0), s.get('review_count', 0))}\n"
             f"    💰 {_price_label(s)}  |  📍 {s.get('service_area', 'Zimbabwe')}\n"
         )
@@ -1222,12 +1227,14 @@ def format_service_detail(s, reviews):
     provider_phone = s.get("provider_phone", "")
     has_wa = bool(provider_phone)
     wa_option = "3️⃣  — 💬 Contact provider directly\n" if has_wa else ""
+    official_line = "✅ *Official T-Tech Connect listing*\n" if s.get("is_official") else ""
 
     return (
         f"🔧 *{s['title']}*\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"📂 Category : {s['category']}\n"
         f"🏢 Provider : {s.get('provider_business') or s.get('provider_name', 'N/A')}\n"
+        f"{official_line}"
         f"💰 Pricing  : {_price_label(s)}\n"
         f"📍 Area     : {s.get('service_area', 'Zimbabwe')}\n"
         f"{_star_str(s.get('avg_rating', 0), s.get('review_count', 0))}\n\n"
@@ -1342,6 +1349,10 @@ def _prop_verified(p):
     return "✅ Verified Landlord  " if p.get("landlord_verified") or p.get("is_verified") else ""
 
 
+def _prop_official(p):
+    return "🏢 T-Tech Connect  " if p.get("is_official") else ""
+
+
 def _prop_avail(p):
     avail = p.get("available_from") or p.get("availability_date") or p.get("available") or ""
     return f"🗓️ Available: {avail}  " if avail else ""
@@ -1368,9 +1379,10 @@ def format_property_list(props, title="🏠 *Available Properties:*"):
         area    = _prop_area(p)
         sf      = "🎓 " if p.get("student_friendly") else ""
         vbadge  = "✅ " if p.get("landlord_verified") or p.get("is_verified") else ""
+        obadge  = "🏢 " if p.get("is_official") else ""
         avail   = _prop_avail(p)
         lines.append(
-            f"{NUM_EMOJI[i]}  {vbadge}{sf}*{p['title']}*\n"
+            f"{NUM_EMOJI[i]}  {obadge}{vbadge}{sf}*{p['title']}*\n"
             f"    📍 {area}\n"
             f"    💰 ${price:.2f}/month  |  🛏️ {rooms} room(s)\n"
             f"    {avail}"
@@ -1401,7 +1413,7 @@ def format_property_detail(p, already_paid=False, in_shortlist_flag=False):
     rooms      = p.get("available_rooms", 0)
     bathrooms  = p.get("bathrooms", 1)
     area       = _prop_area(p)
-    vbadge     = _prop_verified(p)
+    vbadge     = _prop_official(p) + _prop_verified(p)
     avail      = _prop_avail(p)
     web_link   = f"{TTECH_CONNECT_URL}/landlord/property/{p['id']}"
 
@@ -2203,7 +2215,8 @@ def handle_session(phone, msg_text, session):
             for img_key in ("images", "photos"):
                 imgs = prop.get(img_key)
                 if isinstance(imgs, list):
-                    for img_url in imgs[:3]:
+                    for img in imgs[:3]:
+                        img_url = img.get("url") if isinstance(img, dict) else img
                         if img_url and sent_imgs < 3:
                             send_whatsapp_image(phone, img_url,
                                                 caption=f"{prop.get('title','')} ({sent_imgs+1}/3)")

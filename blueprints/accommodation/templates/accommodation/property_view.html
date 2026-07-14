@@ -253,6 +253,9 @@
             <div>
               <div class="landlord-name">
                 {{ prop.landlord_name }}
+                {% if prop.is_official %}
+                <span class="verified-badge" style="margin-left:.4rem">🏢 Official T-Tech Connect</span>
+                {% endif %}
                 {% if prop.landlord_verified %}
                 <span class="verified-badge" style="margin-left:.4rem">
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
@@ -286,6 +289,9 @@
             <div>
               <div class="landlord-name">
                 {{ prop.landlord_name }}
+                {% if prop.is_official %}
+                <span class="verified-badge" style="margin-left:.4rem">🏢 Official T-Tech Connect</span>
+                {% endif %}
                 {% if prop.landlord_verified %}
                 <span class="verified-badge" style="margin-left:.4rem">
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
