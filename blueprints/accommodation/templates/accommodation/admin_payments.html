@@ -55,6 +55,8 @@
             <th>Amount</th>
             <th>Reference</th>
             <th>Date</th>
+            <th>Status</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
@@ -72,9 +74,25 @@
             <td class="cell-price">{{ pay.currency }} {{ "%.2f"|format(pay.amount) }}</td>
             <td class="cell-muted">{{ pay.reference or '—' }}</td>
             <td class="cell-muted">{{ pay.paid_at[:16].replace('T',' ') if pay.paid_at else '—' }}</td>
+            <td>
+              {% if pay.verified %}
+              <span class="status-badge status-available">Verified</span>
+              {% else %}
+              <span class="status-badge status-partial">Pending review</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if not pay.verified %}
+              <div class="action-group" id="pay-actions-{{ pay.id }}">
+                <button class="btn-action btn-edit" title="Verify" onclick="verifyPayment({{ pay.id }})">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+                </button>
+              </div>
+              {% endif %}
+            </td>
           </tr>
           {% else %}
-          <tr><td colspan="7" class="cell-empty">No payments recorded yet.</td></tr>
+          <tr><td colspan="9" class="cell-empty">No payments recorded yet.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -82,5 +100,21 @@
 
   </main>
 </div>
+
+<script>
+async function verifyPayment(paymentId) {
+  if (!confirm('Confirm this payment was actually received and grant the connect fee pass?')) return;
+  const res  = await fetch(`/accommodation/admin/payments/${paymentId}/verify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  const data = await res.json();
+  if (data.success) {
+    location.reload();
+  } else {
+    alert(data.error || 'Failed to verify payment');
+  }
+}
+</script>
 </body>
 </html>

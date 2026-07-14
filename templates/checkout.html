@@ -394,6 +394,7 @@
 
   /* ── Place order ── */
   function placeOrder() {
+    if (state.payment_method === 'EcoCash') { placeOrderEcoCash(); return; }
     document.getElementById('overlay').classList.add('show');
     document.getElementById('place-btn').disabled = true;
     fetch('/checkout/place', {
@@ -424,6 +425,65 @@
       document.getElementById('place-btn').disabled = false;
       showErr('Network error — check your connection and try again.');
     });
+  }
+
+  /* ── EcoCash: real Paynow charge, order only created once payment is confirmed ── */
+  function placeOrderEcoCash() {
+    document.getElementById('overlay').classList.add('show');
+    document.getElementById('overlay').querySelector('.overlay-text').textContent =
+      'Check your phone for the EcoCash prompt…';
+    document.getElementById('place-btn').disabled = true;
+    fetch('/checkout/ecocash/initiate', {
+      method:  'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        name:             state.name,
+        phone:            state.phone,
+        delivery_type:    state.delivery,
+        delivery_address: state.address,
+        promo_code:       state.promo_code,
+        discount:         state.discount,
+      })
+    })
+    .then(r => r.json())
+    .then(d => {
+      if (!d.ok) {
+        document.getElementById('overlay').classList.remove('show');
+        document.getElementById('place-btn').disabled = false;
+        showErr(d.error || 'Could not start EcoCash payment — please try again.');
+        return;
+      }
+      pollEcoCashStatus(d.reference, 0);
+    })
+    .catch(() => {
+      document.getElementById('overlay').classList.remove('show');
+      document.getElementById('place-btn').disabled = false;
+      showErr('Network error — check your connection and try again.');
+    });
+  }
+
+  function pollEcoCashStatus(ref, attempt) {
+    const MAX_ATTEMPTS = 20;   // ~60s of polling at 3s intervals
+    if (attempt >= MAX_ATTEMPTS) {
+      document.getElementById('overlay').classList.remove('show');
+      document.getElementById('place-btn').disabled = false;
+      showErr('Still waiting for EcoCash confirmation. If you approved the prompt, reload this page in a minute and check /track for your order.');
+      return;
+    }
+    fetch('/checkout/ecocash/status/' + encodeURIComponent(ref))
+      .then(r => r.json())
+      .then(d => {
+        if (d.ok && d.status === 'paid') {
+          location.href = '/order/success';
+        } else if (d.ok && d.status === 'pending') {
+          setTimeout(() => pollEcoCashStatus(ref, attempt + 1), 3000);
+        } else {
+          document.getElementById('overlay').classList.remove('show');
+          document.getElementById('place-btn').disabled = false;
+          showErr(d.error || 'Could not confirm payment — please try again.');
+        }
+      })
+      .catch(() => setTimeout(() => pollEcoCashStatus(ref, attempt + 1), 3000));
   }
 
   /* ── Init ── */

@@ -167,6 +167,15 @@ def init_db():
             UNIQUE(student_id, property_id)
         )
     """)
+    # Self-reported payments (cash/bank/manual reference) aren't checked
+    # against any gateway, so they're recorded unverified until an admin
+    # confirms them; gateway-confirmed EcoCash payments insert verified=1
+    # directly. Legacy rows predate this column entirely (their pass was
+    # already granted when they were inserted), so backfill only touches
+    # rows that have never had a value set — new inserts always pass one
+    # explicitly, so this UPDATE is a no-op after the first deploy.
+    cursor.execute("ALTER TABLE payments ADD COLUMN IF NOT EXISTS verified INTEGER")
+    cursor.execute("UPDATE payments SET verified=1 WHERE verified IS NULL")
     # Payments used to gate access per-property (one paid unlock per property
     # forever), so a UNIQUE(student_id, property_id) constraint prevented
     # double-charging. Access is now a time-bound pass covering every

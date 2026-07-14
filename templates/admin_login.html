@@ -44,6 +44,7 @@
     <div class="error">⚠️ {{ error }}</div>
     {% endif %}
     <form method="POST" action="/admin/login">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <label>Password</label>
       <input type="password" name="password" placeholder="Enter admin password"
              autofocus required>

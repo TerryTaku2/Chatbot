@@ -16,12 +16,13 @@ from db import (
     register_seller, get_seller, set_seller_status, get_pending_sellers,
     search_products, add_product, get_product_by_id, get_pending_products,
     get_products_by_category, get_seller_products,
-    set_product_status, update_stock,
+    set_product_status, update_stock, decrement_stock_if_available,
     create_vendor_token, validate_token, mark_token_used,
     get_session, set_session, clear_session,
     log_message, add_to_waitlist,
     get_waitlist_for_product, clear_waitlist_for_product,
     create_order, get_order, get_buyer_orders, get_seller_orders, update_order_status,
+    save_pending_cart_payment, get_pending_cart_payment, claim_pending_cart_payment,
     log_property_enquiry, get_property_enquiries, update_enquiry_status,
     create_property_viewing, confirm_property_viewing, has_paid_viewing_fee,
     add_to_shortlist, remove_from_shortlist, get_shortlist, shortlist_count, in_shortlist,
@@ -91,7 +92,16 @@ from db import (
 
 load_dotenv()
 
-_missing_env = [k for k in ("FLASK_SECRET_KEY", "SHOP_ADMIN_PASSWORD", "VERIFY_TOKEN") if not os.getenv(k)]
+_missing_env = [
+    k for k in (
+        "FLASK_SECRET_KEY", "SHOP_ADMIN_PASSWORD", "VERIFY_TOKEN",
+        # Without these, verify_webhook_signature()/_verify_ttech_webhook()
+        # used to silently accept any unsigned request ("dev mode") — easy to
+        # forget in production, and an unsigned /webhook accepts a spoofed
+        # sender phone number (including the admin's), so both are required.
+        "WHATSAPP_APP_SECRET", "TTECH_WEBHOOK_SECRET",
+    ) if not os.getenv(k)
+]
 if _missing_env:
     raise RuntimeError(
         "Missing required environment variables: "
@@ -105,6 +115,11 @@ app.config.update(
     SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SECURE=not app.debug,
+    # Hard cap on request body size (covers both apps' upload endpoints) so a
+    # request can't exhaust disk/memory before any per-file size check even
+    # runs. 110MB comfortably covers the shop's 100MB digital-product files
+    # and the accommodation blueprint's 10-image-per-property listings.
+    MAX_CONTENT_LENGTH=110 * 1024 * 1024,
     # Opt-in CSRF checking (see csrf.protect() calls at individual <form>-backed
     # views below) rather than blanket-protecting every route — most POST/PUT/
     # DELETE endpoints here are same-origin JSON fetch() calls already outside
@@ -534,9 +549,9 @@ def is_rate_limited(phone):
 # ── Webhook HMAC signature validation ────────────────────────────────────────
 
 def verify_webhook_signature(req) -> bool:
-    """Validate Meta's X-Hub-Signature-256 header to prevent spoofed webhooks."""
-    if not WHATSAPP_APP_SECRET:
-        return True   # skip if not configured (dev mode)
+    """Validate Meta's X-Hub-Signature-256 header to prevent spoofed webhooks.
+    WHATSAPP_APP_SECRET is required at startup (see _missing_env above), so
+    this always fails closed rather than skipping when unconfigured."""
     signature = req.headers.get("X-Hub-Signature-256", "")
     if not signature.startswith("sha256="):
         return False
@@ -1048,6 +1063,55 @@ def check_paynow_status(poll_url):
     except Exception as e:
         print(f"⚠️ Paynow status check failed: {e}")
         return False
+
+
+def _create_cart_orders_and_notify(phone, items, delivery_type, delivery_address,
+                                    pay_method, gateway_verified):
+    """Creates one order per cart item (atomically guarding stock), notifies
+    each seller, and returns the list of item names actually placed. Shared
+    by both the WhatsApp "paid" reply handler and the /paynow/result webhook
+    so a gateway-confirmed EcoCash payment is fulfilled identically no matter
+    which of the two ever actually creates the order."""
+    placed = []
+    for item in items:
+        product = get_product_by_id(item["product_id"])
+        if not product:
+            continue
+        is_digital = product.get("product_type") == "digital"
+        new_qty    = None
+        if not is_digital:
+            new_qty = decrement_stock_if_available(item["product_id"], item["quantity"])
+            if new_qty is None:
+                continue  # sold out since the cart was built
+        _, order_ref, _ = create_order(
+            phone, item["product_id"], item["quantity"], item["price"],
+            delivery_type=delivery_type,
+            delivery_address=delivery_address,
+        )
+        if not is_digital and 0 < new_qty <= LOW_STOCK_THRESHOLD and product.get("listed_by"):
+            send_whatsapp_message(
+                product["listed_by"],
+                f"⚠️ *Low Stock Alert!* — *{product['name']}* has only "
+                f"*{new_qty} {product.get('stock_unit','pcs')}* remaining."
+            )
+        placed.append(item["name"])
+        if product["listed_by"]:
+            d_note = (f"\n📍 Deliver to: {delivery_address}"
+                      if delivery_type == "delivery" else "\n🏪 Buyer will self-collect.")
+            verify_line = (
+                "✅ Payment verified automatically via Paynow."
+                if gateway_verified else
+                "⚠️ Please verify payment before dispatching."
+            )
+            send_whatsapp_message(
+                product["listed_by"],
+                f"💰 *New Paid Order!* ({pay_method})\n\n"
+                f"Ref: *{order_ref}*\n"
+                f"Item: {item['name']} × {item['quantity']}\n"
+                f"Buyer: {phone}{d_note}\n\n"
+                f"{verify_line}"
+            )
+    return placed
 
 
 # ── Cart formatters ───────────────────────────────────────────────────────────
@@ -3761,39 +3825,45 @@ def handle_session(phone, msg_text, session):
 
         # Cash on Delivery / Collection
         if msg_text == "4":
-            items  = get_cart(phone)
-            placed = []
+            items      = get_cart(phone)
+            placed     = []
+            order_refs = []
             for item in items:
                 product = get_product_by_id(item["product_id"])
-                if product and (product.get("product_type") == "digital" or
-                                product["stock_qty"] >= item["quantity"]):
-                    order_id, order_ref, order_total = create_order(
-                        phone, item["product_id"], item["quantity"], item["price"],
-                        delivery_type=delivery_type,
-                        delivery_address=delivery_address,
+                if not product:
+                    continue
+                is_digital = product.get("product_type") == "digital"
+                new_qty    = None
+                if not is_digital:
+                    # Atomic guarded decrement — avoids a stale stock_qty read
+                    # letting two concurrent buyers both take the last unit.
+                    new_qty = decrement_stock_if_available(item["product_id"], item["quantity"])
+                    if new_qty is None:
+                        continue  # sold out since the cart was built
+                order_id, order_ref, order_total = create_order(
+                    phone, item["product_id"], item["quantity"], item["price"],
+                    delivery_type=delivery_type,
+                    delivery_address=delivery_address,
+                )
+                if not is_digital and 0 < new_qty <= LOW_STOCK_THRESHOLD and product.get("listed_by"):
+                    send_whatsapp_message(
+                        product["listed_by"],
+                        f"⚠️ *Low Stock Alert!*\n\n"
+                        f"*{product['name']}* — only *{new_qty} {product.get('stock_unit','pcs')}* left.\n"
+                        "Reply *2* from the Sell menu to update your stock.\n\n"
+                        "_Reply *0* for the main menu._"
                     )
-                    if product.get("product_type") != "digital":
-                        update_stock(item["product_id"], product["stock_qty"] - item["quantity"])
-                        # low-stock alert
-                        new_qty = product["stock_qty"] - item["quantity"]
-                        if 0 < new_qty <= LOW_STOCK_THRESHOLD and product.get("listed_by"):
-                            send_whatsapp_message(
-                                product["listed_by"],
-                                f"⚠️ *Low Stock Alert!*\n\n"
-                                f"*{product['name']}* — only *{new_qty} {product.get('stock_unit','pcs')}* left.\n"
-                                "Reply *2* from the Sell menu to update your stock.\n\n"
-                                "_Reply *0* for the main menu._"
-                            )
-                    placed.append(f"• {item['name']} × {item['quantity']}")
-                    if product["listed_by"]:
-                        d_note = (f"\n📍 Deliver to: {delivery_address}"
-                                  if delivery_type == "delivery" else "\n🏪 Buyer will self-collect.")
-                        send_whatsapp_message(
-                            product["listed_by"],
-                            f"🛒 *New Cash Order!*\n\nRef: *{order_ref}*\n"
-                            f"Item: {item['name']} × {item['quantity']}\n"
-                            f"Buyer: {phone}\nPayment: Cash{d_note}"
-                        )
+                placed.append(f"• {item['name']} × {item['quantity']}")
+                order_refs.append(order_ref)
+                if product["listed_by"]:
+                    d_note = (f"\n📍 Deliver to: {delivery_address}"
+                              if delivery_type == "delivery" else "\n🏪 Buyer will self-collect.")
+                    send_whatsapp_message(
+                        product["listed_by"],
+                        f"🛒 *New Cash Order!*\n\nRef: *{order_ref}*\n"
+                        f"Item: {item['name']} × {item['quantity']}\n"
+                        f"Buyer: {phone}\nPayment: Cash{d_note}"
+                    )
             clear_cart(phone)
             clear_session(phone)
             items_str  = "\n".join(placed) if placed else "No items could be processed."
@@ -3809,7 +3879,7 @@ def handle_session(phone, msg_text, session):
                 f"💵 Pay *{_zig_price(total)}* on collection/delivery.\n\n"
                 f"{buyer_note}\n\n"
                 f"🔗 Track your orders:\n" +
-                "\n".join(f"{BASE_URL}/track/{r}" for r, _ in placed) +
+                "\n".join(f"{BASE_URL}/track/{r}" for r in order_refs) +
                 "\n\n_Reply *0* for the main menu._"
             )
 
@@ -3821,22 +3891,25 @@ def handle_session(phone, msg_text, session):
             placed = []
             for item in items:
                 product = get_product_by_id(item["product_id"])
-                if product and (product.get("product_type") == "digital" or
-                                product["stock_qty"] >= item["quantity"]):
-                    order_id, order_ref, _ = create_order(
-                        phone, item["product_id"], item["quantity"], item["price"],
-                        delivery_type=delivery_type, delivery_address=delivery_address,
+                if not product:
+                    continue
+                is_digital = product.get("product_type") == "digital"
+                if not is_digital:
+                    # Atomic guarded decrement — see the Cash branch above for why.
+                    if decrement_stock_if_available(item["product_id"], item["quantity"]) is None:
+                        continue  # sold out since the cart was built
+                order_id, order_ref, _ = create_order(
+                    phone, item["product_id"], item["quantity"], item["price"],
+                    delivery_type=delivery_type, delivery_address=delivery_address,
+                )
+                placed.append((order_ref, item["name"]))
+                if product["listed_by"]:
+                    send_whatsapp_message(
+                        product["listed_by"],
+                        f"🏦 *New Bank Transfer Order!*\nRef: *{order_ref}*\n"
+                        f"Item: {item['name']}\nBuyer: {phone}\n"
+                        "Awaiting proof of payment."
                     )
-                    if product.get("product_type") != "digital":
-                        update_stock(item["product_id"], product["stock_qty"] - item["quantity"])
-                    placed.append((order_ref, item["name"]))
-                    if product["listed_by"]:
-                        send_whatsapp_message(
-                            product["listed_by"],
-                            f"🏦 *New Bank Transfer Order!*\nRef: *{order_ref}*\n"
-                            f"Item: {item['name']}\nBuyer: {phone}\n"
-                            "Awaiting proof of payment."
-                        )
             clear_cart(phone)
             clear_session(phone)
             refs_str = "\n".join(f"• {r} — {n}" for r, n in placed) if placed else "None"
@@ -3865,6 +3938,14 @@ def handle_session(phone, msg_text, session):
         ref    = f"TTC-{__import__('uuid').uuid4().hex[:6].upper()}"
         result = initiate_ecocash_payment(ec_phone, total, ref)
         if result["success"]:
+            # Snapshot the cart durably (keyed by the same reference Paynow
+            # echoes back) so /paynow/result can create the order even if the
+            # buyer never replies "paid" or their session expires first.
+            save_pending_cart_payment(
+                ref, phone, json.dumps(get_cart(phone)), total,
+                delivery_type=delivery_type, delivery_address=delivery_address,
+                payment_method="EcoCash",
+            )
             set_session(phone, "ctx_checkout_pending", {
                 "poll_url":       result["poll_url"],
                 "reference":      ref,
@@ -3966,48 +4047,38 @@ def handle_session(phone, msg_text, session):
                     "_Reply *0* to cancel and choose a different payment method._"
                 )
             gateway_verified = bool(poll_url)
-            items            = get_cart(phone)
             ref              = data.get("reference", "")
             total            = data.get("total", 0)
             delivery_type    = data.get("delivery_type", "self_collect")
             delivery_address = data.get("delivery_address", "")
             pay_method       = data.get("payment_method", "Mobile Money")
-            placed = []
-            for item in items:
-                product = get_product_by_id(item["product_id"])
-                if product and (product.get("product_type") == "digital" or
-                                product["stock_qty"] >= item["quantity"]):
-                    _, order_ref, _ = create_order(
-                        phone, item["product_id"], item["quantity"], item["price"],
-                        delivery_type=delivery_type,
-                        delivery_address=delivery_address,
+
+            if gateway_verified:
+                # Claim the durable snapshot saved at checkout-initiation time —
+                # whichever of this reply or the /paynow/result webhook gets
+                # here first creates the order; if the webhook already beat us
+                # to it (buyer replied "paid" after a delay), there's nothing
+                # left to do here but confirm.
+                claimed = claim_pending_cart_payment(ref)
+                if claimed is None:
+                    clear_cart(phone)
+                    clear_session(phone)
+                    return (
+                        f"✅ *Payment Confirmation Received!*\n"
+                        f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                        f"📌 Ref    : *{ref}*\n"
+                        f"💳 Method : {pay_method}\n"
+                        f"Total  : {_zig_price(total)}\n\n"
+                        "✅ Your EcoCash payment has been verified and your order was already placed.\n\n"
+                        f"🔗 Track your order:\n{BASE_URL}/track/{ref}\n\n"
+                        "_Reply *0* for the main menu._"
                     )
-                    if product.get("product_type") != "digital":
-                        new_qty = product["stock_qty"] - item["quantity"]
-                        update_stock(item["product_id"], new_qty)
-                        if 0 < new_qty <= LOW_STOCK_THRESHOLD and product.get("listed_by"):
-                            send_whatsapp_message(
-                                product["listed_by"],
-                                f"⚠️ *Low Stock Alert!* — *{product['name']}* has only "
-                                f"*{new_qty} {product.get('stock_unit','pcs')}* remaining."
-                            )
-                    placed.append(item["name"])
-                    if product["listed_by"]:
-                        d_note = (f"\n📍 Deliver to: {delivery_address}"
-                                  if delivery_type == "delivery" else "\n🏪 Buyer will self-collect.")
-                        verify_line = (
-                            "✅ Payment verified automatically via Paynow."
-                            if gateway_verified else
-                            "⚠️ Please verify payment before dispatching."
-                        )
-                        send_whatsapp_message(
-                            product["listed_by"],
-                            f"💰 *New Paid Order!* ({pay_method})\n\n"
-                            f"Ref: *{order_ref}*\n"
-                            f"Item: {item['name']} × {item['quantity']}\n"
-                            f"Buyer: {phone}{d_note}\n\n"
-                            f"{verify_line}"
-                        )
+                items = json.loads(claimed["cart_json"])
+            else:
+                items = get_cart(phone)
+            placed = _create_cart_orders_and_notify(
+                phone, items, delivery_type, delivery_address, pay_method, gateway_verified
+            )
             clear_cart(phone)
             clear_session(phone)
             d_admin = (f"\n📍 Deliver to: {delivery_address}" if delivery_type == "delivery" else "")
@@ -4675,6 +4746,19 @@ def _place_single_order(phone, data, delivery_type, delivery_address):
     product    = dict(row)
     is_digital = product.get("product_type") == "digital"
 
+    # Only physical products need a stock gate — decrement atomically *before*
+    # creating the order so two concurrent buyers of the last unit can't both
+    # succeed (a stale Python-side stock_qty read can't be trusted here).
+    new_qty_ = None
+    if not is_digital:
+        new_qty_ = decrement_stock_if_available(product["id"], data["qty"])
+        if new_qty_ is None:
+            clear_session(phone)
+            return (
+                f"❌ *Sorry, {product['name']} just sold out.*\n\n"
+                "_Reply *0* for the main menu._"
+            )
+
     order_id, ref, total = create_order(
         buyer_phone=phone,
         product_id=data["product_id"],
@@ -4683,10 +4767,7 @@ def _place_single_order(phone, data, delivery_type, delivery_address):
         delivery_type=delivery_type,
         delivery_address=delivery_address,
     )
-    # Only decrement stock for physical products
     if not is_digital:
-        new_qty_ = product["stock_qty"] - data["qty"]
-        update_stock(product["id"], new_qty_)
         if 0 < new_qty_ <= LOW_STOCK_THRESHOLD and product.get("listed_by"):
             send_whatsapp_message(
                 product["listed_by"],
@@ -6725,6 +6806,7 @@ def register_seller_web():
     if request.method == "GET":
         return _render()
 
+    csrf.protect()  # genuine native <form> submission, not a JSON fetch API
     name          = request.form.get("name", "").strip()
     business_name = request.form.get("business_name", "").strip()
     phone_local   = request.form.get("phone_local", "").strip()
@@ -6852,9 +6934,11 @@ def admin_required(f):
 
 
 @app.route("/admin/login", methods=["GET", "POST"])
+@limiter.limit("10 per hour", methods=["POST"])
 def admin_login():
     if request.method == "POST":
-        if request.form.get("password") == ADMIN_PASSWORD:
+        csrf.protect()  # genuine native <form> submission, not a JSON fetch API
+        if hmac.compare_digest(request.form.get("password", ""), ADMIN_PASSWORD):
             session["admin_logged_in"] = True
             return redirect("/admin")
         return render_template("admin_login.html", error="Incorrect password.")
@@ -7429,8 +7513,45 @@ def paynow_result():
                 f"Ref     : {ref}\nFee     : ${campaign['fee_amount']:.2f}\n"
                 f"Platforms: {campaign['platforms']}"
             )
+        elif get_pending_cart_payment(ref) is not None:
+            # A cart-checkout EcoCash payment — normally the buyer replying
+            # "paid" in-chat creates the order, but that reply can be lost or
+            # the session can expire first. This is the fallback: claim the
+            # snapshot ourselves and create the order(s) directly. If the
+            # buyer's reply already claimed it, claim_pending_cart_payment()
+            # returns None here and there's nothing left to do.
+            claimed = claim_pending_cart_payment(ref)
+            if claimed:
+                items             = json.loads(claimed["cart_json"])
+                buyer_phone       = claimed["buyer_phone"]
+                delivery_type     = claimed["delivery_type"]
+                delivery_address  = claimed["delivery_address"]
+                pay_method        = claimed["payment_method"]
+                placed = _create_cart_orders_and_notify(
+                    buyer_phone, items, delivery_type, delivery_address, pay_method,
+                    gateway_verified=True,
+                )
+                clear_cart(claimed["cart_id"])
+                if placed:
+                    send_whatsapp_message(
+                        buyer_phone,
+                        f"✅ *Payment Confirmation Received!*\n"
+                        f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                        f"📌 Ref    : *{ref}*\n"
+                        f"💳 Method : {pay_method}\n\n"
+                        "✅ Your EcoCash payment has been verified with Paynow.\n\n"
+                        f"🔗 Track your order:\n{BASE_URL}/track/{ref}\n\n"
+                        "_Reply *0* for the main menu._"
+                    )
+                notify_admin(
+                    f"💰 *{pay_method} Order* {ref}\n"
+                    f"Buyer: {buyer_phone}\nTotal: ${claimed['total']:.2f}\n"
+                    f"Items: {', '.join(placed) if placed else 'none (sold out)'}\n"
+                    "✅ Payment verified automatically via Paynow (confirmed via webhook)."
+                )
         else:
-            # Not a viewing fee or marketing campaign — could be a product order payment
+            # Not a viewing fee, marketing campaign, or cart checkout we have
+            # a record of.
             notify_admin(
                 f"💰 *Paynow Payment Confirmed*\nRef: {ref}\nAmount: ${form.get('amount', '?')}"
             )
@@ -7563,6 +7684,12 @@ def checkout_place():
     if not buyer_name or not buyer_phone:
         return jsonify({"ok": False, "error": "Name and phone number are required."}), 400
 
+    if payment_method == "EcoCash":
+        # EcoCash charges real money — it must go through /checkout/ecocash/initiate
+        # (which actually calls Paynow) instead of creating a trust-based order
+        # here like Cash/Bank/InnBucks/OneMoney do.
+        return jsonify({"ok": False, "error": "Use the EcoCash payment flow to complete this order."}), 400
+
     # Honour the promo discount that was already validated client-side
     if promo_code and discount > 0:
         use_promo_code(promo_code)
@@ -7581,6 +7708,15 @@ def checkout_place():
         item_dtype  = "self_collect" if is_digital else delivery_type
         item_addr   = "" if is_digital else delivery_address
 
+        # Atomic guarded decrement *before* creating the order — avoids a
+        # stale stock_qty read letting two concurrent buyers both take the
+        # last unit (the old code just clamped to 0 after the fact).
+        new_qty = None
+        if not is_digital:
+            new_qty = decrement_stock_if_available(item["product_id"], item["quantity"])
+            if new_qty is None:
+                continue  # sold out since the cart was built
+
         order_id, ref, total = create_order(
             buyer_phone=buyer_phone,
             product_id=item["product_id"],
@@ -7593,8 +7729,6 @@ def checkout_place():
         is_seller_product = bool(product.get("listed_by"))
         if is_seller_product:
             update_order_status(order_id, "confirmed")
-        if not is_digital:
-            update_stock(product["id"], max(0, product["stock_qty"] - item["quantity"]))
 
         # Collect seller payment info for the success page
         seller_phone    = product.get("listed_by") or ""
@@ -7617,7 +7751,6 @@ def checkout_place():
             send_whatsapp_message(seller_phone, seller_msg)
             # Low-stock alert after web order
             if not is_digital:
-                new_qty = max(0, product["stock_qty"] - item["quantity"])
                 if 0 < new_qty <= LOW_STOCK_THRESHOLD:
                     send_whatsapp_message(
                         seller_phone,
@@ -7645,7 +7778,143 @@ def checkout_place():
     session["last_order_name"]    = buyer_name
     session["last_order_phone"]   = buyer_phone
     session["last_order_details"] = order_details
+    session["last_order_paid"]    = False
     return jsonify({"ok": True, "refs": refs})
+
+
+@app.route("/checkout/ecocash/initiate", methods=["POST"])
+def checkout_ecocash_initiate():
+    """Actually charges the buyer via Paynow before anything is created — the
+    trust-based /checkout/place path never verified EcoCash payment at all."""
+    cart_id = _get_cart_id()
+    items   = get_cart(cart_id)
+    if not items:
+        return jsonify({"ok": False, "error": "Cart is empty"}), 400
+
+    data             = request.get_json() or {}
+    buyer_name       = data.get("name", "").strip()
+    buyer_phone      = data.get("phone", "").strip()
+    delivery_type    = data.get("delivery_type", "self_collect")
+    delivery_address = data.get("delivery_address", "").strip()
+    promo_code       = data.get("promo_code", "").strip().upper()
+    discount         = float(data.get("discount", 0))
+
+    if not buyer_name or not buyer_phone:
+        return jsonify({"ok": False, "error": "Name and phone number are required."}), 400
+
+    total = round(get_cart_total(cart_id) - discount, 2)
+    if total <= 0:
+        return jsonify({"ok": False, "error": "Invalid order total."}), 400
+
+    ref    = f"TTC-{uuid.uuid4().hex[:6].upper()}"
+    result = initiate_ecocash_payment(buyer_phone, total, ref)
+    if not result["success"]:
+        return jsonify({"ok": False, "error": result.get("error", "Payment failed to initiate")}), 400
+
+    if promo_code and discount > 0:
+        use_promo_code(promo_code)
+
+    session["buyer_name"]  = buyer_name
+    session["buyer_phone"] = buyer_phone
+
+    # Snapshot the cart durably, keyed by the same reference Paynow will echo
+    # back on /paynow/result — that webhook can finalize this order on its
+    # own if the browser tab closes before polling confirms payment.
+    save_pending_cart_payment(
+        ref, buyer_phone, json.dumps(items), total,
+        delivery_type=delivery_type, delivery_address=delivery_address,
+        payment_method="EcoCash", cart_id=cart_id, poll_url=result["poll_url"],
+    )
+    return jsonify({"ok": True, "reference": ref})
+
+
+@app.route("/checkout/ecocash/status/<ref>")
+def checkout_ecocash_status(ref):
+    """Polled by the checkout page after /checkout/ecocash/initiate. Only
+    creates the order(s) once Paynow actually confirms payment."""
+    pending = get_pending_cart_payment(ref)
+    if not pending:
+        return jsonify({"ok": False, "error": "Payment not found"}), 404
+
+    if pending["status"] == "completed":
+        return jsonify({"ok": True, "status": "paid"})
+
+    if not check_paynow_status(pending["poll_url"]):
+        return jsonify({"ok": True, "status": "pending"})
+
+    # Claim it before creating anything — if the /paynow/result webhook won
+    # the race in the meantime, claim returns None and there's nothing left
+    # for us to do but report success.
+    claimed = claim_pending_cart_payment(ref)
+    if not claimed:
+        return jsonify({"ok": True, "status": "paid"})
+
+    items            = json.loads(claimed["cart_json"])
+    buyer_phone      = claimed["buyer_phone"]
+    delivery_type    = claimed["delivery_type"]
+    delivery_address = claimed["delivery_address"]
+
+    refs          = []
+    order_details = []
+    for item in items:
+        row = get_product_by_id(item["product_id"])
+        if not row:
+            continue
+        product    = dict(row)
+        is_digital = product.get("product_type") == "digital"
+        item_dtype = "self_collect" if is_digital else delivery_type
+        item_addr  = "" if is_digital else delivery_address
+
+        new_qty = None
+        if not is_digital:
+            new_qty = decrement_stock_if_available(item["product_id"], item["quantity"])
+            if new_qty is None:
+                continue  # sold out since checkout was initiated — needs manual refund/resolution
+
+        order_id, order_ref, total = create_order(
+            buyer_phone=buyer_phone,
+            product_id=item["product_id"],
+            quantity=item["quantity"],
+            unit_price=item["price"],
+            delivery_type=item_dtype,
+            delivery_address=item_addr,
+        )
+        is_seller_product = bool(product.get("listed_by"))
+        if is_seller_product:
+            update_order_status(order_id, "confirmed")
+
+        seller_phone = product.get("listed_by") or ""
+        if seller_phone:
+            unit        = product.get("stock_unit") or "pcs"
+            qty_display = "Digital" if is_digital else f"{item['quantity']} {unit}"
+            send_whatsapp_message(
+                seller_phone,
+                f"💰 *New Paid Order!* (EcoCash)\n\n"
+                f"Ref     : *{order_ref}*\n"
+                f"Item    : {product['name']}\n"
+                f"Qty     : {qty_display}  |  Revenue: ${total:.2f}\n"
+                f"Buyer   : {buyer_phone}\n\n"
+                "✅ Payment verified automatically via Paynow."
+            )
+        notify_admin(
+            f"🌐 *Web EcoCash Order* — {order_ref}\n"
+            f"Item: {product['name']}  |  ${total:.2f}\n"
+            f"Buyer: {buyer_phone}\n"
+            "✅ Payment verified automatically via Paynow."
+        )
+        refs.append(order_ref)
+        order_details.append({
+            "ref": order_ref, "product_name": product["name"], "total": total,
+            "seller_phone": seller_phone, "payment_methods": [], "is_digital": is_digital,
+        })
+
+    clear_cart(claimed["cart_id"])
+    session["last_order_refs"]    = refs
+    session["last_order_name"]    = session.get("buyer_name", "")
+    session["last_order_phone"]   = buyer_phone
+    session["last_order_details"] = order_details
+    session["last_order_paid"]    = True
+    return jsonify({"ok": True, "status": "paid"})
 
 
 @app.route("/order/success")
@@ -7654,6 +7923,7 @@ def order_success_page():
     name    = session.get("last_order_name", "")
     phone   = session.get("last_order_phone", "")
     details = session.get("last_order_details", [])
+    paid    = session.get("last_order_paid", False)
     if not refs:
         return redirect("/shop")
     return render_template(
@@ -7662,6 +7932,7 @@ def order_success_page():
         buyer_name=name,
         buyer_phone=phone,
         order_details=details,
+        paid=paid,
     )
 
 
@@ -7959,10 +8230,9 @@ def privacy_page():
 def _verify_ttech_webhook(req) -> bool:
     """
     Validate the X-Hub-Signature-256 (or X-Signature) header sent by T-Tech Connect1.
-    Returns True if secret is not configured (dev mode) or signature matches.
+    TTECH_WEBHOOK_SECRET is required at startup (see _missing_env above), so
+    this always fails closed rather than skipping when unconfigured.
     """
-    if not TTECH_WEBHOOK_SECRET:
-        return True
     sig_header = req.headers.get("X-Hub-Signature-256") or req.headers.get("X-Signature", "")
     if not sig_header:
         return False
@@ -7982,8 +8252,13 @@ def property_webhook():
         print("[TTECH WEBHOOK] Signature mismatch — rejected")
         return jsonify({"error": "Forbidden"}), 403
 
-    payload = request.get_json(silent=True) or {}
-    event   = payload.get("event", "")
+    envelope = request.get_json(silent=True) or {}
+    event    = envelope.get("event", "")
+    # _send_webhook() in the accommodation blueprint wraps the actual fields
+    # in a "data" envelope ({"event":..., "data": {...}, "timestamp":...}) —
+    # this used to read fields straight off the envelope instead, so every
+    # payload.get(...) below always returned None regardless of what was sent.
+    payload  = envelope.get("data", {})
     print(f"[TTECH WEBHOOK] event={event} payload={str(payload)[:200]}")
 
     # ── property.unavailable ─────────────────────────────────────────────────
@@ -8056,6 +8331,83 @@ def property_webhook():
             )
         return jsonify({"ok": True}), 200
 
+    # ── booking.confirmed ────────────────────────────────────────────────────
+    # Landlord accepted a tenant's booking application on T-Tech Connect1.
+    # → WhatsApp the tenant so they find out even if they never check the
+    #   web dashboard (this used to only fire an in-app notification).
+    if event == "booking.confirmed":
+        tenant_phone = payload.get("tenant_phone")
+        prop_title   = payload.get("property_title", "your property")
+        lease_start  = payload.get("lease_start", "")
+        lease_end    = payload.get("lease_end", "")
+        if tenant_phone:
+            end_line = f"\n📅 Lease ends: {lease_end}" if lease_end else ""
+            send_whatsapp_message(
+                tenant_phone,
+                f"🎉 *Booking Confirmed!*\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"🏠 {prop_title}\n"
+                f"📅 Lease starts: {lease_start}{end_line}\n\n"
+                "Your landlord has accepted your application. Contact them to "
+                "arrange move-in.\n\n"
+                "_Reply *0* for the main menu._"
+            )
+        return jsonify({"ok": True}), 200
+
+    # ── enquiry.created ──────────────────────────────────────────────────────
+    # A tenant sent a landlord an enquiry via the WhatsApp bot.
+    # → WhatsApp the landlord (the in-app notification alone is easy to miss).
+    if event == "enquiry.created":
+        landlord_phone = payload.get("landlord_phone")
+        prop_title     = payload.get("property_title", "your property")
+        name           = payload.get("name", "Someone")
+        message        = payload.get("message", "")
+        if landlord_phone:
+            note = f"\n💬 _{message}_" if message else ""
+            send_whatsapp_message(
+                landlord_phone,
+                f"📩 *New Enquiry — {prop_title}*\n\n"
+                f"{name} sent an enquiry about this property.{note}\n\n"
+                f"🔗 {TTECH_CONNECT_URL}/landlord"
+            )
+        return jsonify({"ok": True}), 200
+
+    # ── viewing.scheduled ────────────────────────────────────────────────────
+    # A tenant requested a viewing via the WhatsApp bot.
+    # → WhatsApp the landlord so they can confirm a time.
+    if event == "viewing.scheduled":
+        landlord_phone = payload.get("landlord_phone")
+        prop_title     = payload.get("property_title", "your property")
+        name           = payload.get("name", "Someone")
+        pref_date      = payload.get("preferred_date", "")
+        if landlord_phone:
+            date_note = f" on {pref_date}" if pref_date else ""
+            send_whatsapp_message(
+                landlord_phone,
+                f"📅 *Viewing Request — {prop_title}*\n\n"
+                f"{name} wants to view this property{date_note}.\n\n"
+                f"🔗 {TTECH_CONNECT_URL}/landlord"
+            )
+        return jsonify({"ok": True}), 200
+
+    # ── appointment.booked ───────────────────────────────────────────────────
+    # A tenant booked an appointment via the WhatsApp bot.
+    # → WhatsApp the landlord so they can confirm or reject it.
+    if event == "appointment.booked":
+        landlord_phone = payload.get("landlord_phone")
+        prop_title     = payload.get("property_title", "your property")
+        name           = payload.get("name", "Someone")
+        appt_date      = payload.get("appointment_date", "")
+        appt_time      = payload.get("appointment_time", "")
+        if landlord_phone:
+            send_whatsapp_message(
+                landlord_phone,
+                f"📌 *New Appointment — {prop_title}*\n\n"
+                f"{name} booked an appointment on {appt_date} {appt_time}.\n\n"
+                f"🔗 {TTECH_CONNECT_URL}/landlord"
+            )
+        return jsonify({"ok": True}), 200
+
     # ── property.new ─────────────────────────────────────────────────────────
     # A new property was listed on T-Tech Connect1.
     # → Notify newsletter subscribers searching in that city.
@@ -8103,12 +8455,14 @@ def seller_required(f):
 
 
 @app.route("/seller/login", methods=["GET", "POST"])
+@limiter.limit("5 per hour", methods=["POST"])
 def seller_login():
     if session.get("seller_phone"):
         return redirect("/seller/portal")
     if request.method == "GET":
         return render_template("seller_login.html", step="phone", error=None)
 
+    csrf.protect()  # genuine native <form> submission, not a JSON fetch API
     phone = request.form.get("phone", "").strip().replace(" ", "").replace("+", "")
     if not phone.isdigit() or len(phone) < 9:
         return render_template("seller_login.html", step="phone",
@@ -8142,14 +8496,16 @@ def seller_login():
 
 
 @app.route("/seller/verify-otp", methods=["POST"])
+@limiter.limit("10 per hour")
 def seller_verify_otp():
+    csrf.protect()  # genuine native <form> submission, not a JSON fetch API
     phone = session.get("seller_otp_phone")
     if not phone:
         return redirect("/seller/login")
     code = request.form.get("code", "").strip()
     if not verify_seller_otp(phone, code):
         return render_template("seller_login.html", step="otp",
-                               phone=phone, error="Incorrect or expired code. Try again.")
+                               phone=phone, error="Incorrect or expired code. Request a new one if you've run out of attempts.")
     session.pop("seller_otp_phone", None)
     session["seller_phone"] = phone
     return redirect("/seller/portal")
@@ -8305,7 +8661,42 @@ def seller_api_order_status(order_id):
     if not row:
         return jsonify({"ok": False, "message": "Order not found"}), 404
     update_order_status(order_id, status)
-    return jsonify({"ok": True, "message": f"Order marked {status}."})
+
+    # Same buyer notification (incl. digital download link) the admin-driven
+    # path already sends — a seller fulfilling their own order used to leave
+    # the buyer never told and never given their file.
+    contact_ph = get_setting("contact_phone", "+263 77 412 8219")
+    buyer_msgs = {
+        "confirmed": "✅ Your order has been *confirmed* and is being processed.",
+        "fulfilled": "📦 *Order Delivered!*\n\nThank you for shopping with T-Tech Connect! 🎉\n\n⭐ Reply *rate product* to leave a review.",
+        "cancelled": f"❌ Your order has been *cancelled*.\n\nContact us: 📞 {contact_ph}",
+    }
+    order = get_order(order_id)
+    if order and order["buyer_phone"]:
+        ref  = order["reference"] or str(order_id)
+        prod = get_product_by_id(order["product_id"])
+        name = prod["name"] if prod else f"Order #{order_id}"
+        if status == "fulfilled" and prod and prod.get("product_type") == "digital" and prod.get("product_file_path"):
+            token        = _make_download_token(order["buyer_phone"], order["product_id"])
+            download_url = (
+                f"{BASE_URL}/product/{order['product_id']}/download"
+                f"?phone={order['buyer_phone']}&token={token}"
+            )
+            send_whatsapp_message(
+                order["buyer_phone"],
+                f"🎉 *Your digital product is ready!*\n\n"
+                f"Order *{ref}* — *{name}*\n\n"
+                f"🔗 Download your file here:\n{download_url}\n\n"
+                "Save it as soon as possible. Thank you for your purchase! 🙏\n\n"
+                "⭐ Reply *rate product* to leave a review.\n\n"
+                "_Reply *0* for the main menu._"
+            )
+        else:
+            send_whatsapp_message(
+                order["buyer_phone"],
+                f"{buyer_msgs[status]}\n\nRef: *{ref}* — {name}\n\n_Reply *0* for the main menu._"
+            )
+    return jsonify({"ok": True, "message": f"Order marked {status}. Buyer notified."})
 
 
 @app.route("/seller/api/earnings")

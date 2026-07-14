@@ -155,9 +155,10 @@ loginForm.addEventListener('submit', async (e) => {
 });
 
 function _nativeLogin(email, password, remember) {
+  const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
   const f = document.createElement('form');
   f.method = 'POST'; f.action = '/accommodation/login';
-  [['email', email], ['password', password], ['remember', remember ? '1' : '']].forEach(([n, v]) => {
+  [['email', email], ['password', password], ['remember', remember ? '1' : ''], ['csrf_token', csrfToken]].forEach(([n, v]) => {
     const i = document.createElement('input'); i.type = 'hidden'; i.name = n; i.value = v; f.appendChild(i);
   });
   document.body.appendChild(f); f.submit();

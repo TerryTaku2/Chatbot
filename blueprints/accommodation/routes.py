@@ -8,6 +8,7 @@ import secrets
 from datetime import datetime, timedelta
 from functools import wraps
 
+import filetype
 import requests as http_requests
 from flask import (
     render_template, request, redirect, url_for, session, jsonify,
@@ -16,7 +17,7 @@ from flask import (
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
-from . import accommodation_bp, socketio, limiter
+from . import accommodation_bp, socketio, limiter, csrf
 from .db_ttech import get_db
 
 # ── Config ──────────────────────────────────────────────────────────────────
@@ -29,37 +30,24 @@ MAIL_REPLY_TO    = os.environ.get("CONTACT_EMAIL", "")
 # Same secret the chatbot side uses to call *this* blueprint's /api/* routes
 # (see app.py's TTECH_API_KEY) — one shared value now that it's one process.
 CHATBOT_API_KEY      = os.environ.get("TTECH_API_KEY", "")
-CHATBOT_BASE_URL     = os.environ.get("CHATBOT_BASE_URL", "").rstrip("/")
+# The chatbot lives in this same process now, so this is always an in-process
+# HTTP loopback to ourselves — default to BASE_URL (same self-referential
+# pattern app.py uses for TTECH_CONNECT_URL) instead of requiring a separate,
+# easy-to-forget env var. Without this defaulting, _send_webhook() below
+# silently no-op'd on every call, so none of property.unavailable /
+# appointment.confirmed / appointment.rejected / property.new / enquiry.created
+# / viewing.scheduled / appointment.booked / booking.confirmed ever actually
+# reached the chatbot side, regardless of anything else being configured.
+CHATBOT_BASE_URL     = os.environ.get("CHATBOT_BASE_URL", os.environ.get("BASE_URL", "")).rstrip("/")
 TTECH_WEBHOOK_SECRET = os.environ.get("TTECH_WEBHOOK_SECRET", "")
-
-PAYNOW_INTEGRATION_ID  = os.environ.get("PAYNOW_INTEGRATION_ID", "")
-PAYNOW_INTEGRATION_KEY = os.environ.get("PAYNOW_INTEGRATION_KEY", "")
-PAYNOW_RESULT_URL      = os.environ.get("PAYNOW_RESULT_URL", "")
-ECOCASH_MERCHANT       = "0774128219"
 
 # Shared with app.py's own /cron/* endpoints — same secret, same convention
 # (external scheduler hits these over HTTP; no in-process scheduler).
 CRON_SECRET = os.environ.get("CRON_SECRET", "")
 
 
-def get_paynow():
-    if not PAYNOW_INTEGRATION_ID or not PAYNOW_INTEGRATION_KEY:
-        return None
-    try:
-        from paynow import Paynow
-        # Paynow's constructor is (integration_id, integration_key, return_url,
-        # result_url) — result_url is the one Paynow actually requires (it's
-        # the server-to-server status callback). We don't have a browser
-        # redirect step for mobile push payments, so return_url is left blank.
-        result_url = PAYNOW_RESULT_URL or f"{request.url_root.rstrip('/')}/paynow/result"
-        return Paynow(PAYNOW_INTEGRATION_ID, PAYNOW_INTEGRATION_KEY,
-                      "", result_url)
-    except ImportError as e:
-        print(f"[PAYNOW IMPORT ERROR] {e}")
-        return None
-
-
-ALLOWED_EXT   = {"jpg", "jpeg", "png", "webp"}
+ALLOWED_EXT     = {"jpg", "jpeg", "png", "webp"}
+MAX_IMAGE_BYTES = 5 * 1024 * 1024  # 5 MB per image, matches the shop's own save_image()
 DATA_DIR      = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "static"))
 UPLOAD_FOLDER = os.path.join(DATA_DIR, "uploads", "properties")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -140,7 +128,12 @@ def _send_webhook(event_type, payload):
             data=body,
             headers={
                 "Content-Type": "application/json",
-                "X-Webhook-Signature": f"sha256={sig}",
+                # Must match one of the header names _verify_ttech_webhook()
+                # in app.py checks for (X-Hub-Signature-256 / X-Signature) —
+                # this used to send X-Webhook-Signature, which matched
+                # neither, so every webhook was rejected with 403 regardless
+                # of whether the secret or CHATBOT_BASE_URL were configured.
+                "X-Hub-Signature-256": f"sha256={sig}",
             },
             timeout=5,
         )
@@ -304,13 +297,16 @@ def _hard_delete_user(conn, uid):
     conn.execute("DELETE FROM notifications WHERE user_id=?", (uid,))
     conn.execute("DELETE FROM maintenance_requests WHERE tenant_id=?", (uid,))
     conn.execute("DELETE FROM saved_properties WHERE tenant_id=?", (uid,))
+    conn.execute("DELETE FROM phone_otps WHERE user_id=?", (uid,))
 
     conn.execute("DELETE FROM users WHERE id=?", (uid,))
 
 
 def _purge_deleted_users():
     """Hard-deletes soft-deleted users past the configured retention window.
-    Returns how many were purged."""
+    Each user is purged in its own connection/transaction so a failure on
+    one row (an unexpected FK, a lock, etc.) can't roll back or block every
+    other user in the same batch. Returns how many were purged."""
     days = get_user_purge_after_days()
     if days <= 0:
         return 0
@@ -320,9 +316,15 @@ def _purge_deleted_users():
             "SELECT id FROM users WHERE is_active=0 AND deleted_at IS NOT NULL AND deleted_at < ?",
             (cutoff,)
         ).fetchall()
-        for r in rows:
-            _hard_delete_user(conn, r["id"])
-    return len(rows)
+    purged = 0
+    for r in rows:
+        try:
+            with get_db() as conn:
+                _hard_delete_user(conn, r["id"])
+            purged += 1
+        except Exception as e:
+            print(f"[PURGE ERROR] Failed to hard-delete user {r['id']}: {e}")
+    return purged
 
 
 def get_pass_expiry(student_id):
@@ -408,14 +410,20 @@ def _save_images(property_id, files):
         for f in files:
             if not f or not f.filename:
                 continue
-            ext = f.filename.rsplit(".", 1)[-1].lower() if "." in f.filename else ""
-            if ext not in ALLOWED_EXT:
-                continue
             if count >= 10:
                 break
-            filename = f"{uuid.uuid4().hex}.{ext}"
+            # Trust the file's actual bytes, not the client-supplied filename
+            # extension — matches the shop's own save_image() in app.py.
+            data = f.read()
+            if len(data) > MAX_IMAGE_BYTES:
+                continue
+            kind = filetype.guess(data)
+            if kind is None or kind.extension not in ALLOWED_EXT:
+                continue
+            filename = f"{uuid.uuid4().hex}.{kind.extension}"
             try:
-                f.save(os.path.join(UPLOAD_FOLDER, filename))
+                with open(os.path.join(UPLOAD_FOLDER, filename), "wb") as out:
+                    out.write(data)
                 is_primary = 1 if (first and not has_cover) else 0
                 conn.execute(
                     "INSERT INTO property_images (property_id, filename, is_primary) VALUES (?,?,?)",
@@ -431,6 +439,10 @@ def _save_images(property_id, files):
 
 
 def _save_property(pid):
+    # Genuine multipart <form> submission (property_form.html), not a JSON
+    # fetch API — the real forgeable CSRF surface the app's CSRFProtect
+    # instance was configured for but never actually applied to.
+    csrf.protect()
     f = request.form
     errors = {}
     title         = f.get("title", "").strip()
@@ -546,6 +558,8 @@ def index():
 def register():
     if "user_id" in session:
         return jsonify({"success": False, "error": "Already logged in"}), 400
+    if not request.is_json:
+        csrf.protect()  # closes the classic-form-post fallback this endpoint also accepts
 
     data      = request.get_json() if request.is_json else request.form
     full_name = (data.get("full_name") or "").strip()
@@ -616,6 +630,7 @@ def login():
             password   = data.get("password", "")
             remember   = data.get("remember", False)
         else:
+            csrf.protect()  # real native <form> fallback path, not the JS/JSON flow
             identifier = request.form.get("email", "").strip()
             password   = request.form.get("password", "")
             remember   = bool(request.form.get("remember"))
@@ -869,6 +884,8 @@ def logout():
 @login_required
 def change_password():
     if request.method == "POST":
+        if not request.is_json:
+            csrf.protect()  # closes the classic-form-post fallback this endpoint also accepts
         data = request.get_json(silent=True) or request.form
         current_pw  = (data.get("current_password") or "").strip()
         new_pw      = (data.get("new_password") or "").strip()
@@ -1209,6 +1226,8 @@ def reset_password(token):
         return redirect(url_for("accommodation.forgot_password"))
 
     if request.method == "POST":
+        if not request.is_json:
+            csrf.protect()  # real native <form> submission on this page, not a JSON fetch API
         data     = request.get_json() if request.is_json else request.form
         password = data.get("password") or ""
         confirm  = data.get("confirm_password") or ""
@@ -1397,146 +1416,34 @@ def pay_commission(pid):
     amount = get_connect_fee_price()
     with get_db() as conn:
         conn.execute(
-            """INSERT INTO payments (student_id, property_id, amount, currency, reference)
-               VALUES (?,?,?,?,?)""",
+            """INSERT INTO payments (student_id, property_id, amount, currency, reference, verified)
+               VALUES (?,?,?,?,?,0)""",
             (uid, pid, amount, prop["currency"], f"[{method.lower()}] {reference}")
         )
         conn.commit()
-        landlord_row = conn.execute(
-            "SELECT landlord_id, title FROM properties WHERE id=?", (pid,)
-        ).fetchone()
         student_name = conn.execute("SELECT full_name FROM users WHERE id=?", (uid,)).fetchone()
-    grant_pass(uid)
-    if landlord_row and student_name:
+        admin_ids = [r["id"] for r in conn.execute(
+            "SELECT id FROM users WHERE role='admin' AND is_active=1"
+        ).fetchall()]
+
+    # Self-reported payments (cash/bank/card/EcoCash/manual reference) aren't
+    # checked against any gateway — the Paynow-verified EcoCash push flow was
+    # removed since it wasn't working reliably, so every Connect Fee payment
+    # now goes through this admin-verification queue before the pass is granted.
+    for admin_id in admin_ids:
         _notify(
-            landlord_row["landlord_id"], "commission_paid",
-            f'Connect fee received for {landlord_row["title"]}',
-            f'{student_name["full_name"]} has paid the viewing connect fee.',
-            f"/accommodation/landlord/property/{pid}"
+            admin_id, "payment_verification_needed",
+            "Connect fee payment needs verification",
+            f'{student_name["full_name"] if student_name else "A student"} submitted a '
+            f'{method.lower()} payment (ref: {reference}) for property #{pid} — review before granting access.',
+            "/accommodation/admin/payments"
         )
-    return jsonify({"success": True})
-
-
-@accommodation_bp.route("/property/<int:pid>/ecocash-initiate", methods=["POST"])
-@login_required
-def ecocash_initiate(pid):
-    uid = session["user_id"]
-    if session.get("user_role") not in ("student", "admin"):
-        return jsonify({"error": "Only tenants can initiate payment"}), 403
-
-    if has_paid(uid, pid):
-        return jsonify({"success": True, "already_paid": True})
-
-    with get_db() as conn:
-        # Not scoped to this property — a pass purchase started from any
-        # property page is the same pending purchase for this tenant.
-        existing_req = conn.execute(
-            "SELECT id FROM payment_requests WHERE student_id=? AND status='pending'",
-            (uid,)
-        ).fetchone()
-    if existing_req:
-        return jsonify({"success": True, "request_id": existing_req["id"], "already_pending": True})
-
-    data  = request.get_json() or {}
-    phone = data.get("phone", "").strip().replace(" ", "").replace("-", "")
-
-    if phone.startswith("+263"):
-        phone = "0" + phone[4:]
-    elif phone.startswith("263"):
-        phone = "0" + phone[3:]
-
-    if not re.match(r"^07[78]\d{7}$", phone):
-        return jsonify({"error": "Please enter a valid EcoCash number (077XXXXXXX or 078XXXXXXX)"}), 400
-
-    with get_db() as conn:
-        prop = conn.execute(
-            "SELECT title, price_per_month, currency FROM properties WHERE id=? AND is_active=1", (pid,)
-        ).fetchone()
-    if not prop:
-        return jsonify({"error": "Property not found"}), 404
-
-    pn = get_paynow()
-    if not pn:
-        return jsonify({"error": "EcoCash payments are not configured. Ask admin to set PAYNOW_INTEGRATION_ID and PAYNOW_INTEGRATION_KEY."}), 503
-
-    amount     = get_connect_fee_price()
-    request_id = str(uuid.uuid4())
-
-    payment = pn.create_payment(f"TTC-{request_id[:8]}", session.get("user_email", ""))
-    payment.add(f"Connect Fee ({get_connect_fee_duration_days()}-day pass)", amount)
-
-    try:
-        response = pn.send_mobile(payment, phone, "ecocash")
-    except Exception as e:
-        return jsonify({"error": f"Could not reach payment gateway: {str(e)}"}), 502
-
-    if not response.success:
-        err = (response.data or {}).get("error") or "EcoCash payment failed to initiate"
-        return jsonify({"error": str(err)}), 400
-
-    with get_db() as conn:
-        conn.execute(
-            """INSERT INTO payment_requests (id, student_id, property_id, amount, currency, phone, poll_url)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (request_id, uid, pid, amount, prop["currency"], phone, response.poll_url)
-        )
-        conn.commit()
-
-    return jsonify({"success": True, "request_id": request_id})
-
-
-@accommodation_bp.route("/property/<int:pid>/payment-status/<req_id>")
-@login_required
-def check_payment_status(pid, req_id):
-    uid = session["user_id"]
-
-    with get_db() as conn:
-        req = conn.execute(
-            "SELECT * FROM payment_requests WHERE id=? AND student_id=? AND property_id=?",
-            (req_id, uid, pid)
-        ).fetchone()
-
-    if not req:
-        return jsonify({"error": "Request not found"}), 404
-
-    if req["status"] == "paid":
-        return jsonify({"status": "paid"})
-
-    pn = get_paynow()
-    if not pn:
-        return jsonify({"error": "Payment system unavailable"}), 503
-
-    try:
-        status = pn.check_transaction_status(req["poll_url"])
-    except Exception:
-        return jsonify({"status": "pending"})
-
-    if status.paid:
-        with get_db() as conn:
-            conn.execute("UPDATE payment_requests SET status='paid' WHERE id=?", (req_id,))
-            conn.execute(
-                """INSERT INTO payments (student_id, property_id, amount, currency, reference)
-                   VALUES (?,?,?,?,?)""",
-                (uid, pid, req["amount"], req["currency"], f'[EcoCash] {req["phone"]}')
-            )
-            conn.commit()
-            prop = conn.execute(
-                "SELECT title, landlord_id FROM properties WHERE id=?", (pid,)
-            ).fetchone()
-            student_name = conn.execute(
-                "SELECT full_name FROM users WHERE id=?", (uid,)
-            ).fetchone()
-        grant_pass(uid)
-        if prop and student_name:
-            _notify(
-                prop["landlord_id"], "commission_paid",
-                f'Connect fee received for {prop["title"]}',
-                f'{student_name["full_name"]} has paid the viewing connect fee and wants to contact you.',
-                f"/accommodation/landlord/property/{pid}"
-            )
-        return jsonify({"status": "paid"})
-
-    return jsonify({"status": req["status"] or "pending"})
+    return jsonify({
+        "success": True,
+        "pending_verification": True,
+        "message": "Thanks — your payment reference has been submitted and is awaiting verification. "
+                    "You'll get access as soon as an admin confirms it."
+    })
 
 
 @accommodation_bp.route("/landlord/property/<int:pid>")
@@ -1592,6 +1499,7 @@ def property_view(pid):
 @accommodation_bp.route("/property/<int:pid>/review", methods=["POST"])
 @login_required
 def submit_review(pid):
+    csrf.protect()  # genuine native <form> submission, not a JSON fetch API
     uid  = session["user_id"]
     role = session.get("user_role")
     if role != "student":
@@ -1956,6 +1864,7 @@ def api_create_enquiry():
         )
         enquiry_id = cur.fetchone()["id"]
         conn.commit()
+        landlord = conn.execute("SELECT phone FROM users WHERE id=?", (prop["landlord_id"],)).fetchone()
 
     _send_webhook("enquiry.created", {
         "enquiry_id": enquiry_id,
@@ -1965,6 +1874,7 @@ def api_create_enquiry():
         "email": email,
         "phone": phone,
         "message": message,
+        "landlord_phone": landlord["phone"] if landlord else "",
     })
     _notify(
         prop["landlord_id"], "enquiry",
@@ -2002,6 +1912,7 @@ def api_create_viewing():
         )
         viewing_id = cur.fetchone()["id"]
         conn.commit()
+        landlord = conn.execute("SELECT phone FROM users WHERE id=?", (prop["landlord_id"],)).fetchone()
 
     _send_webhook("viewing.scheduled", {
         "viewing_id": viewing_id,
@@ -2012,6 +1923,7 @@ def api_create_viewing():
         "phone": phone,
         "preferred_date": preferred_date,
         "preferred_time": preferred_time,
+        "landlord_phone": landlord["phone"] if landlord else "",
     })
     _notify(
         prop["landlord_id"], "viewing_request",
@@ -2050,6 +1962,7 @@ def api_create_appointment():
         )
         appointment_id = cur.fetchone()["id"]
         conn.commit()
+        landlord = conn.execute("SELECT phone FROM users WHERE id=?", (prop["landlord_id"],)).fetchone()
 
     _send_webhook("appointment.booked", {
         "appointment_id": appointment_id,
@@ -2061,6 +1974,7 @@ def api_create_appointment():
         "appointment_date": appointment_date,
         "appointment_time": appointment_time,
         "type": appt_type,
+        "landlord_phone": landlord["phone"] if landlord else "",
     })
     _notify(
         prop["landlord_id"], "appointment",
@@ -2261,7 +2175,7 @@ def booking_accept(bid):
         )
         conn.commit()
 
-        tenant_name = conn.execute("SELECT full_name FROM users WHERE id=?", (booking["tenant_id"],)).fetchone()
+        tenant_row = conn.execute("SELECT full_name, phone FROM users WHERE id=?", (booking["tenant_id"],)).fetchone()
 
     _notify(
         booking["tenant_id"], "booking_accepted",
@@ -2273,7 +2187,8 @@ def booking_accept(bid):
         "booking_id": bid,
         "property_id": booking["property_id"],
         "property_title": prop["title"],
-        "tenant_name": tenant_name["full_name"] if tenant_name else "",
+        "tenant_name": tenant_row["full_name"] if tenant_row else "",
+        "tenant_phone": tenant_row["phone"] if tenant_row else "",
         "lease_start": lease_start,
         "lease_end": lease_end,
     })
@@ -2746,8 +2661,8 @@ def admin_dashboard():
               (SELECT COUNT(*) FROM users WHERE role='landlord' AND is_active=1)         AS landlords,
               (SELECT COUNT(*) FROM properties WHERE is_active=1)                        AS total_props,
               (SELECT COUNT(*) FROM properties WHERE status='available' AND is_active=1) AS avail_props,
-              (SELECT COALESCE(SUM(amount),0) FROM payments)                             AS total_revenue,
-              (SELECT COUNT(*) FROM payments)                                            AS total_payments,
+              (SELECT COALESCE(SUM(amount),0) FROM payments WHERE verified=1)             AS total_revenue,
+              (SELECT COUNT(*) FROM payments WHERE verified=1)                            AS total_payments,
               (SELECT COALESCE(SUM(price_per_month),0) FROM properties WHERE is_active=1) AS total_monthly_rent
         """).fetchone()
 
@@ -2763,7 +2678,7 @@ def admin_dashboard():
         """).fetchall()
 
         recent_payments = conn.execute("""
-            SELECT pay.amount,pay.currency,pay.reference,pay.paid_at,
+            SELECT pay.amount,pay.currency,pay.reference,pay.paid_at,pay.verified,
                    u.full_name AS student_name, p.title AS property_title
             FROM payments pay
             JOIN users u ON pay.student_id=u.id
@@ -2905,7 +2820,11 @@ def cron_purge_deleted_users():
     convention as app.py's top-level /cron/* endpoints."""
     if CRON_SECRET and request.headers.get("X-Cron-Secret") != CRON_SECRET:
         return jsonify({"error": "Unauthorized"}), 401
-    purged = _purge_deleted_users()
+    try:
+        purged = _purge_deleted_users()
+    except Exception as e:
+        print(f"[PURGE ERROR] purge run failed: {e}")
+        return jsonify({"error": "Purge run failed", "status": "error"}), 500
     return jsonify({"purged": purged, "status": "ok"}), 200
 
 
@@ -2950,7 +2869,7 @@ def admin_property_delete(pid):
 def admin_payments():
     with get_db() as conn:
         payments = conn.execute("""
-            SELECT pay.id,pay.amount,pay.currency,pay.reference,pay.paid_at,
+            SELECT pay.id,pay.student_id,pay.amount,pay.currency,pay.reference,pay.paid_at,pay.verified,
                    u.full_name AS student_name, u.email AS student_email,
                    p.title AS property_title, p.id AS property_id,
                    lu.full_name AS landlord_name
@@ -2958,10 +2877,49 @@ def admin_payments():
             JOIN users u  ON pay.student_id=u.id
             JOIN properties p ON pay.property_id=p.id
             JOIN users lu ON p.landlord_id=lu.id
-            ORDER BY pay.paid_at DESC
+            ORDER BY pay.verified ASC, pay.paid_at DESC
         """).fetchall()
+        # Unverified self-reported claims aren't confirmed money yet, so they
+        # don't count toward revenue until an admin verifies them.
         total_revenue = conn.execute(
-            "SELECT COALESCE(SUM(amount),0) AS t FROM payments"
+            "SELECT COALESCE(SUM(amount),0) AS t FROM payments WHERE verified=1"
         ).fetchone()["t"]
     return render_template("accommodation/admin_payments.html", payments=payments,
                            total_revenue=total_revenue, **_admin_common())
+
+
+@accommodation_bp.route("/admin/payments/<int:payment_id>/verify", methods=["POST"])
+@admin_required
+def admin_payment_verify(payment_id):
+    with get_db() as conn:
+        pay = conn.execute(
+            "SELECT student_id, property_id, verified FROM payments WHERE id=?", (payment_id,)
+        ).fetchone()
+        if not pay:
+            return jsonify({"error": "Payment not found"}), 404
+        if pay["verified"]:
+            return jsonify({"success": True, "already_verified": True})
+        conn.execute("UPDATE payments SET verified=1 WHERE id=?", (payment_id,))
+        conn.commit()
+        prop = conn.execute(
+            "SELECT title, landlord_id FROM properties WHERE id=?", (pay["property_id"],)
+        ).fetchone()
+        student_name = conn.execute(
+            "SELECT full_name FROM users WHERE id=?", (pay["student_id"],)
+        ).fetchone()
+
+    grant_pass(pay["student_id"])
+    _notify(
+        pay["student_id"], "commission_paid",
+        "Connect fee payment verified",
+        "Your payment has been verified and your connect fee pass is now active.",
+        "/accommodation/browse"
+    )
+    if prop and student_name:
+        _notify(
+            prop["landlord_id"], "commission_paid",
+            f'Connect fee received for {prop["title"]}',
+            f'{student_name["full_name"]} has paid the viewing connect fee.',
+            f'/accommodation/landlord/property/{pay["property_id"]}'
+        )
+    return jsonify({"success": True})

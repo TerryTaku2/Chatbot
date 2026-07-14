@@ -185,7 +185,7 @@
         <a href="/accommodation/admin/payments" class="admin-panel-link">View all</a>
       </div>
       <table class="admin-table">
-        <thead><tr><th>Tenant</th><th>Property</th><th>Amount</th><th>Reference</th><th>Date</th></tr></thead>
+        <thead><tr><th>Tenant</th><th>Property</th><th>Amount</th><th>Reference</th><th>Date</th><th>Status</th></tr></thead>
         <tbody>
           {% for pay in recent_payments %}
           <tr>
@@ -194,9 +194,16 @@
             <td class="cell-price">{{ pay.currency }} {{ "%.2f"|format(pay.amount) }}</td>
             <td class="cell-muted">{{ pay.reference or '—' }}</td>
             <td class="cell-muted">{{ pay.paid_at[:10] if pay.paid_at else '—' }}</td>
+            <td>
+              {% if pay.verified %}
+              <span class="status-badge status-available">Verified</span>
+              {% else %}
+              <span class="status-badge status-partial">Pending review</span>
+              {% endif %}
+            </td>
           </tr>
           {% else %}
-          <tr><td colspan="5" class="cell-empty">No payments yet.</td></tr>
+          <tr><td colspan="6" class="cell-empty">No payments yet.</td></tr>
           {% endfor %}
         </tbody>
       </table>

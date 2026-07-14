@@ -184,6 +184,7 @@
     </div>
 
     <form method="POST" action="/register" enctype="multipart/form-data" id="regForm">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
       <!-- ── Personal & business info ── -->
       <div class="field">

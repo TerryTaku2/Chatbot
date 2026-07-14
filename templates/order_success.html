@@ -103,7 +103,11 @@
   <div class="success-title">Order Placed! 🎉</div>
   <div class="success-sub">
     Thank you{% if buyer_name %}, <strong>{{ buyer_name }}</strong>{% endif %}!<br/>
+    {% if paid %}
+    ✅ Your EcoCash payment was verified with Paynow — no further payment needed.
+    {% else %}
     Your order is confirmed, complete payment below to proceed.
+    {% endif %}
   </div>
 </div>
 
@@ -133,6 +137,7 @@
       <span class="card-head-title">What happens next?</span>
     </div>
     <div class="steps-list">
+      {% if not paid %}
       <div class="step-row">
         <div class="step-num">1</div>
         <div class="step-text"><strong>Complete payment</strong> using one of the methods below. Include your order reference.</div>
@@ -141,14 +146,16 @@
         <div class="step-num">2</div>
         <div class="step-text"><strong>Send proof of payment</strong> to the seller on WhatsApp so they can confirm quickly.</div>
       </div>
+      {% endif %}
       <div class="step-row">
-        <div class="step-num">3</div>
-        <div class="step-text"><strong>Arrange collection or delivery</strong> directly with the seller after payment confirmation.</div>
+        <div class="step-num">{{ '1' if paid else '3' }}</div>
+        <div class="step-text"><strong>Arrange collection or delivery</strong> directly with the seller{{ '' if paid else ' after payment confirmation' }}.</div>
       </div>
     </div>
   </div>
 
   <!-- Payment instructions per order -->
+  {% if not paid %}
   <div class="card">
     <div class="card-head">
       <span class="card-head-icon">💳</span>
@@ -228,6 +235,7 @@
     </div>
     {% endfor %}
   </div>
+  {% endif %}
 
   <!-- CTA -->
   <a href="/shop" class="btn-shop">🏪 Continue Shopping</a>

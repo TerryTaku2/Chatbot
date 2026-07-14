@@ -61,6 +61,7 @@
     <div class="step-title">Sign in to your store</div>
     <p class="step-sub">Enter your registered WhatsApp number and we'll send you a one-time code.</p>
     <form method="POST" action="/seller/login">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
       <label for="phone">WhatsApp Number</label>
       <input type="tel" id="phone" name="phone" placeholder="e.g. 0774128219"
              autocomplete="tel" required autofocus/>
@@ -76,6 +77,7 @@
       📱 A 6-digit code has been sent to your WhatsApp number <strong>+{{ phone }}</strong>.
     </div>
     <form method="POST" action="/seller/verify-otp">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
       <label for="code">One-Time Code</label>
       <input type="text" id="code" name="code" class="otp-input"
              placeholder="••••••" maxlength="6" pattern="\d{6}"

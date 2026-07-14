@@ -218,7 +218,7 @@ function searchUsers(q) {
   results.innerHTML = '<div style="text-align:center;padding:1.5rem;color:#9ca3af;font-size:.875rem">Searching…</div>';
   userSearchTimer = setTimeout(async () => {
     try {
-      const res   = await fetch('/api/users/search?q=' + encodeURIComponent(q.trim()));
+      const res   = await fetch('/accommodation/api/users/search?q=' + encodeURIComponent(q.trim()));
       const users = await res.json();
       if (!users.length) {
         results.innerHTML = '<div style="text-align:center;padding:2rem;color:#9ca3af;font-size:.875rem">No users found.</div>';

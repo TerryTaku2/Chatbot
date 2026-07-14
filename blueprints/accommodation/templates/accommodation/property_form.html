@@ -61,6 +61,7 @@
     </div>
 
     <form id="property-form" method="POST" action="" enctype="multipart/form-data" novalidate>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
 
       <!-- ── SECTION 1: Basic Info ────────────────────────────────── -->
       <div class="form-section" id="section-basic">

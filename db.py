@@ -519,9 +519,41 @@ def init_db():
         CREATE TABLE IF NOT EXISTS seller_otps (
             phone      TEXT PRIMARY KEY,
             code       TEXT NOT NULL,
-            expires_at TEXT NOT NULL
+            expires_at TEXT NOT NULL,
+            attempts   INTEGER DEFAULT 0
         )
     """)
+    cursor.execute("ALTER TABLE seller_otps ADD COLUMN IF NOT EXISTS attempts INTEGER DEFAULT 0")
+
+    # Durable record of a cart snapshot at EcoCash-checkout time, keyed by the
+    # same reference Paynow echoes back on /paynow/result. Without this, order
+    # creation depended entirely on the buyer replying "paid" in a WhatsApp
+    # session that expires after 30 minutes — a real, gateway-confirmed
+    # payment could otherwise leave no order at all. Whichever of the two
+    # paths (buyer's "paid" reply, or the Paynow webhook) gets there first
+    # claims the row via the status flip below; the other becomes a no-op.
+    cursor.execute(f"""
+        CREATE TABLE IF NOT EXISTS pending_cart_payments (
+            reference        TEXT PRIMARY KEY,
+            buyer_phone      TEXT NOT NULL,
+            cart_id          TEXT NOT NULL,
+            cart_json        TEXT NOT NULL,
+            total            DOUBLE PRECISION NOT NULL,
+            delivery_type    TEXT DEFAULT 'self_collect',
+            delivery_address TEXT DEFAULT '',
+            payment_method   TEXT DEFAULT 'EcoCash',
+            poll_url         TEXT,
+            status           TEXT DEFAULT 'pending',
+            created_at       TEXT DEFAULT {NOW_SQL}
+        )
+    """)
+    # cart_id is the key the cart was actually stored under — the buyer's own
+    # phone for the WhatsApp flow, but a synthetic per-browser-session id for
+    # anonymous web checkout, where it can differ from buyer_phone. Needed so
+    # the pending-payment fallback path clears the right cart row.
+    cursor.execute("ALTER TABLE pending_cart_payments ADD COLUMN IF NOT EXISTS cart_id TEXT")
+    cursor.execute("UPDATE pending_cart_payments SET cart_id = buyer_phone WHERE cart_id IS NULL")
+    cursor.execute("ALTER TABLE pending_cart_payments ADD COLUMN IF NOT EXISTS poll_url TEXT")
 
     cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS seller_expenses (
@@ -622,15 +654,18 @@ def get_pending_sellers():
 
 # ── Seller OTP (portal login) ─────────────────────────────────────────────────
 
+SELLER_OTP_MAX_ATTEMPTS = 5
+
+
 def create_seller_otp(phone):
     """Generate a 6-digit OTP valid for 10 minutes. Returns the code."""
-    import random
-    code    = str(random.randint(100000, 999999))
+    import secrets
+    code    = "".join(secrets.choice("0123456789") for _ in range(6))
     expires = (datetime.utcnow() + timedelta(minutes=10)).isoformat()
     conn    = get_connection()
     conn.execute(
-        "INSERT INTO seller_otps(phone, code, expires_at) VALUES(?,?,?) "
-        "ON CONFLICT(phone) DO UPDATE SET code=excluded.code, expires_at=excluded.expires_at",
+        "INSERT INTO seller_otps(phone, code, expires_at, attempts) VALUES(?,?,?,0) "
+        "ON CONFLICT(phone) DO UPDATE SET code=excluded.code, expires_at=excluded.expires_at, attempts=0",
         (phone, code, expires)
     )
     conn.commit()
@@ -639,22 +674,29 @@ def create_seller_otp(phone):
 
 
 def verify_seller_otp(phone, code):
-    """Return True if code matches and has not expired, then delete it."""
+    """Return True if code matches and has not expired and the attempt cap
+    hasn't been hit, then delete it. Every wrong guess counts against the
+    cap so the code can't be brute-forced."""
     conn = get_connection()
     row  = conn.execute(
-        "SELECT code, expires_at FROM seller_otps WHERE phone=?", (phone,)
+        "SELECT code, expires_at, attempts FROM seller_otps WHERE phone=?", (phone,)
     ).fetchone()
-    conn.close()
     if not row:
+        conn.close()
+        return False
+    if row["attempts"] >= SELLER_OTP_MAX_ATTEMPTS or datetime.utcnow() > datetime.fromisoformat(row["expires_at"]):
+        conn.execute("DELETE FROM seller_otps WHERE phone=?", (phone,))
+        conn.commit()
+        conn.close()
         return False
     if row["code"] != code:
+        conn.execute("UPDATE seller_otps SET attempts = attempts + 1 WHERE phone=?", (phone,))
+        conn.commit()
+        conn.close()
         return False
-    if datetime.utcnow() > datetime.fromisoformat(row["expires_at"]):
-        return False
-    conn2 = get_connection()
-    conn2.execute("DELETE FROM seller_otps WHERE phone=?", (phone,))
-    conn2.commit()
-    conn2.close()
+    conn.execute("DELETE FROM seller_otps WHERE phone=?", (phone,))
+    conn.commit()
+    conn.close()
     return True
 
 
@@ -785,6 +827,77 @@ def update_stock(product_id, new_qty):
     conn.execute("UPDATE products SET stock_qty = ? WHERE id = ?", (new_qty, product_id))
     conn.commit()
     conn.close()
+
+
+def decrement_stock_if_available(product_id, quantity):
+    """Atomically decrements stock only if enough is still available, guarding
+    against two concurrent buyers of the last unit both passing a stale
+    Python-side check. Returns the new stock_qty on success, or None if there
+    wasn't enough stock left (caller should treat that as sold out)."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """UPDATE products SET stock_qty = stock_qty - ?
+           WHERE id = ? AND stock_qty >= ? RETURNING stock_qty""",
+        (quantity, product_id, quantity)
+    )
+    row = cursor.fetchone()
+    conn.commit()
+    conn.close()
+    return row["stock_qty"] if row else None
+
+
+def save_pending_cart_payment(reference, buyer_phone, cart_json, total,
+                               delivery_type="self_collect", delivery_address="",
+                               payment_method="EcoCash", cart_id=None, poll_url=None):
+    """Snapshots the cart at EcoCash-checkout time so /paynow/result can create
+    the order even if the buyer never replies "paid" (or their session
+    expires first). cart_id defaults to buyer_phone (how the WhatsApp cart is
+    keyed); pass it explicitly for the web checkout, where the cart is keyed
+    by a synthetic per-browser-session id instead."""
+    conn = get_connection()
+    conn.execute(
+        """INSERT INTO pending_cart_payments
+               (reference, buyer_phone, cart_id, cart_json, total, delivery_type,
+                delivery_address, payment_method, poll_url)
+           VALUES (?,?,?,?,?,?,?,?,?)
+           ON CONFLICT (reference) DO NOTHING""",
+        (reference, buyer_phone, cart_id or buyer_phone, cart_json, total,
+         delivery_type, delivery_address, payment_method, poll_url)
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_pending_cart_payment(reference):
+    """Read-only lookup — does not claim the row. Used to tell 'never existed'
+    apart from 'already claimed by the other path' when deciding whether to
+    fall back to a generic notification."""
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT * FROM pending_cart_payments WHERE reference=?", (reference,)
+    ).fetchone()
+    conn.close()
+    return row
+
+
+def claim_pending_cart_payment(reference):
+    """Atomically flips a pending cart payment to 'completed' and returns the
+    row — but only the first caller to reach this wins. Whichever of the
+    buyer's WhatsApp "paid" reply or the Paynow webhook gets here first
+    creates the order; the other sees no row and does nothing, so the order
+    is never created twice."""
+    conn   = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """UPDATE pending_cart_payments SET status='completed'
+           WHERE reference=? AND status='pending' RETURNING *""",
+        (reference,)
+    )
+    row = cursor.fetchone()
+    conn.commit()
+    conn.close()
+    return row
 
 
 def get_all_products():
