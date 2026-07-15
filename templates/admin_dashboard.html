@@ -890,6 +890,11 @@ function sellerActions(s) {
   if (s.status !== 'approved')  html += `<button class="btn btn-approve" onclick="sellerAction('approve','${s.phone}','${escQ(s.name)}')">✅ Approve</button>`;
   if (s.status !== 'rejected')  html += `<button class="btn btn-reject"  onclick="sellerAction('reject', '${s.phone}','${escQ(s.name)}')">❌ Reject</button>`;
   if (s.status !== 'suspended') html += `<button class="btn btn-suspend" onclick="sellerAction('suspend','${s.phone}','${escQ(s.name)}')">⚠️ Suspend</button>`;
+  if (['approved','rejected','suspended'].includes(s.status))
+    html += `<button class="btn btn-view" onclick="sellerAction('resend-notification','${s.phone}','${escQ(s.name)}')">🔁 Resend</button>`;
+  html += s.is_official
+    ? `<button class="btn btn-view" onclick="sellerAction('unofficial','${s.phone}','${escQ(s.name)}')">🏢 Unmark Official</button>`
+    : `<button class="btn btn-view" onclick="sellerAction('official','${s.phone}','${escQ(s.name)}')">🏢 Mark Official</button>`;
   return html;
 }
 
@@ -913,6 +918,15 @@ async function sellerAction(action, phone, name) {
       const reason = prompt(`Reason for rejecting ${name} (leave blank for none):`);
       if (reason === null) return;
       const res = await api('/admin/api/seller/reject', 'POST', { phone, reason });
+      toast(res.message, res.ok);
+    } else if (action === 'official' || action === 'unofficial') {
+      const makeOfficial = action === 'official';
+      const confirmed = confirm(`${makeOfficial ? 'Mark' : 'Unmark'} ${name} as the official T-Tech Connect seller account?`);
+      if (!confirmed) return;
+      const res = await api('/admin/api/seller/set-official', 'POST', { phone, official: makeOfficial });
+      toast(res.message, res.ok);
+    } else if (action === 'resend-notification') {
+      const res = await api('/admin/api/seller/resend-notification', 'POST', { phone });
       toast(res.message, res.ok);
     } else {
       const confirmed = confirm(`${action.charAt(0).toUpperCase()+action.slice(1)} ${name}?`);

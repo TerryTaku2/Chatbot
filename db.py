@@ -646,6 +646,13 @@ def set_seller_status(phone, status):
     conn.close()
 
 
+def set_seller_official(phone, is_official):
+    conn = get_connection()
+    conn.execute("UPDATE sellers SET is_official = ? WHERE phone = ?", (int(bool(is_official)), phone))
+    conn.commit()
+    conn.close()
+
+
 def get_pending_sellers():
     conn = get_connection()
     cursor = conn.cursor()

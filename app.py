@@ -5,6 +5,7 @@ import hmac
 import hashlib
 import time
 import functools
+import threading
 import filetype
 from collections import defaultdict
 import requests
@@ -13,7 +14,7 @@ from dotenv import load_dotenv
 from werkzeug.utils import secure_filename
 from db import (
     init_db,
-    register_seller, get_seller, set_seller_status, get_pending_sellers,
+    register_seller, get_seller, set_seller_status, set_seller_official, get_pending_sellers,
     search_products, add_product, get_product_by_id, get_pending_products,
     get_products_by_category, get_seller_products,
     set_product_status, update_stock, decrement_stock_if_available,
@@ -139,6 +140,15 @@ limiter.init_app(app)
 limiter.limit("200 per day;50 per hour")(accommodation_bp)
 csrf.init_app(app)
 init_ttech_db()
+
+from flask_wtf.csrf import CSRFError
+
+@app.errorhandler(CSRFError)
+def _handle_csrf_error(e):
+    # Raw Flask-WTF default is a bare "400 Bad Request" page — confusing for
+    # real users on long-lived forms (e.g. seller registration with photo
+    # uploads), where the token/session can expire before they submit.
+    return render_template("csrf_error.html", back_url=request.referrer or "/"), 400
 
 # Clean up stale sessions on startup
 cleanup_expired_sessions(max_age_minutes=60)
@@ -4917,13 +4927,26 @@ def _log(action, target_type="", target_id="", detail=""):
         log_admin_action(_admin_phone_ctx, action, target_type, str(target_id), detail)
 
 
+def _notify_seller(seller_phone, message):
+    """Send a WhatsApp notification to a seller and report whether it actually
+    went through. WhatsApp rejects freeform messages to numbers with no open
+    24h customer-service window (e.g. sellers who only ever registered via the
+    web form and never messaged the bot), so we can't assume success just
+    because we called the API."""
+    result = send_whatsapp_message(seller_phone, message)
+    error = (result or {}).get("error", {}).get("message") if isinstance(result, dict) else None
+    if error or not result:
+        return False, error or "no response from WhatsApp"
+    return True, None
+
+
 def _approve_seller(seller_phone):
     seller = get_seller(seller_phone)
     if not seller:
         return "❌ No seller found with that phone number."
     set_seller_status(seller_phone, "approved")
     _log("approve_seller", "seller", seller_phone, seller.get("name", ""))
-    send_whatsapp_message(
+    ok, err = _notify_seller(
         seller_phone,
         f"🎉 *Congratulations, {seller['name']}!*\n\n"
         f"Your seller account for *{seller['business_name']}* is now *approved*. ✅\n\n"
@@ -4935,7 +4958,14 @@ def _approve_seller(seller_phone):
         f"💰 Connect Fee: {get_setting('commission_rate', '10')}% on each approved listing.\n\n"
         "_Reply *0* for the main menu._"
     )
-    return f"✅ *{seller['name']}* ({seller['business_name']}) approved. Seller notified."
+    if ok:
+        return f"✅ *{seller['name']}* ({seller['business_name']}) approved. Seller notified."
+    return (
+        f"✅ *{seller['name']}* ({seller['business_name']}) approved, "
+        f"but the WhatsApp notification *failed to send* ({err}).\n\n"
+        "They likely have no open WhatsApp session with us (never messaged this number). "
+        "Ask them to send any message to this WhatsApp number, then use *Resend* to notify them again."
+    )
 
 
 def _reject_seller(seller_phone, reason=""):
@@ -4947,7 +4977,7 @@ def _reject_seller(seller_phone, reason=""):
          f"{seller.get('name', '')} — {reason}" if reason else seller.get("name", ""))
     reg_link = f"{BASE_URL}/register"
     reason_line = f"Reason: _{reason}_\n\n" if reason else ""
-    send_whatsapp_message(
+    ok, err = _notify_seller(
         seller_phone,
         f"❌ *{seller['name']}*, your seller application was not approved.\n\n"
         f"{reason_line}"
@@ -4959,7 +4989,13 @@ def _reject_seller(seller_phone, reason=""):
         f"📞 {get_setting('contact_phone', '+263 77 412 8219')}\n\n"
         "_Reply *0* for the main menu._"
     )
-    return f"❌ *{seller['name']}* rejected. Seller notified."
+    if ok:
+        return f"❌ *{seller['name']}* rejected. Seller notified."
+    return (
+        f"❌ *{seller['name']}* rejected, but the WhatsApp notification *failed to send* ({err}). "
+        "They likely never messaged this WhatsApp number, so we couldn't reach them — "
+        "contact them by phone/email directly."
+    )
 
 
 def _suspend_seller(seller_phone):
@@ -4968,7 +5004,7 @@ def _suspend_seller(seller_phone):
         return "❌ No seller found."
     set_seller_status(seller_phone, "suspended")
     _log("suspend_seller", "seller", seller_phone, seller.get("name", ""))
-    send_whatsapp_message(
+    ok, err = _notify_seller(
         seller_phone,
         f"⚠️ *{seller['name']}*, your T-Tech Connect seller account has been *suspended*.\n\n"
         "You will not be able to list new products or services until your account is reinstated.\n\n"
@@ -4977,7 +5013,12 @@ def _suspend_seller(seller_phone):
         f"📞 {get_setting('contact_phone', '+263 77 412 8219')}\n\n"
         "_Reply *0* for the main menu._"
     )
-    return f"⚠️ *{seller['name']}* suspended. Seller notified."
+    if ok:
+        return f"⚠️ *{seller['name']}* suspended. Seller notified."
+    return (
+        f"⚠️ *{seller['name']}* suspended, but the WhatsApp notification *failed to send* ({err}). "
+        "Contact them by phone/email directly."
+    )
 
 
 def _approve_product(product_id):
@@ -6884,47 +6925,52 @@ def register_seller_web():
     register_seller(phone, name, business_name, location,
                     id_photo=id_photo_path, selfie_photo=selfie_photo_path)
 
-    # Notify admin with text + KYC photos via WhatsApp
-    notify_admin(
-        f"📋 *New Seller Registration (Web)*\n\n"
-        f"Name     : {name}\n"
-        f"Business : {business_name}\n"
-        f"Phone    : {phone}\n"
-        f"Location : {location}\n"
-        + (f"Sells    : {description[:200]}\n" if description else "")
-        + f"\n📎 KYC photos follow below.\n\n"
-        f"1️⃣  — ✅ Approve\n"
-        f"2️⃣  — ❌ Reject\n"
-        f"3️⃣  — ❓ Request more info"
-    )
-    if ADMIN_PHONE:
-        set_session(ADMIN_PHONE, "ctx_admin_new_seller", {"phone": phone, "name": name})
-    if ADMIN_PHONE:
-        if id_photo_path:
-            send_whatsapp_image(
-                ADMIN_PHONE,
-                f"{BASE_URL}/uploads/{id_photo_path}",
-                caption=f"🪪 ID / Passport — {name} ({business_name})",
-            )
-        if selfie_photo_path:
-            send_whatsapp_image(
-                ADMIN_PHONE,
-                f"{BASE_URL}/uploads/{selfie_photo_path}",
-                caption=f"🤳 Selfie with ID — {name} | Phone: {phone}",
-            )
+    def _send_registration_notifications():
+        # Notify admin with text + KYC photos via WhatsApp
+        notify_admin(
+            f"📋 *New Seller Registration (Web)*\n\n"
+            f"Name     : {name}\n"
+            f"Business : {business_name}\n"
+            f"Phone    : {phone}\n"
+            f"Location : {location}\n"
+            + (f"Sells    : {description[:200]}\n" if description else "")
+            + f"\n📎 KYC photos follow below.\n\n"
+            f"1️⃣  — ✅ Approve\n"
+            f"2️⃣  — ❌ Reject\n"
+            f"3️⃣  — ❓ Request more info"
+        )
+        if ADMIN_PHONE:
+            set_session(ADMIN_PHONE, "ctx_admin_new_seller", {"phone": phone, "name": name})
+            if id_photo_path:
+                send_whatsapp_image(
+                    ADMIN_PHONE,
+                    f"{BASE_URL}/uploads/{id_photo_path}",
+                    caption=f"🪪 ID / Passport — {name} ({business_name})",
+                )
+            if selfie_photo_path:
+                send_whatsapp_image(
+                    ADMIN_PHONE,
+                    f"{BASE_URL}/uploads/{selfie_photo_path}",
+                    caption=f"🤳 Selfie with ID — {name} | Phone: {phone}",
+                )
 
-    # Send WhatsApp confirmation to the seller
-    send_whatsapp_message(
-        phone,
-        f"👋 Hi *{name}*, thank you for registering on *T-Tech Connect!*\n\n"
-        f"📋 *Application Received*\n"
-        f"Business : {business_name}\n"
-        f"Location : {location}\n\n"
-        "Our team will review your ID documents and notify you here within *24 hours*. 🕐\n\n"
-        "While you wait, feel free to browse our marketplace:\n"
-        f"🌐 {BASE_URL}\n\n"
-        "_Reply *0* for the main menu._"
-    )
+        # Send WhatsApp confirmation to the seller
+        send_whatsapp_message(
+            phone,
+            f"👋 Hi *{name}*, thank you for registering on *T-Tech Connect!*\n\n"
+            f"📋 *Application Received*\n"
+            f"Business : {business_name}\n"
+            f"Location : {location}\n\n"
+            "Our team will review your ID documents and notify you here within *24 hours*. 🕐\n\n"
+            "While you wait, feel free to browse our marketplace:\n"
+            f"🌐 {BASE_URL}\n\n"
+            "_Reply *0* for the main menu._"
+        )
+
+    # Run notifications in the background so a slow/degraded WhatsApp API
+    # can't hold up this response (send_whatsapp_message/send_whatsapp_image
+    # already swallow their own errors, so nothing here can crash the thread).
+    threading.Thread(target=_send_registration_notifications, daemon=True).start()
 
     return _render(success=True,
                    submitted_name=name,
@@ -7106,6 +7152,71 @@ def api_suspend_seller_route():
     msg   = _suspend_seller(phone)
     ok    = not msg.startswith("❌")
     return jsonify({"ok": ok, "message": msg})
+
+
+@app.route("/admin/api/seller/set-official", methods=["POST"])
+@admin_required
+def api_set_seller_official():
+    """Flag/unflag a seller as the official T-Tech Connect account. Products and
+    services listed by an official seller are auto-approved and commission-free
+    (see add_product/add_service in db.py)."""
+    body     = request.json or {}
+    phone    = body.get("phone", "")
+    official = bool(body.get("official", True))
+    seller   = get_seller(phone)
+    if not seller:
+        return jsonify({"ok": False, "message": "❌ No seller found with that phone number."})
+    set_seller_official(phone, official)
+    _log("set_seller_official", "seller", phone, f"{seller.get('name','')} -> {official}")
+    verb = "marked as" if official else "unmarked as"
+    return jsonify({"ok": True, "message": f"🏢 *{seller['name']}* {verb} the official T-Tech Connect account."})
+
+
+@app.route("/admin/api/seller/resend-notification", methods=["POST"])
+@admin_required
+def api_resend_seller_notification():
+    """Retry the status-change WhatsApp notification for a seller whose earlier
+    notification failed to send (e.g. they had no open WhatsApp session at the time)."""
+    phone  = (request.json or {}).get("phone", "")
+    seller = get_seller(phone)
+    if not seller:
+        return jsonify({"ok": False, "message": "❌ No seller found with that phone number."})
+    status_messages = {
+        "approved": (
+            f"🎉 *Congratulations, {seller['name']}!*\n\n"
+            f"Your seller account for *{seller['business_name']}* is now *approved*. ✅\n\n"
+            "📌 *Here's how to start selling:*\n\n"
+            "1️⃣  Message us on WhatsApp (this chat)\n"
+            "2️⃣  Reply *3* from the main menu → *Sell / Offer Services*\n"
+            "3️⃣  Reply *2* to get your listing link (products, services & digital)\n"
+            "4️⃣  Fill in the form and your listing goes live after review!\n\n"
+            f"💰 Connect Fee: {get_setting('commission_rate', '10')}% on each approved listing.\n\n"
+            "_Reply *0* for the main menu._"
+        ),
+        "rejected": (
+            f"❌ *{seller['name']}*, your seller application was not approved.\n\n"
+            f"You may re-apply after correcting the issue:\n{BASE_URL}/register\n\n"
+            "For help contact us:\n"
+            f"📧 {get_setting('contact_email', 'terrencemuromba@gmail.com')}\n"
+            f"📞 {get_setting('contact_phone', '+263 77 412 8219')}\n\n"
+            "_Reply *0* for the main menu._"
+        ),
+        "suspended": (
+            f"⚠️ *{seller['name']}*, your T-Tech Connect seller account has been *suspended*.\n\n"
+            "You will not be able to list new products or services until your account is reinstated.\n\n"
+            "Contact us for more information:\n"
+            f"📧 {get_setting('contact_email', 'terrencemuromba@gmail.com')}\n"
+            f"📞 {get_setting('contact_phone', '+263 77 412 8219')}\n\n"
+            "_Reply *0* for the main menu._"
+        ),
+    }
+    message = status_messages.get(seller["status"])
+    if not message:
+        return jsonify({"ok": False, "message": f"❌ No notification applies to status '{seller['status']}'."})
+    ok, err = _notify_seller(phone, message)
+    if ok:
+        return jsonify({"ok": True, "message": f"✅ Notification resent to *{seller['name']}*."})
+    return jsonify({"ok": False, "message": f"❌ Resend failed ({err}). They still have no open WhatsApp session — ask them to message this number first."})
 
 
 @app.route("/admin/api/product/approve", methods=["POST"])
