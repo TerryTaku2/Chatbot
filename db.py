@@ -2002,6 +2002,117 @@ def get_analytics_summary(days=7):
     return stats
 
 
+def _time_filter(days, column="created_at"):
+    """Build a WHERE fragment + params restricting `column` to the last `days`
+    days, or an always-true fragment when days is falsy (all-time)."""
+    if days:
+        return f"{column}::timestamp > (NOW() AT TIME ZONE 'UTC' + (?)::interval)", (f"-{days} days",)
+    return "1=1", ()
+
+
+def get_ecommerce_analytics(days=30):
+    """Admin 'Statistics' tab: revenue/order trends, top products & categories,
+    top customers and repeat-purchase behaviour, order-status mix, service
+    demand and peak activity hours. `days=None` means all-time."""
+    conn = get_connection()
+    c    = conn.cursor()
+
+    where, params           = _time_filter(days, "created_at")
+    where_o, params_o       = _time_filter(days, "o.created_at")
+    where_e, params_e       = _time_filter(days, "e.created_at")
+    where_msg, params_msg   = _time_filter(days, "received_at")
+
+    total_revenue = c.execute(f"SELECT COALESCE(SUM(total_price),0) FROM orders WHERE {where}", params).fetchone()[0]
+    total_orders  = c.execute(f"SELECT COUNT(*) FROM orders WHERE {where}", params).fetchone()[0]
+    avg_order_value = (total_revenue / total_orders) if total_orders else 0
+
+    unique_customers = c.execute(f"SELECT COUNT(DISTINCT buyer_phone) FROM orders WHERE {where}", params).fetchone()[0]
+
+    if days:
+        new_customers = c.execute("""
+            SELECT COUNT(*) FROM (
+                SELECT buyer_phone, MIN(created_at::timestamp) as first_order
+                FROM orders GROUP BY buyer_phone
+            ) f WHERE f.first_order > (NOW() AT TIME ZONE 'UTC' + (?)::interval)
+        """, (f"-{days} days",)).fetchone()[0]
+    else:
+        new_customers = unique_customers
+    returning_customers = max(unique_customers - new_customers, 0)
+
+    repeat_row = c.execute("""
+        SELECT COUNT(*) FILTER (WHERE cnt > 1) as repeat_cnt, COUNT(*) as total_cnt
+        FROM (SELECT buyer_phone, COUNT(*) as cnt FROM orders GROUP BY buyer_phone) t
+    """).fetchone()
+    repeat_customer_rate = (repeat_row["repeat_cnt"] / repeat_row["total_cnt"] * 100) if repeat_row["total_cnt"] else 0
+
+    top_products = c.execute(f"""
+        SELECT p.name, p.category, COUNT(*) as orders, COALESCE(SUM(o.quantity),0) as qty,
+               SUM(o.total_price) as revenue
+        FROM orders o JOIN products p ON o.product_id = p.id
+        WHERE {where_o}
+        GROUP BY p.id, p.name, p.category ORDER BY revenue DESC LIMIT 10
+    """, params_o).fetchall()
+
+    category_breakdown = c.execute(f"""
+        SELECT COALESCE(p.category, 'Uncategorised') as category, COUNT(*) as orders,
+               SUM(o.total_price) as revenue
+        FROM orders o JOIN products p ON o.product_id = p.id
+        WHERE {where_o}
+        GROUP BY p.category ORDER BY revenue DESC LIMIT 10
+    """, params_o).fetchall()
+
+    order_status_breakdown = c.execute(f"""
+        SELECT status, COUNT(*) as cnt FROM orders WHERE {where}
+        GROUP BY status ORDER BY cnt DESC
+    """, params).fetchall()
+
+    top_customers = c.execute(f"""
+        SELECT o.buyer_phone as phone, COALESCE(bp.name, '') as name,
+               COUNT(*) as orders, SUM(o.total_price) as spent, MAX(o.created_at) as last_order
+        FROM orders o LEFT JOIN buyer_profiles bp ON o.buyer_phone = bp.phone
+        WHERE {where_o}
+        GROUP BY o.buyer_phone, bp.name ORDER BY spent DESC LIMIT 10
+    """, params_o).fetchall()
+
+    revenue_by_day = c.execute(f"""
+        SELECT DATE(created_at::timestamp) as day, SUM(total_price) as revenue, COUNT(*) as orders
+        FROM orders WHERE {where}
+        GROUP BY day ORDER BY day
+    """, params).fetchall()
+
+    peak_hours = c.execute(f"""
+        SELECT EXTRACT(HOUR FROM received_at::timestamp)::integer as hour, COUNT(*) as hits
+        FROM message_log WHERE {where_msg}
+        GROUP BY hour ORDER BY hour
+    """, params_msg).fetchall()
+
+    top_service_cats = c.execute(f"""
+        SELECT s.category, COUNT(*) as enquiries
+        FROM service_enquiries e JOIN services s ON e.service_id = s.id
+        WHERE {where_e}
+        GROUP BY s.category ORDER BY enquiries DESC LIMIT 10
+    """, params_e).fetchall()
+
+    conn.close()
+    return {
+        "days": days,
+        "total_revenue": total_revenue,
+        "total_orders": total_orders,
+        "avg_order_value": avg_order_value,
+        "unique_customers": unique_customers,
+        "new_customers": new_customers,
+        "returning_customers": returning_customers,
+        "repeat_customer_rate": repeat_customer_rate,
+        "top_products": [dict(r) for r in top_products],
+        "category_breakdown": [dict(r) for r in category_breakdown],
+        "order_status_breakdown": [dict(r) for r in order_status_breakdown],
+        "top_customers": [dict(r) for r in top_customers],
+        "revenue_by_day": [dict(r) for r in revenue_by_day],
+        "peak_hours": [dict(r) for r in peak_hours],
+        "top_service_cats": [dict(r) for r in top_service_cats],
+    }
+
+
 # ── Delivery personnel ────────────────────────────────────────────────────────
 
 def register_delivery_person(phone, name, vehicle_type, service_area):

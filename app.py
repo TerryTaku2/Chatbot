@@ -39,7 +39,7 @@ from db import (
     add_to_cart, remove_from_cart, get_cart, get_cart_total, get_cart_by_seller, clear_cart, update_cart_qty,
     create_dispute, get_disputes, update_dispute, get_buyer_disputes,
     newsletter_subscribe, newsletter_unsubscribe, is_subscribed, get_newsletter_phones,
-    log_social_post, get_analytics_summary, get_seller_trust_score,
+    log_social_post, get_analytics_summary, get_ecommerce_analytics, get_seller_trust_score,
     get_audit_log,
     add_product_review, get_product_reviews, get_product_avg_rating,
     get_fulfilled_orders_for_buyer, check_buyer_has_access,
@@ -7027,6 +7027,14 @@ def api_admin_stats():
     s = get_admin_stats()
     s["pending_services"] = len(get_pending_services())
     return jsonify(s)
+
+
+@app.route("/admin/api/analytics")
+@admin_required
+def api_admin_analytics():
+    days_param = request.args.get("days", "30")
+    days = None if days_param == "all" else int(days_param)
+    return jsonify(get_ecommerce_analytics(days=days))
 
 
 @app.route("/admin/api/sellers")

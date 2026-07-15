@@ -193,6 +193,38 @@
     @keyframes spin{to{transform:rotate(360deg)}}
     .loading-row td{text-align:center;padding:28px}
 
+    /* ── Statistics charts ── */
+    .insight-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:24px}
+    @media(max-width:900px){.insight-grid{grid-template-columns:1fr}}
+    .chart-card{padding:18px}
+    .stat-sub-pos{color:#166534}
+    .stat-sub-neg{color:#9a3412}
+
+    /* Horizontal bars: magnitude comparison across a short list (products, categories, statuses) */
+    .hbar-chart{display:flex;flex-direction:column;gap:10px}
+    .hbar-row{display:flex;align-items:center;gap:10px;font-size:12px}
+    .hbar-label{width:130px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;
+                white-space:nowrap;color:#374151;font-weight:600}
+    .hbar-track{flex:1;background:#f3f4f6;border-radius:4px;height:12px;position:relative;overflow:hidden}
+    .hbar-fill{position:absolute;top:0;left:0;height:100%;background:#075e54;border-radius:4px;
+               min-width:3px;transition:width .3s}
+    .hbar-val{width:88px;flex-shrink:0;text-align:right;color:#111827;font-weight:700;font-variant-numeric:tabular-nums}
+    .hbar-empty{color:#9ca3af;font-style:italic;font-size:13px;padding:8px 0}
+
+    /* Vertical bars: time series (revenue/day, activity/hour) */
+    .vbar-chart{display:flex;align-items:flex-end;gap:2px;height:160px;padding-top:10px;position:relative}
+    .vbar-col{flex:1;display:flex;flex-direction:column;align-items:center;height:100%;
+              justify-content:flex-end;min-width:2px;cursor:default}
+    .vbar-fill{width:100%;background:#075e54;border-radius:3px 3px 0 0;min-height:2px;
+               transition:background .15s}
+    .vbar-col:hover .vbar-fill{background:#0a8f7f}
+    .vbar-xlabel{font-size:9px;color:#9ca3af;margin-top:6px;white-space:nowrap;
+                 transform:rotate(-40deg);transform-origin:top left;height:24px}
+
+    .chart-tooltip{position:fixed;background:#111827;color:#fff;font-size:12px;padding:6px 10px;
+                   border-radius:6px;pointer-events:none;z-index:3000;display:none;line-height:1.4;
+                   white-space:nowrap}
+
     .hamburger{display:none;background:none;border:none;font-size:22px;cursor:pointer;color:#374151}
     @media(max-width:768px){.hamburger{display:block}}
 
@@ -220,6 +252,9 @@
     <div class="sb-section">Overview</div>
     <div class="sb-link active" onclick="showSection('overview')">
       <span class="icon">📊</span> Dashboard
+    </div>
+    <div class="sb-link" onclick="showSection('statistics')">
+      <span class="icon">📈</span> Statistics
     </div>
 
     <div class="sb-section">Management</div>
@@ -299,7 +334,7 @@
             <button class="btn-primary" onclick="showSection('products')">Review Pending Products</button>
             <button class="btn-primary" onclick="showSection('services')">Review Pending Services</button>
             <button class="btn-secondary" onclick="showSection('orders')">View Recent Orders</button>
-            <button class="btn-secondary" onclick="window.open('/admin/analytics','_blank')">Full Analytics →</button>
+            <button class="btn-secondary" onclick="showSection('statistics')">Full Statistics →</button>
           </div>
         </div>
         <div style="flex:2;min-width:300px">
@@ -310,6 +345,76 @@
             </table>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- ── Statistics ── -->
+    <div class="section-page" id="page-statistics">
+      <div class="filter-bar">
+        <button class="filter-btn" onclick="setStatsRange('7',this)">7 Days</button>
+        <button class="filter-btn active" onclick="setStatsRange('30',this)">30 Days</button>
+        <button class="filter-btn" onclick="setStatsRange('90',this)">90 Days</button>
+        <button class="filter-btn" onclick="setStatsRange('all',this)">All Time</button>
+      </div>
+
+      <div class="stat-grid" id="stats-cards">
+        <div class="stat-card" style="text-align:center"><div class="spinner"></div></div>
+      </div>
+
+      <div class="insight-grid">
+        <div>
+          <div class="sec-head"><h2>Revenue by Day</h2></div>
+          <div class="table-wrap chart-card">
+            <div id="chart-revenue" class="vbar-chart"></div>
+          </div>
+        </div>
+        <div>
+          <div class="sec-head"><h2>Activity by Hour of Day</h2></div>
+          <div class="table-wrap chart-card">
+            <div id="chart-hours" class="vbar-chart"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="insight-grid">
+        <div>
+          <div class="sec-head"><h2>Top Products</h2><span class="count">what customers buy most</span></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Product</th><th>Category</th><th>Orders</th><th>Qty</th><th>Revenue</th></tr></thead>
+              <tbody id="stats-top-products"><tr class="loading-row"><td colspan="5"><div class="spinner"></div></td></tr></tbody>
+            </table>
+          </div>
+        </div>
+        <div>
+          <div class="sec-head"><h2>Top Customers</h2><span class="count">by total spend</span></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Customer</th><th>Phone</th><th>Orders</th><th>Spent</th><th>Last Order</th></tr></thead>
+              <tbody id="stats-top-customers"><tr class="loading-row"><td colspan="5"><div class="spinner"></div></td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="insight-grid">
+        <div>
+          <div class="sec-head"><h2>Revenue by Category</h2></div>
+          <div class="table-wrap chart-card">
+            <div id="chart-categories" class="hbar-chart"></div>
+          </div>
+        </div>
+        <div>
+          <div class="sec-head"><h2>Order Status Mix</h2></div>
+          <div class="table-wrap chart-card">
+            <div id="chart-order-status" class="hbar-chart"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sec-head"><h2>Top Service Categories</h2><span class="count">by enquiry volume</span></div>
+      <div class="table-wrap chart-card">
+        <div id="chart-service-cats" class="hbar-chart"></div>
       </div>
     </div>
 
@@ -720,6 +825,7 @@
 
 <!-- ── Toast ── -->
 <div id="toast"></div>
+<div id="chart-tooltip" class="chart-tooltip"></div>
 
 <script>
 /* ─────────────────────────────────────────────────────────
@@ -730,6 +836,7 @@ const FILTERS = { sellers:'all', products:'all', services:'all', orders:'all', d
 const SEARCH  = { sellers:'', products:'', services:'', orders:'', delivery:'' };
 let currentSection = 'overview';
 let settingsCache  = {};
+let statsRange = '30';
 
 /* ─────────────────────────────────────────────────────────
    Navigation
@@ -741,6 +848,7 @@ const TITLES = {
   delivery:'Delivery Agents',    commission:'Connect Fee Rates',
   broadcast:'Broadcast Message', settings:'Settings',
   audit:'Audit Log',         marketing:'Marketing Campaigns',
+  statistics:'Statistics & Insights',
 };
 
 function showSection(name) {
@@ -775,6 +883,7 @@ function loadSection(name) {
   if (name === 'settings')    { fetchSettings(); return; }
   if (name === 'audit')       { fetchAudit(); return; }
   if (name === 'marketing')   { fetchSettings(); fetchMarketingCampaigns(); return; }
+  if (name === 'statistics')  { fetchStatistics(); return; }
 }
 
 /* ─────────────────────────────────────────────────────────
@@ -1295,6 +1404,115 @@ async function loadAuditPreview() {
       <td>${l.action}</td>
       <td style="font-size:11px">${l.detail||l.target_type+' '+l.target_id}</td>
     </tr>`).join('') : emptyRow(3,'No recent activity.');
+}
+
+/* ─────────────────────────────────────────────────────────
+   Statistics
+   ───────────────────────────────────────────────────────── */
+function setStatsRange(val, btn) {
+  statsRange = val;
+  document.querySelectorAll('#page-statistics .filter-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  fetchStatistics();
+}
+
+async function fetchStatistics() {
+  const d = await api(`/admin/api/analytics?days=${statsRange}`);
+  if (d.ok === false) return;
+
+  document.getElementById('stats-cards').innerHTML = `
+    <div class="stat-card"><div class="stat-label">Revenue</div><div class="stat-value">$${(+d.total_revenue).toFixed(2)}</div></div>
+    <div class="stat-card"><div class="stat-label">Orders</div><div class="stat-value">${d.total_orders}</div></div>
+    <div class="stat-card"><div class="stat-label">Avg Order Value</div><div class="stat-value">$${(+d.avg_order_value).toFixed(2)}</div></div>
+    <div class="stat-card"><div class="stat-label">Customers</div><div class="stat-value">${d.unique_customers}</div></div>
+    <div class="stat-card"><div class="stat-label">New Customers</div><div class="stat-value">${d.new_customers}</div></div>
+    <div class="stat-card"><div class="stat-label">Returning</div><div class="stat-value">${d.returning_customers}</div></div>
+    <div class="stat-card"><div class="stat-label">Repeat Rate</div><div class="stat-value">${(+d.repeat_customer_rate).toFixed(1)}%</div><div class="stat-sub">all-time customers who ordered 2+ times</div></div>
+  `;
+
+  const topProductsBody = document.getElementById('stats-top-products');
+  topProductsBody.innerHTML = d.top_products.length ? d.top_products.map(p => `
+    <tr>
+      <td class="td-name">${esc(p.name)}</td>
+      <td>${esc(p.category || '—')}</td>
+      <td>${p.orders}</td>
+      <td>${p.qty}</td>
+      <td>$${(+p.revenue).toFixed(2)}</td>
+    </tr>`).join('') : emptyRow(5, 'No orders in this period.');
+
+  const topCustomersBody = document.getElementById('stats-top-customers');
+  topCustomersBody.innerHTML = d.top_customers.length ? d.top_customers.map(cu => `
+    <tr>
+      <td class="td-name">${esc(cu.name) || '<span class="kyc-missing">Unnamed</span>'}</td>
+      <td>${esc(cu.phone)}</td>
+      <td>${cu.orders}</td>
+      <td>$${(+cu.spent).toFixed(2)}</td>
+      <td style="font-size:11px">${(cu.last_order || '').slice(0,16)}</td>
+    </tr>`).join('') : emptyRow(5, 'No customers in this period.');
+
+  renderVBarChart('chart-revenue', d.revenue_by_day, r => r.day.slice(5), r => +r.revenue,
+                   v => `$${v.toFixed(2)}`);
+  renderVBarChart('chart-hours', d.peak_hours, h => `${String(h.hour).padStart(2,'0')}:00`, h => +h.hits,
+                   v => `${v} messages`);
+  renderHBarChart('chart-categories', d.category_breakdown, r => r.category, r => +r.revenue,
+                   v => `$${v.toFixed(2)}`);
+  renderHBarChart('chart-order-status', d.order_status_breakdown, r => r.status, r => +r.cnt,
+                   v => `${v}`);
+  renderHBarChart('chart-service-cats', d.top_service_cats, r => r.category, r => +r.enquiries,
+                   v => `${v}`);
+}
+
+function renderHBarChart(elId, items, labelFn, valueFn, fmtFn) {
+  const el = document.getElementById(elId);
+  if (!items || !items.length) { el.innerHTML = '<div class="hbar-empty">No data for this period.</div>'; return; }
+  const max = Math.max(...items.map(valueFn), 1);
+  el.innerHTML = items.map(item => {
+    const v = valueFn(item);
+    const pct = Math.max((v / max) * 100, 2);
+    return `
+    <div class="hbar-row">
+      <div class="hbar-label" title="${esc(labelFn(item))}">${esc(labelFn(item))}</div>
+      <div class="hbar-track"><div class="hbar-fill" style="width:${pct}%"></div></div>
+      <div class="hbar-val">${esc(fmtFn(v))}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderVBarChart(elId, items, labelFn, valueFn, fmtFn) {
+  const el = document.getElementById(elId);
+  if (!items || !items.length) { el.innerHTML = '<div class="hbar-empty">No data for this period.</div>'; return; }
+  const max = Math.max(...items.map(valueFn), 1);
+  const showEvery = Math.max(Math.ceil(items.length / 16), 1);
+  el.innerHTML = '';
+  items.forEach((item, i) => {
+    const v = valueFn(item);
+    const pct = Math.max((v / max) * 100, 1);
+    const label = labelFn(item);
+    const col = document.createElement('div');
+    col.className = 'vbar-col';
+    col.innerHTML = `<div class="vbar-fill" style="height:${pct}%"></div>
+      <div class="vbar-xlabel">${i % showEvery === 0 ? esc(label) : ''}</div>`;
+    const tipText = `${label}: ${fmtFn(v)}`;
+    col.addEventListener('mouseenter', evt => showChartTip(evt, tipText));
+    col.addEventListener('mousemove', moveChartTip);
+    col.addEventListener('mouseleave', hideChartTip);
+    el.appendChild(col);
+  });
+}
+
+function showChartTip(evt, text) {
+  const tip = document.getElementById('chart-tooltip');
+  tip.textContent = text;
+  tip.style.display = 'block';
+  moveChartTip(evt);
+}
+function moveChartTip(evt) {
+  const tip = document.getElementById('chart-tooltip');
+  tip.style.left = (evt.clientX + 14) + 'px';
+  tip.style.top  = (evt.clientY - 10) + 'px';
+}
+function hideChartTip() {
+  document.getElementById('chart-tooltip').style.display = 'none';
 }
 
 /* ─────────────────────────────────────────────────────────
