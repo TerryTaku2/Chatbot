@@ -7227,6 +7227,60 @@ def api_resend_seller_notification():
     return jsonify({"ok": False, "message": f"❌ Resend failed ({err}). They still have no open WhatsApp session — ask them to message this number first."})
 
 
+@app.route("/admin/api/seller/register", methods=["POST"])
+@admin_required
+def api_register_seller():
+    """Admin registers a seller directly (e.g. onboarded by phone/in person),
+    skipping the public web-form KYC-photo flow. Approved immediately by
+    default so the seller can start listing right away."""
+    body          = request.json or {}
+    phone         = (body.get("phone", "") or "").strip().replace(" ", "").replace("-", "").lstrip("+")
+    name          = (body.get("name", "") or "").strip()
+    business_name = (body.get("business_name", "") or "").strip()
+    location      = (body.get("location", "") or "").strip()
+    approve_now   = bool(body.get("approve", True))
+
+    if not phone.isdigit() or len(phone) < 9:
+        return jsonify({"ok": False, "message": "Enter a valid WhatsApp number with country code, e.g. 263771234567."})
+    if not name or not business_name:
+        return jsonify({"ok": False, "message": "Name and business name are required."})
+
+    existing = get_seller(phone)
+    if existing and existing["status"] == "approved":
+        return jsonify({"ok": False, "message": f"❌ {phone} is already registered and approved ({existing['name']})."})
+
+    status = "approved" if approve_now else "pending"
+    register_seller(phone, name, business_name, location, status=status)
+    log_admin_action("web_admin", "register_seller", "seller", phone, f"{name} ({business_name}) — {status}")
+
+    if status == "approved":
+        message = (
+            f"🎉 *Welcome to T-Tech Connect, {name}!*\n\n"
+            f"Your seller account for *{business_name}* has been set up by our team and is *approved*. ✅\n\n"
+            "📌 *Here's how to start selling:*\n\n"
+            "1️⃣  Message us on WhatsApp (this chat)\n"
+            "2️⃣  Reply *3* from the main menu → *Sell / Offer Services*\n"
+            "3️⃣  Reply *2* to get your listing link (products, services & digital)\n"
+            "4️⃣  Fill in the form and your listing goes live after review!\n\n"
+            f"💰 Connect Fee: {get_setting('commission_rate', '10')}% on each approved listing.\n\n"
+            "_Reply *0* for the main menu._"
+        )
+    else:
+        message = (
+            f"👋 Hi *{name}*, you've been registered as a seller for *{business_name}* on T-Tech Connect.\n\n"
+            "Your account is *pending review* — we'll notify you here once it's approved.\n\n"
+            "_Reply *0* for the main menu._"
+        )
+
+    ok, err = _notify_seller(phone, message)
+    if ok:
+        return jsonify({"ok": True, "message": f"✅ {name} registered ({status}). Seller notified on WhatsApp."})
+    return jsonify({"ok": True, "message":
+        f"✅ {name} registered ({status}), but the WhatsApp welcome message *failed to send* ({err}). "
+        "They likely haven't messaged this number yet — ask them to send any message, then use "
+        "*Resend* from the Sellers list."})
+
+
 @app.route("/admin/api/product/approve", methods=["POST"])
 @admin_required
 def api_approve_product_route():

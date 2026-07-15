@@ -427,6 +427,8 @@
         <button class="filter-btn" onclick="filterTable('sellers','rejected',this)">Rejected</button>
         <button class="filter-btn" onclick="filterTable('sellers','suspended',this)">Suspended</button>
         <input class="search-input" placeholder="Search name / phone…" oninput="searchTable('sellers',this.value)">
+        <button class="btn-primary" style="padding:6px 14px;font-size:12px;margin-left:auto"
+                onclick="openRegisterSeller()">➕ Register Seller</button>
       </div>
       <div class="table-wrap">
         <table>
@@ -819,6 +821,53 @@
     <div class="modal-actions" style="margin-top:16px">
       <button class="btn-primary" onclick="submitListForSeller()">✅ Create Listing</button>
       <button class="btn-secondary" onclick="closeLFS()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Register Seller Modal ── -->
+<div class="modal-overlay" id="reg-seller-modal" onclick="closeRegisterSeller(event)">
+  <div class="modal-box" style="max-width:480px" onclick="event.stopPropagation()">
+    <button class="modal-close" onclick="closeRegisterSeller()">✕</button>
+    <div class="modal-title">➕ Register Seller</div>
+    <div style="display:grid;gap:12px;margin-top:4px">
+
+      <div class="field">
+        <label>WhatsApp Number *</label>
+        <input type="text" id="rs-phone" placeholder="e.g. 263771234567 (with country code)">
+      </div>
+
+      <div class="field">
+        <label>Full Name *</label>
+        <input type="text" id="rs-name" placeholder="e.g. Tendai Moyo">
+      </div>
+
+      <div class="field">
+        <label>Business Name *</label>
+        <input type="text" id="rs-business" placeholder="e.g. Tendai Electronics">
+      </div>
+
+      <div class="field">
+        <label>Location</label>
+        <input type="text" id="rs-location" placeholder="e.g. Harare, Avondale">
+      </div>
+
+      <div class="field">
+        <label>Initial Status</label>
+        <select id="rs-status">
+          <option value="approved">✅ Approved — can list right away</option>
+          <option value="pending">🕐 Pending review</option>
+        </select>
+      </div>
+
+      <p style="font-size:12px;color:#9ca3af">
+        Skips the public web-form KYC-photo application. The seller gets a WhatsApp
+        welcome message with instructions to start listing.
+      </p>
+    </div>
+    <div class="modal-actions" style="margin-top:16px">
+      <button class="btn-primary" onclick="submitRegisterSeller()">✅ Register Seller</button>
+      <button class="btn-secondary" onclick="closeRegisterSeller()">Cancel</button>
     </div>
   </div>
 </div>
@@ -1617,6 +1666,39 @@ async function submitListForSeller() {
   } catch (e) {
     toast('Failed to create listing.', false);
   }
+}
+
+/* ─────────────────────────────────────────────────────────
+   Register Seller
+   ───────────────────────────────────────────────────────── */
+function openRegisterSeller() {
+  document.getElementById('rs-phone').value    = '';
+  document.getElementById('rs-name').value     = '';
+  document.getElementById('rs-business').value = '';
+  document.getElementById('rs-location').value = '';
+  document.getElementById('rs-status').value   = 'approved';
+  document.getElementById('reg-seller-modal').classList.add('open');
+}
+
+function closeRegisterSeller(e) {
+  if (!e || e.target === document.getElementById('reg-seller-modal'))
+    document.getElementById('reg-seller-modal').classList.remove('open');
+}
+
+async function submitRegisterSeller() {
+  const body = {
+    phone:         document.getElementById('rs-phone').value.trim(),
+    name:          document.getElementById('rs-name').value.trim(),
+    business_name: document.getElementById('rs-business').value.trim(),
+    location:      document.getElementById('rs-location').value.trim(),
+    approve:       document.getElementById('rs-status').value === 'approved',
+  };
+  if (!body.phone || !body.name || !body.business_name) {
+    toast('Phone, name and business name are required.', false); return;
+  }
+  const res = await api('/admin/api/seller/register', 'POST', body);
+  toast(res.message, res.ok);
+  if (res.ok) { closeRegisterSeller(); fetchSellers(); }
 }
 
 /* ─────────────────────────────────────────────────────────

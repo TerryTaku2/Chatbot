@@ -613,19 +613,19 @@ def init_db():
 # ── Sellers ───────────────────────────────────────────────────────────────────
 
 def register_seller(phone, name, business_name, location="",
-                    id_photo="", selfie_photo=""):
+                    id_photo="", selfie_photo="", status="pending"):
     conn = get_connection()
     conn.execute("""
         INSERT INTO sellers (phone, name, business_name, location, status, id_photo, selfie_photo)
-        VALUES (?, ?, ?, ?, 'pending', ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(phone) DO UPDATE SET
             name          = excluded.name,
             business_name = excluded.business_name,
             location      = excluded.location,
             id_photo      = excluded.id_photo,
             selfie_photo  = excluded.selfie_photo,
-            status        = 'pending'
-    """, (phone, name, business_name, location, id_photo, selfie_photo))
+            status        = excluded.status
+    """, (phone, name, business_name, location, status, id_photo, selfie_photo))
     conn.commit()
     conn.close()
 
