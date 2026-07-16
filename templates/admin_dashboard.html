@@ -782,18 +782,19 @@
         <input type="text" id="lfs-location" placeholder="e.g. Harare, Avondale">
       </div>
 
-      <div class="field">
-        <label>Delivery</label>
-        <select id="lfs-delivery">
-          <option value="0">No — self-collect only</option>
-          <option value="1">Yes — delivery available</option>
-        </select>
+      <div class="field" id="lfs-delivery-wrap">
+        <label id="lfs-delivery-label">Delivery</label>
+        <select id="lfs-delivery"></select>
       </div>
 
-      <div class="field">
-        <label>Delivery Info</label>
+      <div class="field" id="lfs-delivery-info-wrap">
+        <label id="lfs-delivery-info-label">Delivery Info</label>
         <input type="text" id="lfs-delivery-info" placeholder="e.g. Free within 5 km · $3 city-wide">
       </div>
+
+      <p class="field" id="lfs-delivery-digital-note" style="display:none;font-size:12px;color:#9ca3af;margin:-4px 0 0">
+        📩 Digital items are delivered automatically via a secure download link once the order is marked fulfilled — no delivery method needed.
+      </p>
 
       <div class="field">
         <label>Specifications</label>
@@ -1605,7 +1606,8 @@ async function openListForSeller() {
   const sel = document.getElementById('lfs-seller');
   sel.innerHTML = '<option value="" disabled selected>Select seller</option>' +
     approved.map(s => `<option value="${s.phone}">${s.name} — ${s.business_name} (${s.phone})</option>`).join('');
-  lfsCalcComm();
+  document.getElementById('lfs-type').value = 'product';
+  lfsTypeChange();
   document.getElementById('lfs-modal').classList.add('open');
 }
 
@@ -1614,11 +1616,46 @@ function closeLFS(e) {
     document.getElementById('lfs-modal').classList.remove('open');
 }
 
+const LFS_DELIVERY_OPTIONS = {
+  product: {
+    label: 'Delivery',
+    options: [
+      ['0', 'No — self-collect only'],
+      ['1', 'Yes — delivery available'],
+    ],
+    infoPlaceholder: 'e.g. Free within 5 km · $3 city-wide',
+  },
+  service: {
+    label: 'Service Delivery Method',
+    options: [
+      ['0', 'Client visits provider'],
+      ['1', 'Provider travels to client (on-site)'],
+      ['2', 'Remote / online'],
+      ['3', 'Both on-site & remote available'],
+    ],
+    infoPlaceholder: 'e.g. Zoom link provided · Travel fee may apply outside Harare',
+  },
+};
+
 function lfsTypeChange() {
   const type = document.getElementById('lfs-type').value;
   document.getElementById('lfs-qty-wrap').style.display     = type === 'service' ? 'none' : '';
   document.getElementById('lfs-unit-wrap').style.display    = type === 'service' ? 'none' : '';
   document.getElementById('lfs-svcunit-wrap').style.display = type === 'service' ? '' : 'none';
+
+  const isDigital = type === 'digital';
+  document.getElementById('lfs-delivery-wrap').style.display      = isDigital ? 'none' : '';
+  document.getElementById('lfs-delivery-info-wrap').style.display = isDigital ? 'none' : '';
+  document.getElementById('lfs-delivery-digital-note').style.display = isDigital ? '' : 'none';
+
+  if (!isDigital) {
+    const cfg = LFS_DELIVERY_OPTIONS[type === 'service' ? 'service' : 'product'];
+    document.getElementById('lfs-delivery-label').textContent = cfg.label;
+    document.getElementById('lfs-delivery').innerHTML =
+      cfg.options.map(([v, t]) => `<option value="${v}">${t}</option>`).join('');
+    document.getElementById('lfs-delivery-info').placeholder = cfg.infoPlaceholder;
+  }
+
   lfsCalcComm();
 }
 

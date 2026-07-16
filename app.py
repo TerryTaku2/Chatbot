@@ -132,7 +132,7 @@ init_db()
 
 # ── Accommodation blueprint (T-Tech Connect1, merged into this process) ──────
 from blueprints.accommodation import accommodation_bp, socketio, limiter, csrf
-from blueprints.accommodation.db_ttech import init_db as init_ttech_db
+from blueprints.accommodation.db_ttech import init_db as init_ttech_db, get_featured_properties
 
 app.register_blueprint(accommodation_bp)
 socketio.init_app(app)
@@ -6501,7 +6501,17 @@ def webhook():
 def index():
     wa_number = WA_BUSINESS_NUMBER or get_setting("contact_phone", "")
     stats     = get_live_stats()
-    return render_template("landing.html", wa_number=wa_number, stats=stats)
+
+    preview_products   = get_featured_admin_picks(limit=4) or get_featured_products(limit=4)
+    preview_properties = get_featured_properties(limit=4)
+
+    return render_template(
+        "landing.html",
+        wa_number=wa_number,
+        stats=stats,
+        preview_products=preview_products,
+        preview_properties=preview_properties,
+    )
 
 
 # ── Automated cart reminder cron endpoint ─────────────────────────────────────

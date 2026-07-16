@@ -61,6 +61,28 @@
     .section-title{font-size:clamp(22px,4vw,34px);font-weight:800;color:#111827;margin-bottom:12px;line-height:1.25}
     .section-sub{font-size:15px;color:#6b7280;max-width:560px;line-height:1.6;margin-bottom:48px}
 
+    /* ── Preview grids (products & properties) ── */
+    .prev-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:18px}
+    @media(max-width:900px){.prev-grid{grid-template-columns:1fr 1fr}}
+    @media(max-width:540px){.prev-grid{grid-template-columns:1fr 1fr;gap:12px}}
+    .prev-card{background:#fff;border:1px solid #f0f0f0;border-radius:14px;overflow:hidden;
+               text-decoration:none;color:inherit;display:block;transition:transform .15s,box-shadow .15s}
+    .prev-card:hover{transform:translateY(-3px);box-shadow:0 10px 28px rgba(0,0,0,.1)}
+    .prev-img-wrap{height:130px;background:#f3f4f6;display:flex;align-items:center;justify-content:center;overflow:hidden}
+    .prev-img-wrap img{width:100%;height:100%;object-fit:cover}
+    .prev-img-ph{font-size:36px;opacity:.4}
+    .prev-body{padding:12px 14px}
+    .prev-cat{font-size:11px;color:#10b981;font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px}
+    .prev-name{font-size:14px;font-weight:700;color:#111827;margin-bottom:6px;line-height:1.35;
+               display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+    .prev-price{font-size:15px;font-weight:800;color:#075e54}
+    .prev-rating{font-size:12px;color:#6b7280;margin-top:4px}
+    .prev-empty{background:#f9fafb;border:1px dashed #d1d5db;border-radius:14px;padding:40px 24px;
+                text-align:center;color:#6b7280;font-size:14px}
+    .prev-footer{text-align:center;margin-top:28px}
+    .prev-footer a{font-size:14px;font-weight:700;color:#075e54;text-decoration:none}
+    .prev-footer a:hover{text-decoration:underline}
+
     /* ── Choose path ── */
     .path-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
     @media(max-width:900px){.path-grid{grid-template-columns:1fr 1fr}}
@@ -177,6 +199,80 @@
     <a href="/accommodation/browse" class="btn-amber">🏠 List or Find Property</a>
   </div>
 </div>
+
+<!-- Trending Products -->
+<section>
+  <div class="section-inner">
+    <div class="section-label">Fresh On The Shop</div>
+    <div class="section-title">Trending products right now</div>
+    <p class="section-sub">A taste of what's on offer — browse the full shop for everything else.</p>
+
+    {% if preview_products %}
+    <div class="prev-grid">
+      {% for p in preview_products %}
+      <a class="prev-card" href="/product/{{ p.id }}">
+        <div class="prev-img-wrap">
+          {% if p.image_path %}
+          <img src="/uploads/{{ p.image_path }}" alt="{{ p.name }}" loading="lazy"/>
+          {% else %}
+          <div class="prev-img-ph">{% if p.product_type == 'digital' %}🖼️{% else %}📦{% endif %}</div>
+          {% endif %}
+        </div>
+        <div class="prev-body">
+          <div class="prev-cat">{{ p.category }}</div>
+          <div class="prev-name">{{ p.name }}</div>
+          <div class="prev-price">${{ "%.2f"|format(p.price) }}</div>
+          {% if p.avg_rating and p.avg_rating > 0 %}
+          <div class="prev-rating">⭐ {{ "%.1f"|format(p.avg_rating) }} ({{ p.review_count }})</div>
+          {% endif %}
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="prev-empty">New products are being added — check back soon, or message us on WhatsApp.</div>
+    {% endif %}
+
+    <div class="prev-footer"><a href="/shop">Browse the full shop →</a></div>
+  </div>
+</section>
+
+<!-- Featured Properties -->
+<section style="background:#fffbeb">
+  <div class="section-inner">
+    <div class="section-label">Housing</div>
+    <div class="section-title">Featured rental properties</div>
+    <p class="section-sub">Verified listings from landlords across Zimbabwe.</p>
+
+    {% if preview_properties %}
+    <div class="prev-grid">
+      {% for p in preview_properties %}
+      <a class="prev-card" href="/accommodation/browse">
+        <div class="prev-img-wrap">
+          {% if p.cover_image %}
+          <img src="{{ url_for('accommodation.property_image', filename=p.cover_image) }}" alt="{{ p.title }}" loading="lazy"/>
+          {% else %}
+          <div class="prev-img-ph">🏠</div>
+          {% endif %}
+        </div>
+        <div class="prev-body">
+          <div class="prev-cat">{{ p.property_type|title }} · {{ p.nearby_landmark or p.city or 'Zimbabwe' }}</div>
+          <div class="prev-name">{{ p.title }}</div>
+          <div class="prev-price">{{ p.currency }} {{ "%.0f"|format(p.price_per_month) }}<span style="font-size:11px;font-weight:600;color:#6b7280"> /month</span></div>
+          {% if p.review_count > 0 %}
+          <div class="prev-rating">⭐ {{ "%.1f"|format(p.avg_rating) }} ({{ p.review_count }})</div>
+          {% endif %}
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="prev-empty">New listings are being added — check back soon, or message us on WhatsApp.</div>
+    {% endif %}
+
+    <div class="prev-footer"><a href="/accommodation/browse">Browse all properties →</a></div>
+  </div>
+</section>
 
 <!-- Choose your path -->
 <section style="background:#f9fafb">

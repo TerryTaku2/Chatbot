@@ -30,6 +30,35 @@ class _ConnCtx:
         return False
 
 
+def get_featured_properties(limit=4):
+    """Small preview query for the landing page — same shape as browse()'s
+    listing query, without filters, capped to a handful of recent listings."""
+    with get_db() as conn:
+        props = conn.execute("""
+            SELECT p.id, p.title, p.property_type, p.city, p.nearby_landmark,
+                   p.price_per_month, p.currency, p.total_rooms, p.status,
+                   u.is_official_account AS is_official,
+                   COALESCE(AVG(r.rating), 0) AS avg_rating, COUNT(r.id) AS review_count
+            FROM properties p JOIN users u ON p.landlord_id = u.id
+            LEFT JOIN reviews r ON r.property_id = p.id
+            WHERE p.is_active = 1
+            GROUP BY p.id, u.is_official_account
+            ORDER BY p.created_at DESC
+            LIMIT ?
+        """, (limit,)).fetchall()
+
+        prop_list = []
+        for p in props:
+            d = dict(p)
+            cover = conn.execute(
+                "SELECT filename FROM property_images WHERE property_id=? AND is_primary=1 LIMIT 1",
+                (p["id"],)
+            ).fetchone()
+            d["cover_image"] = cover["filename"] if cover else None
+            prop_list.append(d)
+        return prop_list
+
+
 def init_db():
     conn = _pg_get_connection(search_path=f"{SCHEMA},public")
     cursor = conn.cursor()
