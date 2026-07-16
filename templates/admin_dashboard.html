@@ -1220,7 +1220,7 @@ async function fetchMedReqs() {
   tbody.innerHTML = rows.map(r => `
     <tr>
       <td style="font-family:monospace;font-size:12px">${esc(r.reference)}</td>
-      <td>${r.requires_prescription ? '🔴 Prescription' : '🟢 OTC'}</td>
+      <td>${r.requires_prescription ? ('🔴 Prescription' + (r.prescription_image ? ' 📎✅' : ' 📎⏳')) : '🟢 OTC'}</td>
       <td style="max-width:260px">${esc((r.description||'').slice(0,120))}</td>
       <td style="font-family:monospace;font-size:12px">${esc(r.buyer_phone)}</td>
       <td>${badge(r.status)}</td>

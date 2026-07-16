@@ -166,9 +166,10 @@
         </div>
 
         <div class="field">
-          <label>What do you need? <span class="required">*</span></label>
-          <textarea name="description" placeholder="e.g. Panadol 500mg, 1 box — or, for prescription items, the medicine name and dosage on your script"
+          <label>Describe Your Problem &amp; What You Need <span class="required">*</span></label>
+          <textarea name="description" placeholder="e.g. Bad headache and fever since yesterday, would like Panadol 500mg, 1 box — or, for prescription items, your condition plus the medicine name and dosage on your script"
                     class="{{ 'error' if field_errors.description else '' }}">{{ form.description or '' }}</textarea>
+          <div class="field-hint">Telling us your symptoms/problem helps the pharmacist advise you properly.</div>
           {% if field_errors.description %}<div class="field-error">{{ field_errors.description }}</div>{% endif %}
         </div>
 

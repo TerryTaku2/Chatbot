@@ -52,6 +52,7 @@ from db import (
     register_pharmacy, get_pending_pharmacies, get_verified_pharmacies, set_pharmacy_verified,
     create_medication_request, get_medication_requests_for_pharmacy,
     get_buyer_medication_requests, get_all_medication_requests_admin,
+    get_medication_request_by_ref, attach_prescription_image,
     # promo codes
     create_promo_code, get_promo_code, use_promo_code, apply_promo_discount,
     get_all_promo_codes, deactivate_promo_code,
@@ -4443,23 +4444,29 @@ def handle_session(phone, msg_text, session):
                 "🟢 *Request OTC Medicine*\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
                 "Describe what you need in one message. Include:\n"
-                "  • *What* medicine/item\n"
+                "  • *Your problem/symptoms* (so the pharmacist can advise you properly)\n"
+                "  • *What* medicine/item, if you know it\n"
                 "  • *Quantity* or dosage\n"
                 "  • Your *location* (city/area)\n\n"
                 "_Example:_\n"
-                "_Panadol 500mg, 1 box, deliver to Harare Avondale_\n\n"
+                "_Bad headache and fever since yesterday, would like Panadol 500mg, "
+                "1 box, deliver to Harare Avondale_\n\n"
                 "_Reply *0* to go back._"
             )
         if msg_text == "2":
-            clear_session(phone)
+            set_session(phone, "ctx_pharmacy_desc", {"requires_prescription": True})
             return (
-                "🔴 *Prescription Medicine*\n"
+                "🔴 *Request Prescription Medicine*\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                "Prescription medicines require a photo of a valid prescription, which "
-                "a pharmacist must review before it can be supplied — this needs to be "
-                "uploaded on our website.\n\n"
-                f"Please complete your request here:\n{BASE_URL}/pharmacy\n\n"
-                "_Reply *0* for the main menu._"
+                "Describe your problem/symptoms and the medicine you've been "
+                "prescribed (name, dosage — if known) in one message. Include your "
+                "*location* too.\n\n"
+                "_Example:_\n"
+                "_Managing high blood pressure, prescribed Amlodipine 5mg, "
+                "1 month supply, Bulawayo Hillside_\n\n"
+                "You'll be asked to upload a photo of your prescription on our website "
+                "after this — a pharmacist must verify it before dispensing.\n\n"
+                "_Reply *0* to go back._"
             )
         if msg_text == "3":
             pharmacies = get_verified_pharmacies()
@@ -4477,13 +4484,14 @@ def handle_session(phone, msg_text, session):
 
     if state == "ctx_pharmacy_desc":
         if len(msg_text.strip()) < 10:
-            return "Please describe what you need in a bit more detail (at least 10 characters).\n\n_Reply *0* to go back._"
+            return "Please describe your problem/symptoms and what you need in a bit more detail (at least 10 characters).\n\n_Reply *0* to go back._"
         data["description"] = msg_text.strip()
         set_session(phone, "ctx_pharmacy_confirm", data)
+        rx_label = "🔴 Prescription" if data.get("requires_prescription") else "🟢 OTC"
         return (
             f"📋 *Confirm Your Medication Request*\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"Type   : 🟢 OTC\n"
+            f"Type   : {rx_label}\n"
             f"Details: _{msg_text.strip()}_\n\n"
             f"1️⃣  — ✅ Send request\n"
             f"2️⃣  — ✏️ Change description\n"
@@ -4491,26 +4499,42 @@ def handle_session(phone, msg_text, session):
         )
 
     if state == "ctx_pharmacy_confirm":
+        rx_label = "🔴 Prescription" if data.get("requires_prescription") else "🟢 OTC"
         if msg_text == "2":
             edit_data = {k: v for k, v in data.items() if k != "description"}
             set_session(phone, "ctx_pharmacy_desc", edit_data)
-            return "✏️ *Edit Description*\n\nDescribe the medication you need:\n\n_Reply *0* to cancel._"
+            return "✏️ *Edit Description*\n\nDescribe your problem/symptoms and the medication you need:\n\n_Reply *0* to cancel._"
         if msg_text != "1":
             return (
-                f"Type   : 🟢 OTC\n"
+                f"Type   : {rx_label}\n"
                 f"Details: _{data.get('description', '')}_\n\n"
                 "1️⃣  — ✅ Send  |  2️⃣  — ✏️ Edit  |  0️⃣  — Cancel"
             )
+        needs_rx = bool(data.get("requires_prescription"))
         ref = create_medication_request(
-            phone, "", data.get("description", ""), False, ""
+            phone, "", data.get("description", ""), needs_rx, ""
         )
         clear_session(phone)
         notify_admin(
             f"💊 *New Medication Request — {ref}*\n"
-            f"Type    : OTC\n"
+            f"Type    : {'Prescription' if needs_rx else 'OTC'}\n"
             f"From    : {phone}\n"
             f"Details : {data.get('description', '')}"
         )
+        if needs_rx:
+            upload_link = f"{BASE_URL}/pharmacy/prescription/{ref}"
+            return (
+                f"✅ *Medication Request Sent!*\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"📌 Reference: *{ref}*\n\n"
+                "One more step — please upload a photo of your prescription here:\n"
+                f"{upload_link}\n\n"
+                "A verified pharmacy will only respond with a quote once your "
+                "prescription has been reviewed. This is not a diagnosis or medical "
+                "advice — the pharmacist will confirm suitability before dispensing.\n\n"
+                f"💾 Reply *my quotes* to check status.\n\n"
+                "_Reply *0* for the main menu._"
+            )
         return (
             f"✅ *Medication Request Sent!*\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -6000,6 +6024,13 @@ def handle_message(phone, msg_text):
                     f"Register your pharmacy: {BASE_URL}/register-pharmacy\n\n"
                     "_Reply *0* for the main menu._"
                 )
+            if qt["requires_prescription"] and not qt["prescription_image"]:
+                return (
+                    f"⏳ *{ref}* requires a prescription, and the customer hasn't uploaded "
+                    "it yet. You'll be notified here once it's available — please wait "
+                    "before quoting.\n\n"
+                    "_Reply *0* for the main menu._"
+                )
         seller_name = (seller["business_name"] if seller else None) or phone
         respond_to_quotation(ref, phone, seller_name, price, msg_body)
 
@@ -6066,10 +6097,14 @@ def handle_message(phone, msg_text):
                 lines.append(f"💊 *Medication Requests for You ({len(med_requests)}):*\n")
                 for q in med_requests:
                     rx_flag = "🔴 Prescription" if q["requires_prescription"] else "🟢 OTC"
+                    rx_wait = (
+                        "\n   📎 ⏳ Awaiting prescription upload"
+                        if q["requires_prescription"] and not q["prescription_image"] else ""
+                    )
                     lines.append(
                         f"📌 *{q['reference']}*  — {rx_flag}\n"
                         f"   {q['description'][:60]}{'…' if len(q['description']) > 60 else ''}\n"
-                        f"   From: {q['buyer_phone']}\n"
+                        f"   From: {q['buyer_phone']}{rx_wait}\n"
                         "─────────────────"
                     )
                 lines.append(
@@ -7377,6 +7412,44 @@ def pharmacy_web():
     threading.Thread(target=_notify, daemon=True).start()
 
     return _render(success=True, reference=ref)
+
+
+@app.route("/pharmacy/prescription/<reference>", methods=["GET", "POST"])
+def pharmacy_prescription_upload(reference):
+    """Attaches a prescription photo to a medication request already created
+    over WhatsApp — the chatbot collects the problem/medicine description in
+    chat, then sends the customer here just for the document, since inbound
+    WhatsApp media isn't handled anywhere in this app (same reason seller KYC
+    photos are web-only)."""
+    reference = reference.strip().upper()
+    req = get_medication_request_by_ref(reference)
+
+    def _render(**kw):
+        return render_template("pharmacy_prescription.html", reference=reference, req=req, **kw)
+
+    if not req or not req["requires_prescription"]:
+        return _render(error="We couldn't find a prescription request with that reference."), 404
+    if req["prescription_image"]:
+        return _render(already_uploaded=True)
+
+    if request.method == "GET":
+        return _render()
+
+    csrf.protect()  # genuine native <form> submission, not a JSON fetch API
+    rx_file = request.files.get("prescription_image")
+    if not rx_file or not rx_file.filename:
+        return _render(error="Please choose a photo of your prescription.")
+    path = save_image(rx_file)
+    if not path:
+        return _render(error="Invalid file — use JPG, PNG or WEBP under 5 MB.")
+
+    attach_prescription_image(reference, path)
+    notify_admin(
+        f"💊 *Prescription Uploaded — {reference}*\n"
+        f"From: {req['buyer_phone']}\n"
+        "A verified pharmacy can now review and quote this request."
+    )
+    return _render(success=True)
 
 
 # ── Web admin panel ───────────────────────────────────────────────────────────

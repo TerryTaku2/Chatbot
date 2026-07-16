@@ -2505,6 +2505,30 @@ def create_medication_request(buyer_phone, buyer_name, description, requires_pre
     return ref
 
 
+def get_medication_request_by_ref(reference):
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT * FROM quotations WHERE reference = ? AND item_type = 'medication'",
+        (reference,)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def attach_prescription_image(reference, image_path):
+    """Lets a customer upload their prescription photo after the WhatsApp
+    conversation already created the request (WhatsApp can't receive inbound
+    media in this app), via a web link carrying the reference."""
+    conn = get_connection()
+    conn.execute(
+        "UPDATE quotations SET prescription_image = ? "
+        "WHERE reference = ? AND item_type = 'medication'",
+        (image_path, reference)
+    )
+    conn.commit()
+    conn.close()
+
+
 def get_medication_requests_for_pharmacy(pharmacy_phone, limit=20):
     """Medication requests directed at this pharmacy, or open ones with no pharmacy set."""
     conn   = get_connection()
