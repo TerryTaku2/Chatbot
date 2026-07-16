@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" href="/static/brand/favicon.ico" sizes="any"/>
+  <link rel="icon" type="image/svg+xml" href="/static/brand/icon-badge.svg"/>
+  <link rel="apple-touch-icon" href="/static/brand/apple-touch-icon-180.png"/>
+  <title>Pharmacy Registration — T-Tech Connect</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;min-height:100vh;
+         display:flex;align-items:flex-start;justify-content:center;padding:28px 16px 48px}
+
+    .card{background:#fff;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.1);
+          width:100%;max-width:520px;overflow:hidden}
+
+    .card-header{background:#0f5c4a;padding:28px 28px 24px;text-align:center;color:#fff}
+    .logo{font-size:24px;font-weight:800;letter-spacing:-.5px;margin-bottom:4px}
+    .tagline{font-size:13px;opacity:.8}
+
+    .card-body{padding:28px}
+
+    h2{font-size:18px;font-weight:700;color:#111827;margin-bottom:4px}
+    .intro{font-size:13px;color:#6b7280;margin-bottom:24px;line-height:1.5}
+
+    .alert{border-radius:10px;padding:14px 16px;margin-bottom:20px;font-size:13px;
+           display:flex;gap:10px;align-items:flex-start;line-height:1.5}
+    .alert-error{background:#fef2f2;border:1px solid #fecaca;color:#dc2626}
+
+    .field{margin-bottom:18px}
+    label{display:block;font-size:12px;font-weight:700;color:#374151;
+          margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em}
+    .required{color:#dc2626;margin-left:2px}
+    input[type=text],input[type=tel],select,textarea{
+      width:100%;padding:11px 14px;border:1.5px solid #d1d5db;border-radius:9px;
+      font-size:14px;color:#111827;background:#fff;transition:border-color .2s;
+      -webkit-appearance:none;font-family:inherit}
+    input:focus,select:focus,textarea:focus{
+      outline:none;border-color:#0f5c4a;box-shadow:0 0 0 3px rgba(15,92,74,.08)}
+    input.error,select.error,textarea.error{border-color:#dc2626}
+    .field-hint{font-size:11px;color:#9ca3af;margin-top:5px}
+    .field-error{font-size:12px;color:#dc2626;margin-top:4px}
+    select{appearance:none;
+           background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+           background-repeat:no-repeat;background-position:right 12px center;
+           background-size:16px;padding-right:36px}
+
+    .phone-wrap{display:flex;gap:8px}
+    .country-code{width:90px;flex-shrink:0}
+
+    .notice{background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;
+            padding:14px 16px;margin-bottom:22px;font-size:12px;color:#1e3a8a;line-height:1.6}
+    .notice b{color:#1e40af}
+
+    .kyc-section{background:#fffbeb;border:1px solid #fcd34d;border-radius:12px;
+                 padding:16px;margin-bottom:20px}
+    .kyc-title{font-size:12px;font-weight:700;color:#92400e;text-transform:uppercase;
+               letter-spacing:.05em;margin-bottom:6px}
+    .kyc-desc{font-size:12px;color:#78350f;line-height:1.5;margin-bottom:14px}
+
+    .upload-pair{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    @media(max-width:420px){.upload-pair{grid-template-columns:1fr}}
+
+    .upload-box{border:2px dashed #d1d5db;border-radius:10px;padding:14px 10px;
+                text-align:center;cursor:pointer;transition:all .2s;position:relative;
+                background:#fff}
+    .upload-box:hover{border-color:#0f5c4a;background:#f0fdf4}
+    .upload-box.has-file{border-color:#16a34a;border-style:solid;background:#f0fdf4}
+    .upload-box.has-error{border-color:#dc2626;border-style:solid;background:#fef2f2}
+    .upload-box input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+    .upload-icon{font-size:28px;margin-bottom:6px;display:block}
+    .upload-label-text{font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:2px}
+    .upload-hint{font-size:11px;color:#9ca3af}
+    .upload-check{font-size:18px;display:none;color:#16a34a;margin-top:4px}
+    .upload-filename{font-size:11px;color:#166534;margin-top:6px;display:none;word-break:break-all}
+
+    .submit-btn{width:100%;padding:14px;background:#0f5c4a;color:#fff;border:none;
+                border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;
+                transition:background .2s;margin-top:4px}
+    .submit-btn:hover{background:#0c4a3b}
+    .submit-btn:disabled{background:#9ca3af;cursor:not-allowed}
+    .note{text-align:center;font-size:12px;color:#9ca3af;margin-top:14px;line-height:1.5}
+
+    .divider{display:flex;align-items:center;gap:10px;margin:22px 0 18px}
+    .divider-line{flex:1;height:1px;background:#e5e7eb}
+    .divider-text{font-size:11px;font-weight:700;color:#9ca3af;text-transform:uppercase;
+                  letter-spacing:.05em;white-space:nowrap}
+
+    .success-wrap{padding:36px 28px;text-align:center}
+    .success-icon{font-size:56px;margin-bottom:12px}
+    .success-wrap h2{font-size:22px;color:#0f5c4a;margin-bottom:8px}
+    .success-wrap p{font-size:14px;color:#6b7280;margin-bottom:6px;line-height:1.6}
+    .success-wrap .wa-link{display:inline-block;margin-top:18px;padding:12px 24px;
+                           background:#25d366;color:#fff;border-radius:10px;
+                           font-weight:700;font-size:14px;text-decoration:none}
+    .success-steps{text-align:left;margin:20px 0;background:#f9fafb;
+                   border-radius:10px;padding:14px 16px}
+    .success-step{display:flex;gap:10px;margin-bottom:10px;align-items:flex-start;
+                  font-size:13px;color:#374151;line-height:1.4}
+    .success-step:last-child{margin-bottom:0}
+    .step-dot{background:#0f5c4a;color:#fff;border-radius:50%;width:20px;height:20px;
+              min-width:20px;font-size:11px;font-weight:700;display:flex;
+              align-items:center;justify-content:center;margin-top:1px}
+  </style>
+</head>
+<body>
+<div class="card">
+  <div class="card-header">
+    <div class="logo">💊 T-Tech Connect Pharmacy</div>
+    <div class="tagline">Licensed Pharmacy Registration</div>
+  </div>
+
+  {% if success %}
+  <div class="success-wrap">
+    <div class="success-icon">🎉</div>
+    <h2>Application Submitted!</h2>
+    <p>Thank you, <strong>{{ submitted_name }}</strong>!</p>
+    <p><strong>{{ submitted_business }}</strong>'s licence documents have been received.</p>
+
+    <div class="success-steps">
+      <div class="success-step">
+        <div class="step-dot">1</div>
+        Our team verifies your MCAZ premises licence and PCZ pharmacist registration by hand.
+      </div>
+      <div class="success-step">
+        <div class="step-dot">2</div>
+        You'll get a WhatsApp message once verified — usually within 24–48 hours.
+      </div>
+      <div class="success-step">
+        <div class="step-dot">3</div>
+        Once verified, customer medication requests reach you privately on WhatsApp
+        for you to quote — your stock is never listed publicly.
+      </div>
+    </div>
+
+    <a class="wa-link"
+       href="https://wa.me/{{ wa_number }}?text=Hi%2C+I+just+registered+my+pharmacy">
+      💬 Chat with us on WhatsApp
+    </a>
+    <p class="note" style="margin-top:20px">
+      Questions? WhatsApp us at {{ contact_phone }}
+    </p>
+  </div>
+
+  {% else %}
+  <div class="card-body">
+    <h2>Pharmacy Registration</h2>
+    <p class="intro">Register your licensed pharmacy to receive medication requests from customers on WhatsApp.</p>
+
+    {% if error %}
+    <div class="alert alert-error">⚠️ {{ error }}</div>
+    {% endif %}
+
+    <div class="notice">
+      ⚖️ <b>Zimbabwe law requires</b> that medicines only be supplied through a
+      pharmacy premises licensed by the Medicines Control Authority of Zimbabwe (MCAZ)
+      and operating under a pharmacist registered with the Pharmacists Council of
+      Zimbabwe (PCZ). We do not list or advertise individual medicines publicly —
+      every request is reviewed and quoted privately by your pharmacy, and every
+      pharmacy account is verified by hand before it can respond to requests.
+    </div>
+
+    <form method="POST" action="/register-pharmacy" enctype="multipart/form-data" id="regForm">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <div class="field">
+        <label>Your Full Name <span class="required">*</span></label>
+        <input type="text" name="name" placeholder="e.g. Tendai Moyo"
+               value="{{ form.name or '' }}" required
+               class="{{ 'error' if field_errors.name else '' }}">
+        {% if field_errors.name %}<div class="field-error">{{ field_errors.name }}</div>{% endif %}
+      </div>
+
+      <div class="field">
+        <label>Pharmacy Trading Name <span class="required">*</span></label>
+        <input type="text" name="business_name" placeholder="e.g. Moyo Pharmacy"
+               value="{{ form.business_name or '' }}" required
+               class="{{ 'error' if field_errors.business_name else '' }}">
+        {% if field_errors.business_name %}<div class="field-error">{{ field_errors.business_name }}</div>{% endif %}
+      </div>
+
+      <div class="field">
+        <label>WhatsApp Number <span class="required">*</span></label>
+        <div class="phone-wrap">
+          <select name="country_code" class="country-code">
+            <option value="263" {% if (form.country_code or '263') == '263' %}selected{% endif %}>🇿🇼 +263</option>
+          </select>
+          <input type="tel" name="phone_local"
+                 placeholder="0771234567 or 771234567"
+                 value="{{ form.phone_local or '' }}" required
+                 class="{{ 'error' if field_errors.phone else '' }}">
+        </div>
+        <div class="field-hint">The pharmacy's WhatsApp number — medication requests arrive here.</div>
+        {% if field_errors.phone %}<div class="field-error">{{ field_errors.phone }}</div>{% endif %}
+      </div>
+
+      <div class="field">
+        <label>City / Location <span class="required">*</span></label>
+        <select name="location" required class="{{ 'error' if field_errors.location else '' }}">
+          <option value="" disabled {% if not form.location %}selected{% endif %}>Select your city</option>
+          <option value="Harare"         {% if form.location == 'Harare' %}selected{% endif %}>Harare</option>
+          <option value="Bulawayo"       {% if form.location == 'Bulawayo' %}selected{% endif %}>Bulawayo</option>
+          <option value="Mutare"         {% if form.location == 'Mutare' %}selected{% endif %}>Mutare</option>
+          <option value="Gweru"          {% if form.location == 'Gweru' %}selected{% endif %}>Gweru</option>
+          <option value="Masvingo"       {% if form.location == 'Masvingo' %}selected{% endif %}>Masvingo</option>
+          <option value="Chinhoyi"       {% if form.location == 'Chinhoyi' %}selected{% endif %}>Chinhoyi</option>
+          <option value="Victoria Falls" {% if form.location == 'Victoria Falls' %}selected{% endif %}>Victoria Falls</option>
+          <option value="Other"          {% if form.location == 'Other' %}selected{% endif %}>Other</option>
+        </select>
+        {% if field_errors.location %}<div class="field-error">{{ field_errors.location }}</div>{% endif %}
+      </div>
+
+      <div class="divider">
+        <div class="divider-line"></div>
+        <div class="divider-text">Licence Details</div>
+        <div class="divider-line"></div>
+      </div>
+
+      <div class="field">
+        <label>Responsible Pharmacist's Name <span class="required">*</span></label>
+        <input type="text" name="pharmacist_name" placeholder="e.g. Dr. Tendai Moyo"
+               value="{{ form.pharmacist_name or '' }}" required
+               class="{{ 'error' if field_errors.pharmacist_name else '' }}">
+        {% if field_errors.pharmacist_name %}<div class="field-error">{{ field_errors.pharmacist_name }}</div>{% endif %}
+      </div>
+
+      <div class="field">
+        <label>PCZ Registration Number <span class="required">*</span></label>
+        <input type="text" name="pcz_reg_no" placeholder="Pharmacists Council of Zimbabwe reg. no."
+               value="{{ form.pcz_reg_no or '' }}" required
+               class="{{ 'error' if field_errors.pcz_reg_no else '' }}">
+        {% if field_errors.pcz_reg_no %}<div class="field-error">{{ field_errors.pcz_reg_no }}</div>{% endif %}
+      </div>
+
+      <div class="field">
+        <label>MCAZ Premises Licence Number <span class="required">*</span></label>
+        <input type="text" name="mcaz_license_no" placeholder="Medicines Control Authority of Zimbabwe licence no."
+               value="{{ form.mcaz_license_no or '' }}" required
+               class="{{ 'error' if field_errors.mcaz_license_no else '' }}">
+        {% if field_errors.mcaz_license_no %}<div class="field-error">{{ field_errors.mcaz_license_no }}</div>{% endif %}
+      </div>
+
+      <div class="kyc-section">
+        <div class="kyc-title">🪪 Verification Documents Required</div>
+        <div class="kyc-desc">
+          Upload the responsible pharmacist's ID, a selfie holding it, and a clear scan/photo
+          of your current MCAZ premises licence. Kept private, used only for verification.
+        </div>
+
+        <div class="upload-pair">
+          <div class="field" style="margin-bottom:0">
+            <label>Pharmacist's ID <span class="required">*</span></label>
+            <div class="upload-box {{ 'has-error' if field_errors.id_photo else '' }}" id="idBox">
+              <input type="file" id="idInput" name="id_photo"
+                     accept="image/jpeg,image/png,image/webp"
+                     onchange="previewFile(this,'idBox','idCheck')">
+              <span class="upload-icon">🪪</span>
+              <span class="upload-label-text">ID / Passport<br>/ Licence</span>
+              <span class="upload-hint">JPG · PNG · WEBP<br>max 5 MB</span>
+              <div id="idCheck" class="upload-check">✅ Ready</div>
+            </div>
+            {% if field_errors.id_photo %}<div class="field-error">{{ field_errors.id_photo }}</div>{% endif %}
+          </div>
+
+          <div class="field" style="margin-bottom:0">
+            <label>Selfie with ID <span class="required">*</span></label>
+            <div class="upload-box {{ 'has-error' if field_errors.selfie_photo else '' }}" id="selfieBox">
+              <input type="file" id="selfieInput" name="selfie_photo"
+                     accept="image/jpeg,image/png,image/webp"
+                     onchange="previewFile(this,'selfieBox','selfieCheck')">
+              <span class="upload-icon">🤳</span>
+              <span class="upload-label-text">Your photo<br>holding the ID</span>
+              <span class="upload-hint">JPG · PNG · WEBP<br>max 5 MB</span>
+              <div id="selfieCheck" class="upload-check">✅ Ready</div>
+            </div>
+            {% if field_errors.selfie_photo %}<div class="field-error">{{ field_errors.selfie_photo }}</div>{% endif %}
+          </div>
+        </div>
+
+        <div class="field" style="margin-top:12px;margin-bottom:0">
+          <label>MCAZ Premises Licence <span class="required">*</span></label>
+          <div class="upload-box {{ 'has-error' if field_errors.license_document else '' }}" id="licBox">
+            <input type="file" id="licInput" name="license_document"
+                   accept="image/jpeg,image/png,image/webp,application/pdf"
+                   onchange="previewFile(this,'licBox','licCheck')">
+            <span class="upload-icon">📜</span>
+            <span class="upload-label-text">Licence scan or photo</span>
+            <span class="upload-hint">JPG · PNG · WEBP · PDF</span>
+            <div id="licCheck" class="upload-check">✅ Ready</div>
+          </div>
+          {% if field_errors.license_document %}<div class="field-error">{{ field_errors.license_document }}</div>{% endif %}
+        </div>
+      </div>
+
+      <button type="submit" class="submit-btn" id="submitBtn">
+        Submit for Verification →
+      </button>
+      <p class="note">
+        Documents are used only for licence verification and are never shared publicly.<br>
+        Already registered? Message us on WhatsApp to check your status.
+      </p>
+    </form>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+  function previewFile(input, boxId, checkId) {
+    const box   = document.getElementById(boxId);
+    const check = document.getElementById(checkId);
+    if (input.files && input.files[0]) {
+      const file = input.files[0];
+      if (file.size > 100 * 1024 * 1024) {
+        alert('File too large.');
+        input.value = '';
+        check.style.display = 'none';
+        box.classList.remove('has-file');
+        return;
+      }
+      check.style.display = 'block';
+      box.classList.add('has-file');
+      box.classList.remove('has-error');
+    } else {
+      check.style.display = 'none';
+      box.classList.remove('has-file');
+    }
+  }
+
+  document.getElementById('regForm').addEventListener('submit', function() {
+    const btn = document.getElementById('submitBtn');
+    btn.disabled    = true;
+    btn.textContent = 'Submitting…';
+  });
+</script>
+</body>
+</html>

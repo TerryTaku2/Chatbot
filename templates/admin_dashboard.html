@@ -262,6 +262,10 @@
       <span class="icon">👤</span> Sellers
       <span class="sb-badge" id="badge-sellers">{{ stats.pending_sellers }}</span>
     </div>
+    <div class="sb-link" onclick="showSection('pharmacies')">
+      <span class="icon">💊</span> Pharmacies
+      <span class="sb-badge" id="badge-pharmacies">{{ stats.pending_pharmacies }}</span>
+    </div>
     <div class="sb-link" onclick="showSection('products')">
       <span class="icon">📦</span> Products
       <span class="sb-badge" id="badge-products">{{ stats.pending_products }}</span>
@@ -438,6 +442,30 @@
       </div>
     </div>
 
+    <!-- ── Pharmacies ── -->
+    <div class="section-page" id="page-pharmacies">
+      <div class="filter-bar">
+        <button class="filter-btn active" onclick="filterTable('pharmacies','all',this)">All</button>
+        <button class="filter-btn" onclick="filterTable('pharmacies','pending',this)">Pending Verification</button>
+        <button class="filter-btn" onclick="filterTable('pharmacies','verified',this)">Verified</button>
+        <input class="search-input" placeholder="Search pharmacy / phone…" oninput="searchTable('pharmacies',this.value)">
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Pharmacist</th><th>Pharmacy</th><th>Phone</th><th>Location</th><th>Licence</th><th>Status</th><th>Docs</th><th>Actions</th></tr></thead>
+          <tbody id="pharmacies-body"><tr class="loading-row"><td colspan="8"><div class="spinner"></div></td></tr></tbody>
+        </table>
+      </div>
+
+      <div class="sec-head"><h2>Medication Requests</h2><span class="count">for oversight — pharmacies quote these privately</span></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Ref</th><th>Type</th><th>Details</th><th>From</th><th>Status</th><th>Quoted</th><th>Date</th></tr></thead>
+          <tbody id="medreqs-body"><tr class="loading-row"><td colspan="7"><div class="spinner"></div></td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- ── Products ── -->
     <div class="section-page" id="page-products">
       <div class="filter-bar">
@@ -465,6 +493,8 @@
         <button class="filter-btn" onclick="filterTable('services','approved',this)">Approved</button>
         <button class="filter-btn" onclick="filterTable('services','rejected',this)">Rejected</button>
         <input class="search-input" placeholder="Search title / provider…" oninput="searchTable('services',this.value)">
+        <button class="btn-primary" style="padding:6px 14px;font-size:12px;margin-left:auto"
+                onclick="openListForSeller('service')">➕ List for Seller</button>
       </div>
       <div class="table-wrap">
         <table>
@@ -720,17 +750,17 @@
 <div class="modal-overlay" id="lfs-modal" onclick="closeLFS(event)">
   <div class="modal-box" style="max-width:560px" onclick="event.stopPropagation()">
     <button class="modal-close" onclick="closeLFS()">✕</button>
-    <div class="modal-title">➕ List Product / Service for Seller</div>
+    <div class="modal-title" id="lfs-modal-title">➕ List Product / Service for Seller</div>
     <div style="display:grid;gap:12px;margin-top:4px">
 
-      <div class="field">
+      <div class="field" id="lfs-seller-wrap">
         <label>Seller *</label>
         <select id="lfs-seller" required>
           <option value="" disabled selected>Loading approved sellers…</option>
         </select>
       </div>
 
-      <div class="field">
+      <div class="field" id="lfs-type-wrap">
         <label>Type *</label>
         <select id="lfs-type" onchange="lfsTypeChange()">
           <option value="product">📦 Product</option>
@@ -796,7 +826,7 @@
         📩 Digital items are delivered automatically via a secure download link once the order is marked fulfilled — no delivery method needed.
       </p>
 
-      <div class="field">
+      <div class="field" id="lfs-spec-wrap">
         <label>Specifications</label>
         <input type="text" id="lfs-spec" placeholder="e.g. Brand: HP · Condition: New">
       </div>
@@ -820,7 +850,7 @@
 
     </div>
     <div class="modal-actions" style="margin-top:16px">
-      <button class="btn-primary" onclick="submitListForSeller()">✅ Create Listing</button>
+      <button class="btn-primary" id="lfs-submit-btn" onclick="submitListForSeller()">✅ Create Listing</button>
       <button class="btn-secondary" onclick="closeLFS()">Cancel</button>
     </div>
   </div>
@@ -882,8 +912,8 @@
    State
    ───────────────────────────────────────────────────────── */
 const DATA = { sellers:[], products:[], services:[], orders:[], delivery:[] };
-const FILTERS = { sellers:'all', products:'all', services:'all', orders:'all', delivery:'all' };
-const SEARCH  = { sellers:'', products:'', services:'', orders:'', delivery:'' };
+const FILTERS = { sellers:'all', products:'all', services:'all', orders:'all', delivery:'all', pharmacies:'all' };
+const SEARCH  = { sellers:'', products:'', services:'', orders:'', delivery:'', pharmacies:'' };
 let currentSection = 'overview';
 let settingsCache  = {};
 let statsRange = '30';
@@ -893,6 +923,7 @@ let statsRange = '30';
    ───────────────────────────────────────────────────────── */
 const TITLES = {
   overview:'Dashboard Overview', sellers:'Seller Management',
+  pharmacies:'Pharmacies Management',
   products:'Product Management', services:'Service Management',
   orders:'Order Management',     enquiries:'Enquiries',
   delivery:'Delivery Agents',    commission:'Connect Fee Rates',
@@ -924,6 +955,7 @@ function toggleSidebar() {
 function loadSection(name) {
   if (name === 'overview')    { loadAuditPreview(); return; }
   if (name === 'sellers')     { fetchSellers(); return; }
+  if (name === 'pharmacies')  { fetchPharmacies(); fetchMedReqs(); return; }
   if (name === 'products')    { fetchProducts(); return; }
   if (name === 'services')    { fetchServices(); return; }
   if (name === 'orders')      { fetchOrders(); return; }
@@ -1014,6 +1046,7 @@ async function fetchSellers() {
 
 function renderSection(section) {
   if (section === 'sellers') renderSellers();
+  if (section === 'pharmacies') renderPharmacies();
   if (section === 'products') renderProducts();
   if (section === 'services') renderServices();
   if (section === 'orders') renderOrders();
@@ -1100,6 +1133,103 @@ async function sellerAction(action, phone, name) {
 }
 
 /* ─────────────────────────────────────────────────────────
+   Pharmacies
+   ───────────────────────────────────────────────────────── */
+async function fetchPharmacies() {
+  document.getElementById('pharmacies-body').innerHTML = loadingRow(8);
+  DATA.pharmacies = await api('/admin/api/pharmacies');
+  renderPharmacies();
+}
+
+function renderPharmacies() {
+  const f = FILTERS.pharmacies, s = SEARCH.pharmacies;
+  const rows = (DATA.pharmacies || []).filter(p => {
+    const matchF = f === 'all' || (f === 'verified' ? !!p.pharmacy_verified : !p.pharmacy_verified);
+    const matchS = !s || JSON.stringify(p).toLowerCase().includes(s);
+    return matchF && matchS;
+  });
+  const tbody = document.getElementById('pharmacies-body');
+  if (!rows.length) { tbody.innerHTML = emptyRow(8, 'No pharmacies found.'); return; }
+  tbody.innerHTML = rows.map(p => `
+    <tr>
+      <td><div class="td-name">${esc(p.pharmacist_name)}</div><div class="td-sub">Since ${(p.registered_at||'').slice(0,10)}</div></td>
+      <td>${esc(p.business_name)}</td>
+      <td style="font-family:monospace;font-size:12px">${esc(p.phone)}</td>
+      <td>${esc(p.location) || '—'}</td>
+      <td style="font-size:12px">PCZ: ${esc(p.pcz_reg_no)}<br>MCAZ: ${esc(p.mcaz_license_no)}</td>
+      <td>${p.pharmacy_verified ? '<span class="badge" style="background:#0d6e54;color:#fff">VERIFIED</span>' : badge(p.status)}</td>
+      <td>${pharmacyDocsCell(p)}</td>
+      <td><div class="actions">${pharmacyActions(p)}</div></td>
+    </tr>`).join('');
+}
+
+function pharmacyDocsCell(p) {
+  if (!p.license_document_url && !p.id_photo_url && !p.selfie_photo_url) return '<span class="kyc-missing">None</span>';
+  let html = '';
+  if (p.license_document_url) html += `<img src="${p.license_document_url}" class="kyc-thumb" onclick="viewPharmacyDocs(${JSON.stringify(p).replace(/"/g,'&quot;')})" title="Licence">`;
+  if (p.id_photo_url)         html += `<img src="${p.id_photo_url}"     class="kyc-thumb" onclick="viewPharmacyDocs(${JSON.stringify(p).replace(/"/g,'&quot;')})" title="ID Photo">`;
+  if (p.selfie_photo_url)     html += `<img src="${p.selfie_photo_url}" class="kyc-thumb" onclick="viewPharmacyDocs(${JSON.stringify(p).replace(/"/g,'&quot;')})" title="Selfie">`;
+  return html;
+}
+
+function pharmacyActions(p) {
+  let html = '';
+  if (!p.pharmacy_verified) html += `<button class="btn btn-approve" onclick="pharmacyAction('verify','${p.phone}','${escQ(p.business_name)}')">✅ Verify</button>`;
+  if (p.status !== 'rejected') html += `<button class="btn btn-reject" onclick="pharmacyAction('reject','${p.phone}','${escQ(p.business_name)}')">❌ Reject</button>`;
+  return html;
+}
+
+function viewPharmacyDocs(p) {
+  document.getElementById('modal-title').textContent = `💊 Licence — ${esc(p.business_name)} (${esc(p.pharmacist_name)})`;
+  let body = `<div style="font-size:13px;color:#374151;margin-bottom:10px">PCZ Reg: <b>${esc(p.pcz_reg_no)}</b> &nbsp;|&nbsp; MCAZ Licence: <b>${esc(p.mcaz_license_no)}</b></div>`;
+  if (p.license_document_url) body += `<div class="modal-img-label">MCAZ Premises Licence</div><img src="${p.license_document_url}" class="modal-img">`;
+  if (p.id_photo_url)         body += `<div class="modal-img-label" style="margin-top:10px">Pharmacist ID / Passport</div><img src="${p.id_photo_url}" class="modal-img">`;
+  if (p.selfie_photo_url)     body += `<div class="modal-img-label" style="margin-top:10px">Selfie holding ID</div><img src="${p.selfie_photo_url}" class="modal-img">`;
+  document.getElementById('modal-body').innerHTML = body;
+  document.getElementById('modal-actions').innerHTML = `
+    <button class="btn-primary" onclick="pharmacyAction('verify','${p.phone}','${escQ(p.business_name)}');closeModal()">✅ Verify</button>
+    <button class="btn-danger"  onclick="pharmacyAction('reject','${p.phone}','${escQ(p.business_name)}');closeModal()">❌ Reject</button>
+    <button class="btn-secondary" onclick="closeModal()">Close</button>`;
+  openModal();
+}
+
+async function pharmacyAction(action, phone, name) {
+  try {
+    if (action === 'reject') {
+      const reason = prompt(`Reason for rejecting ${name} (leave blank for none):`);
+      if (reason === null) return;
+      const res = await api('/admin/api/pharmacy/reject', 'POST', { phone, reason });
+      toast(res.message, res.ok);
+    } else {
+      const confirmed = confirm(`Verify ${name}'s MCAZ licence and PCZ registration?`);
+      if (!confirmed) return;
+      const res = await api('/admin/api/pharmacy/verify', 'POST', { phone });
+      toast(res.message, res.ok);
+    }
+    fetchPharmacies();
+  } catch (e) {
+    toast('Action failed: ' + e.message, false);
+  }
+}
+
+async function fetchMedReqs() {
+  document.getElementById('medreqs-body').innerHTML = loadingRow(7);
+  const rows = await api('/admin/api/medication-requests');
+  const tbody = document.getElementById('medreqs-body');
+  if (!rows.length) { tbody.innerHTML = emptyRow(7, 'No medication requests yet.'); return; }
+  tbody.innerHTML = rows.map(r => `
+    <tr>
+      <td style="font-family:monospace;font-size:12px">${esc(r.reference)}</td>
+      <td>${r.requires_prescription ? '🔴 Prescription' : '🟢 OTC'}</td>
+      <td style="max-width:260px">${esc((r.description||'').slice(0,120))}</td>
+      <td style="font-family:monospace;font-size:12px">${esc(r.buyer_phone)}</td>
+      <td>${badge(r.status)}</td>
+      <td>${r.quoted_price ? '$' + Number(r.quoted_price).toFixed(2) : '—'}</td>
+      <td>${(r.created_at||'').slice(0,10)}</td>
+    </tr>`).join('');
+}
+
+/* ─────────────────────────────────────────────────────────
    Products
    ───────────────────────────────────────────────────────── */
 async function fetchProducts() {
@@ -1137,6 +1267,7 @@ function renderProducts() {
 
 function productActions(p) {
   let html = `<button class="btn btn-view" onclick="viewProductMedia(${JSON.stringify(p).replace(/"/g,'&quot;')})" title="View media">👁️</button>`;
+  html += `<button class="btn btn-view" onclick="openEditProduct(${JSON.stringify(p).replace(/"/g,'&quot;')})" title="Edit listing">✏️</button>`;
   if (p.status !== 'approved')  html += `<button class="btn btn-approve" onclick="productAction('approve',${p.id},'${escQ(p.name)}')">✅</button>`;
   if (p.status === 'approved')  html += `<button class="btn btn-reject"  onclick="productAction('reject', ${p.id},'${escQ(p.name)}')">❌</button>`;
   html += `<button class="btn btn-remove" onclick="productAction('remove',${p.id},'${escQ(p.name)}')">🗑️</button>`;
@@ -1226,7 +1357,7 @@ function renderServices() {
 }
 
 function serviceActions(s) {
-  let html = '';
+  let html = `<button class="btn btn-view" onclick="openEditService(${JSON.stringify(s).replace(/"/g,'&quot;')})" title="Edit listing">✏️ Edit</button>`;
   if (s.status !== 'approved') html += `<button class="btn btn-approve" onclick="serviceAction('approve',${s.id},'${escQ(s.title)}')">✅ Approve</button>`;
   if (s.status !== 'rejected') html += `<button class="btn btn-reject"  onclick="serviceAction('reject', ${s.id},'${escQ(s.title)}')">❌ Reject</button>`;
   return html;
@@ -1599,15 +1730,93 @@ function escQ(s) { return (s||'').replace(/'/g,"&#39;").replace(/"/g,'&quot;'); 
 /* ─────────────────────────────────────────────────────────
    List for Seller
    ───────────────────────────────────────────────────────── */
-async function openListForSeller() {
+let lfsMode     = 'create';  // 'create' | 'edit'
+let lfsEditId   = null;
+let lfsEditType = null;      // 'product' | 'service' — fixed target of an edit
+
+async function openListForSeller(defaultType) {
+  lfsMode     = 'create';
+  lfsEditId   = null;
+  lfsEditType = null;
+  document.getElementById('lfs-modal-title').textContent = '➕ List Product / Service for Seller';
+  document.getElementById('lfs-submit-btn').textContent = '✅ Create Listing';
+  document.getElementById('lfs-seller-wrap').style.display = '';
+  document.getElementById('lfs-type-wrap').style.display   = '';
+  document.getElementById('lfs-spec-wrap').style.display   = '';
+  document.getElementById('lfs-qty').disabled = false;
+
   // Populate approved sellers
   const sellers = await api('/admin/api/sellers');
   const approved = sellers.filter(s => s.status === 'approved');
   const sel = document.getElementById('lfs-seller');
   sel.innerHTML = '<option value="" disabled selected>Select seller</option>' +
     approved.map(s => `<option value="${s.phone}">${s.name} — ${s.business_name} (${s.phone})</option>`).join('');
-  document.getElementById('lfs-type').value = 'product';
+  document.getElementById('lfs-name').value = '';
+  document.getElementById('lfs-category').value = '';
+  document.getElementById('lfs-price').value = '';
+  document.getElementById('lfs-qty').value = 1;
+  document.getElementById('lfs-unit').value = 'pcs';
+  document.getElementById('lfs-location').value = '';
+  document.getElementById('lfs-desc').value = '';
+  document.getElementById('lfs-spec').value = '';
+  document.getElementById('lfs-extras').value = '';
+  document.getElementById('lfs-delivery-info').value = '';
+  document.getElementById('lfs-type').value = defaultType === 'service' ? 'service' : 'product';
   lfsTypeChange();
+  document.getElementById('lfs-modal').classList.add('open');
+}
+
+function openEditProduct(p) {
+  lfsMode     = 'edit';
+  lfsEditId   = p.id;
+  lfsEditType = 'product';
+  document.getElementById('lfs-modal-title').textContent = '✏️ Edit Product';
+  document.getElementById('lfs-submit-btn').textContent = '💾 Save Changes';
+  document.getElementById('lfs-seller-wrap').style.display = 'none';
+  document.getElementById('lfs-type-wrap').style.display   = 'none';
+  document.getElementById('lfs-spec-wrap').style.display   = 'none';
+
+  document.getElementById('lfs-type').value = p.product_type === 'digital' ? 'digital' : 'product';
+  document.getElementById('lfs-name').value = p.name || '';
+  document.getElementById('lfs-category').value = p.category || '';
+  document.getElementById('lfs-price').value = p.price;
+  document.getElementById('lfs-qty').value = p.stock_qty;
+  document.getElementById('lfs-unit').value = p.stock_unit || 'pcs';
+  document.getElementById('lfs-location').value = p.seller_location || '';
+  document.getElementById('lfs-desc').value = p.description || '';
+  document.getElementById('lfs-spec').value = '';
+  document.getElementById('lfs-extras').value = p.extra_services || '';
+  document.getElementById('lfs-delivery-info').value = p.delivery_info || '';
+  lfsTypeChange();
+  document.getElementById('lfs-qty').disabled = true;
+  document.getElementById('lfs-delivery').value = String(p.offers_delivery || 0);
+  document.getElementById('lfs-comm-preview').style.display = 'none';
+  document.getElementById('lfs-modal').classList.add('open');
+}
+
+function openEditService(s) {
+  lfsMode     = 'edit';
+  lfsEditId   = s.id;
+  lfsEditType = 'service';
+  document.getElementById('lfs-modal-title').textContent = '✏️ Edit Service';
+  document.getElementById('lfs-submit-btn').textContent = '💾 Save Changes';
+  document.getElementById('lfs-seller-wrap').style.display = 'none';
+  document.getElementById('lfs-type-wrap').style.display   = 'none';
+  document.getElementById('lfs-spec-wrap').style.display   = 'none';
+
+  document.getElementById('lfs-type').value = 'service';
+  document.getElementById('lfs-name').value = s.title || '';
+  document.getElementById('lfs-category').value = s.category || '';
+  document.getElementById('lfs-price').value = s.price;
+  document.getElementById('lfs-svcunit').value = s.price_type || 'fixed';
+  document.getElementById('lfs-location').value = s.service_area || '';
+  document.getElementById('lfs-desc').value = s.description || '';
+  document.getElementById('lfs-spec').value = '';
+  document.getElementById('lfs-extras').value = s.extra_services || '';
+  document.getElementById('lfs-delivery-info').value = s.delivery_info || '';
+  lfsTypeChange();
+  document.getElementById('lfs-delivery').value = String(s.offers_delivery || 0);
+  document.getElementById('lfs-comm-preview').style.display = 'none';
   document.getElementById('lfs-modal').classList.add('open');
 }
 
@@ -1660,6 +1869,7 @@ function lfsTypeChange() {
 }
 
 async function lfsCalcComm() {
+  if (lfsMode === 'edit') { document.getElementById('lfs-comm-preview').style.display = 'none'; return; }
   const type  = document.getElementById('lfs-type').value;
   const price = parseFloat(document.getElementById('lfs-price').value) || 0;
   const qty   = type === 'service' ? 1 : (parseInt(document.getElementById('lfs-qty').value) || 1);
@@ -1693,13 +1903,30 @@ async function submitListForSeller() {
     delivery_info:   document.getElementById('lfs-delivery-info').value.trim(),
     extra_services:  document.getElementById('lfs-extras').value.trim(),
   };
+
+  if (lfsMode === 'edit') {
+    if (!body.name || !body.category || !body.price) {
+      toast('Please fill in all required fields.', false); return;
+    }
+    body.id = lfsEditId;
+    const endpoint = lfsEditType === 'service' ? '/admin/api/service/edit' : '/admin/api/product/edit';
+    try {
+      const res = await api(endpoint, 'POST', body);
+      toast(res.message, res.ok);
+      if (res.ok) { closeLFS(); lfsEditType === 'service' ? fetchServices() : fetchProducts(); }
+    } catch (e) {
+      toast('Failed to update listing.', false);
+    }
+    return;
+  }
+
   if (!body.seller_phone || !body.name || !body.category || !body.price) {
     toast('Please fill in all required fields.', false); return;
   }
   try {
     const res = await api('/admin/api/create-listing', 'POST', body);
     toast(res.message, res.ok);
-    if (res.ok) { closeLFS(); fetchProducts(); }
+    if (res.ok) { closeLFS(); type === 'service' ? fetchServices() : fetchProducts(); }
   } catch (e) {
     toast('Failed to create listing.', false);
   }

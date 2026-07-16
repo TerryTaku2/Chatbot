@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" href="/static/brand/favicon.ico" sizes="any"/>
+  <link rel="icon" type="image/svg+xml" href="/static/brand/icon-badge.svg"/>
+  <link rel="apple-touch-icon" href="/static/brand/apple-touch-icon-180.png"/>
+  <title>Pharmacy — T-Tech Connect</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;min-height:100vh;
+         display:flex;align-items:flex-start;justify-content:center;padding:28px 16px 48px}
+
+    .wrap{width:100%;max-width:560px}
+    .card{background:#fff;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.1);
+          width:100%;overflow:hidden;margin-bottom:20px}
+
+    .card-header{background:#0f5c4a;padding:28px 28px 24px;text-align:center;color:#fff}
+    .logo{font-size:24px;font-weight:800;letter-spacing:-.5px;margin-bottom:4px}
+    .tagline{font-size:13px;opacity:.8}
+    .back-link{display:inline-block;margin-bottom:14px;font-size:13px;color:#075e54;text-decoration:none}
+
+    .card-body{padding:28px}
+    h2{font-size:18px;font-weight:700;color:#111827;margin-bottom:4px}
+    .intro{font-size:13px;color:#6b7280;margin-bottom:20px;line-height:1.5}
+
+    .alert{border-radius:10px;padding:14px 16px;margin-bottom:20px;font-size:13px;
+           display:flex;gap:10px;align-items:flex-start;line-height:1.5}
+    .alert-error{background:#fef2f2;border:1px solid #fecaca;color:#dc2626}
+
+    .notice{background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;
+            padding:14px 16px;margin-bottom:22px;font-size:12px;color:#1e3a8a;line-height:1.6}
+    .notice b{color:#1e40af}
+
+    .field{margin-bottom:18px}
+    label{display:block;font-size:12px;font-weight:700;color:#374151;
+          margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em}
+    .required{color:#dc2626;margin-left:2px}
+    input[type=text],input[type=tel],textarea{
+      width:100%;padding:11px 14px;border:1.5px solid #d1d5db;border-radius:9px;
+      font-size:14px;color:#111827;background:#fff;transition:border-color .2s;
+      -webkit-appearance:none;font-family:inherit}
+    input:focus,textarea:focus{outline:none;border-color:#0f5c4a;box-shadow:0 0 0 3px rgba(15,92,74,.08)}
+    input.error,textarea.error{border-color:#dc2626}
+    .field-hint{font-size:11px;color:#9ca3af;margin-top:5px}
+    .field-error{font-size:12px;color:#dc2626;margin-top:4px}
+    textarea{resize:vertical;min-height:90px}
+
+    .phone-wrap{display:flex;gap:8px}
+    .country-code{width:90px;flex-shrink:0}
+
+    .rx-toggle{display:flex;gap:10px;margin-bottom:6px}
+    .rx-option{flex:1;border:1.5px solid #d1d5db;border-radius:9px;padding:12px;
+               text-align:center;cursor:pointer;font-size:13px;font-weight:600;color:#374151;transition:all .15s}
+    .rx-option input{display:none}
+    .rx-option.active{border-color:#0f5c4a;background:#f0fdf4;color:#0f5c4a}
+
+    .upload-box{border:2px dashed #d1d5db;border-radius:10px;padding:14px 10px;
+                text-align:center;cursor:pointer;transition:all .2s;position:relative;
+                background:#fff;display:none}
+    .upload-box.show{display:block}
+    .upload-box.has-error{border-color:#dc2626}
+    .upload-box input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+    .upload-check{font-size:13px;display:none;color:#16a34a;margin-top:4px;font-weight:600}
+
+    .submit-btn{width:100%;padding:14px;background:#0f5c4a;color:#fff;border:none;
+                border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;margin-top:4px}
+    .submit-btn:hover{background:#0c4a3b}
+    .submit-btn:disabled{background:#9ca3af;cursor:not-allowed}
+    .note{text-align:center;font-size:12px;color:#9ca3af;margin-top:14px;line-height:1.5}
+
+    .success-wrap{padding:36px 28px;text-align:center}
+    .success-icon{font-size:56px;margin-bottom:12px}
+    .success-wrap h2{font-size:22px;color:#0f5c4a;margin-bottom:8px}
+    .success-wrap p{font-size:14px;color:#6b7280;margin-bottom:6px;line-height:1.6}
+    .ref-badge{display:inline-block;background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;
+               font-weight:700;padding:8px 16px;border-radius:8px;margin:12px 0;font-size:15px}
+
+    .directory{padding:0 4px}
+    .directory-title{font-size:13px;font-weight:700;color:#374151;margin-bottom:10px;padding:0 24px}
+    .pharm-row{display:flex;justify-content:space-between;align-items:center;
+               padding:12px 24px;border-top:1px solid #f3f4f6;font-size:13px}
+    .pharm-name{font-weight:600;color:#111827}
+    .pharm-loc{color:#6b7280;font-size:12px}
+    .empty-note{padding:12px 24px 20px;color:#9ca3af;font-size:13px}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back-link" href="/">← Back to T-Tech Connect</a>
+
+  <div class="card">
+    <div class="card-header">
+      <div class="logo">💊 Pharmacy</div>
+      <div class="tagline">Request medication from a licensed pharmacy</div>
+    </div>
+
+    {% if success %}
+    <div class="success-wrap">
+      <div class="success-icon">✅</div>
+      <h2>Request Sent!</h2>
+      <div class="ref-badge">Ref: {{ reference }}</div>
+      <p>A verified pharmacy will review your request and message you on WhatsApp with a quote.</p>
+      <p style="margin-top:10px;color:#9ca3af;font-size:12px">
+        This is not a diagnosis or medical advice. The dispensing pharmacist will confirm
+        suitability — and check your prescription, if one is required — before dispensing.
+      </p>
+    </div>
+    {% else %}
+    <div class="card-body">
+      <h2>Request Medication</h2>
+      <p class="intro">Tell us what you need — a licensed pharmacy will privately quote you on WhatsApp.</p>
+
+      {% if error %}
+      <div class="alert alert-error">⚠️ {{ error }}</div>
+      {% endif %}
+
+      <div class="notice">
+        ⚖️ In line with Zimbabwe's medicines regulations, we don't list or advertise individual
+        medicines for sale. Your request is only shown to <b>admin-verified pharmacies</b>
+        (licensed by MCAZ, under a pharmacist registered with the Pharmacists Council of
+        Zimbabwe), who respond privately. Prescription-only medicines require a valid
+        prescription, reviewed by the dispensing pharmacist, before they can be supplied.
+      </div>
+
+      <form method="POST" action="/pharmacy" enctype="multipart/form-data" id="rxForm">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <div class="field">
+          <label>Your Name <span class="required">*</span></label>
+          <input type="text" name="name" placeholder="e.g. Tendai Moyo"
+                 value="{{ form.name or '' }}" required
+                 class="{{ 'error' if field_errors.name else '' }}">
+          {% if field_errors.name %}<div class="field-error">{{ field_errors.name }}</div>{% endif %}
+        </div>
+
+        <div class="field">
+          <label>WhatsApp Number <span class="required">*</span></label>
+          <div class="phone-wrap">
+            <select name="country_code" class="country-code">
+              <option value="263" {% if (form.country_code or '263') == '263' %}selected{% endif %}>🇿🇼 +263</option>
+            </select>
+            <input type="tel" name="phone_local"
+                   placeholder="0771234567 or 771234567"
+                   value="{{ form.phone_local or '' }}" required
+                   class="{{ 'error' if field_errors.phone else '' }}">
+          </div>
+          <div class="field-hint">The pharmacy's quote will be sent here on WhatsApp.</div>
+          {% if field_errors.phone %}<div class="field-error">{{ field_errors.phone }}</div>{% endif %}
+        </div>
+
+        <div class="field">
+          <label>Medication Type <span class="required">*</span></label>
+          <div class="rx-toggle">
+            <label class="rx-option" id="otcOption">
+              <input type="radio" name="requires_prescription" value="0" checked onchange="toggleRx(false)">
+              🟢 Over-the-counter
+            </label>
+            <label class="rx-option" id="rxOption">
+              <input type="radio" name="requires_prescription" value="1" onchange="toggleRx(true)">
+              🔴 Prescription medicine
+            </label>
+          </div>
+          <div class="field-hint">Prescription medicines require a photo of a valid prescription.</div>
+        </div>
+
+        <div class="field">
+          <label>What do you need? <span class="required">*</span></label>
+          <textarea name="description" placeholder="e.g. Panadol 500mg, 1 box — or, for prescription items, the medicine name and dosage on your script"
+                    class="{{ 'error' if field_errors.description else '' }}">{{ form.description or '' }}</textarea>
+          {% if field_errors.description %}<div class="field-error">{{ field_errors.description }}</div>{% endif %}
+        </div>
+
+        <div class="field" id="rxUploadField" style="display:none">
+          <label>Prescription Photo <span class="required">*</span></label>
+          <div class="upload-box {{ 'has-error' if field_errors.prescription_image else '' }}" id="rxBox">
+            <input type="file" id="rxInput" name="prescription_image"
+                   accept="image/jpeg,image/png,image/webp"
+                   onchange="previewRx(this)">
+            <span>📎 Upload a clear photo of your prescription</span>
+            <div id="rxCheck" class="upload-check">✅ Ready</div>
+          </div>
+          {% if field_errors.prescription_image %}<div class="field-error">{{ field_errors.prescription_image }}</div>{% endif %}
+        </div>
+
+        <button type="submit" class="submit-btn" id="submitBtn">
+          Send Request →
+        </button>
+        <p class="note">
+          Your details are shared only with the pharmacy that responds — never displayed publicly.
+        </p>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+
+  {% if not success %}
+  <div class="card directory">
+    <div class="directory-title" style="padding-top:20px">✅ Verified Pharmacies on T-Tech Connect</div>
+    {% if pharmacies %}
+      {% for p in pharmacies %}
+      <div class="pharm-row">
+        <span class="pharm-name">{{ p.business_name }}</span>
+        <span class="pharm-loc">📍 {{ p.location or 'Zimbabwe' }}</span>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="empty-note">No pharmacies verified yet — check back soon.</div>
+    {% endif %}
+    <div class="empty-note" style="padding-top:14px">
+      Run a licensed pharmacy? <a href="/register-pharmacy">Register here</a>.
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+  function toggleRx(needsRx) {
+    document.getElementById('otcOption').classList.toggle('active', !needsRx);
+    document.getElementById('rxOption').classList.toggle('active', needsRx);
+    const field = document.getElementById('rxUploadField');
+    field.style.display = needsRx ? 'block' : 'none';
+    document.getElementById('rxBox').classList.toggle('show', needsRx);
+    document.getElementById('rxInput').required = needsRx;
+  }
+  document.getElementById('otcOption').classList.add('active');
+
+  function previewRx(input) {
+    const check = document.getElementById('rxCheck');
+    check.style.display = (input.files && input.files[0]) ? 'block' : 'none';
+  }
+
+  document.getElementById('rxForm').addEventListener('submit', function() {
+    const btn = document.getElementById('submitBtn');
+    btn.disabled    = true;
+    btn.textContent = 'Sending…';
+  });
+</script>
+</body>
+</html>

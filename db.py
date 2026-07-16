@@ -204,6 +204,20 @@ def init_db():
     ]:
         cursor.execute(f"ALTER TABLE sellers ADD COLUMN IF NOT EXISTS {col}")
 
+    # Pharmacy KYC columns — a pharmacy is a seller flagged is_pharmacy=1 that also
+    # needs licence verification before pharmacy_verified is set (see set_pharmacy_verified).
+    # Zimbabwe's Medicines and Allied Substances Control Act requires medicines to be
+    # sold only through a licensed pharmacy premises under a registered pharmacist.
+    for col in [
+        "is_pharmacy INTEGER NOT NULL DEFAULT 0",
+        "pharmacy_verified INTEGER NOT NULL DEFAULT 0",
+        "pharmacist_name TEXT DEFAULT ''",
+        "pcz_reg_no TEXT DEFAULT ''",
+        "mcaz_license_no TEXT DEFAULT ''",
+        "license_document TEXT DEFAULT ''",
+    ]:
+        cursor.execute(f"ALTER TABLE sellers ADD COLUMN IF NOT EXISTS {col}")
+
     # Migrate orders table if delivery columns missing
     for col, definition in [
         ("delivery_type",    "TEXT NOT NULL DEFAULT 'self_collect'"),
@@ -366,6 +380,16 @@ def init_db():
             updated_at     TEXT DEFAULT {NOW_SQL}
         )
     """)
+
+    # item_type='medication' requests use these two extra columns. Pharmacy
+    # products are never publicly listed/browsed (Zimbabwe restricts advertising
+    # medicines to the public), so a request always goes through this quotation
+    # flow — a verified pharmacy privately quotes/responds instead.
+    for col, definition in [
+        ("requires_prescription", "INTEGER NOT NULL DEFAULT 0"),
+        ("prescription_image",    "TEXT DEFAULT ''"),
+    ]:
+        cursor.execute(f"ALTER TABLE quotations ADD COLUMN IF NOT EXISTS {col} {definition}")
 
     # ── Property shortlist ────────────────────────────────────────────────────
     cursor.execute(f"""
@@ -662,6 +686,76 @@ def get_pending_sellers():
     return rows
 
 
+# ── Pharmacies ────────────────────────────────────────────────────────────────
+# A pharmacy is a seller (is_pharmacy=1) that additionally must pass licence
+# verification (pharmacy_verified=1, set only by admin after checking the
+# MCAZ premises licence / Pharmacists Council of Zimbabwe registration) before
+# it can appear in the pharmacy directory or receive medication requests.
+
+def register_pharmacy(phone, name, business_name, location, pharmacist_name,
+                       pcz_reg_no, mcaz_license_no, license_document,
+                       id_photo="", selfie_photo="", status="pending"):
+    conn = get_connection()
+    conn.execute("""
+        INSERT INTO sellers
+            (phone, name, business_name, location, status, id_photo, selfie_photo,
+             is_pharmacy, pharmacist_name, pcz_reg_no, mcaz_license_no, license_document)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
+        ON CONFLICT(phone) DO UPDATE SET
+            name             = excluded.name,
+            business_name    = excluded.business_name,
+            location         = excluded.location,
+            id_photo         = excluded.id_photo,
+            selfie_photo     = excluded.selfie_photo,
+            status           = excluded.status,
+            is_pharmacy      = 1,
+            pharmacist_name  = excluded.pharmacist_name,
+            pcz_reg_no       = excluded.pcz_reg_no,
+            mcaz_license_no  = excluded.mcaz_license_no,
+            license_document = excluded.license_document,
+            pharmacy_verified = 0
+    """, (phone, name, business_name, location, status, id_photo, selfie_photo,
+          pharmacist_name, pcz_reg_no, mcaz_license_no, license_document))
+    conn.commit()
+    conn.close()
+
+
+def get_pending_pharmacies():
+    """Pharmacy applications awaiting licence verification."""
+    conn   = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT * FROM sellers WHERE is_pharmacy = 1 AND pharmacy_verified = 0 "
+        "ORDER BY registered_at"
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+
+def get_verified_pharmacies():
+    """Pharmacies cleared to appear in the directory and receive medication requests."""
+    conn   = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT * FROM sellers WHERE is_pharmacy = 1 AND pharmacy_verified = 1 "
+        "AND status = 'approved' ORDER BY business_name"
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def set_pharmacy_verified(phone, verified):
+    conn = get_connection()
+    conn.execute(
+        "UPDATE sellers SET pharmacy_verified = ? WHERE phone = ? AND is_pharmacy = 1",
+        (int(bool(verified)), phone)
+    )
+    conn.commit()
+    conn.close()
+
+
 # ── Seller OTP (portal login) ─────────────────────────────────────────────────
 
 SELLER_OTP_MAX_ATTEMPTS = 5
@@ -769,6 +863,37 @@ def add_product(name, category, price, stock_qty, description,
     conn.commit()
     conn.close()
     return product_id, commission
+
+
+def update_product(product_id, name, category, price, description,
+                    stock_unit="pcs", seller_location="", offers_delivery=0,
+                    delivery_info="", extra_services=""):
+    """Admin edit of an existing listing's content. Stock quantity is
+    deliberately excluded — it's changed only via adjust_stock() so the
+    stock_movements audit log stays in sync with the actual stock_qty."""
+    conn   = get_connection()
+    cursor = conn.cursor()
+    row = cursor.execute(
+        "SELECT stock_qty, is_official FROM products WHERE id = ?", (product_id,)
+    ).fetchone()
+    if not row:
+        conn.close()
+        return None
+    if row["is_official"]:
+        commission = 0.0
+    else:
+        rate       = float(get_setting("commission_rate", "10")) / 100
+        commission = round(price * row["stock_qty"] * rate, 2)
+    cursor.execute("""
+        UPDATE products
+        SET name=?, category=?, price=?, commission=?, description=?,
+            stock_unit=?, seller_location=?, offers_delivery=?, delivery_info=?, extra_services=?
+        WHERE id=?
+    """, (name, category, price, commission, description,
+          stock_unit, seller_location, offers_delivery, delivery_info, extra_services, product_id))
+    conn.commit()
+    conn.close()
+    return commission
 
 
 def search_products(query):
@@ -1344,6 +1469,22 @@ def add_service(title, category, description, price_type, price,
     conn.commit()
     conn.close()
     return service_id
+
+
+def update_service(service_id, title, category, description, price_type, price,
+                    service_area, offers_delivery=0, delivery_info="", extra_services=""):
+    """Admin edit of an existing service's content. Provider identity fields
+    are deliberately excluded — ownership doesn't change via this edit."""
+    conn = get_connection()
+    conn.execute("""
+        UPDATE services
+        SET title=?, category=?, description=?, price_type=?, price=?,
+            service_area=?, offers_delivery=?, delivery_info=?, extra_services=?
+        WHERE id=?
+    """, (title, category, description, price_type, price,
+          service_area, offers_delivery, delivery_info, extra_services, service_id))
+    conn.commit()
+    conn.close()
 
 
 def get_service(service_id):
@@ -2307,13 +2448,16 @@ def get_buyer_quotations(buyer_phone, limit=10):
 
 
 def get_seller_quote_requests(seller_phone, limit=10):
-    """Quote requests directed at this seller, or open requests with no seller set."""
+    """Quote requests directed at this seller, or open requests with no seller set.
+    Excludes item_type='medication' — those are only ever surfaced to admin-verified
+    pharmacies via get_medication_requests_for_pharmacy, never to sellers in general."""
     conn   = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
         SELECT * FROM quotations
         WHERE (seller_phone = ? OR seller_phone = '')
           AND status = 'open'
+          AND item_type != 'medication'
         ORDER BY created_at DESC LIMIT ?
     """, (seller_phone, limit))
     rows = cursor.fetchall()
@@ -2336,6 +2480,71 @@ def respond_to_quotation(reference, seller_phone, seller_name, quoted_price, sel
     """, (seller_phone, seller_name, quoted_price, seller_message, now, reference))
     conn.commit()
     conn.close()
+
+
+# ── Medication requests ───────────────────────────────────────────────────────
+# Built on the quotations table (item_type='medication'). Medicines are never
+# listed/browsed publicly on this platform — Zimbabwe's Medicines and Allied
+# Substances Control Act restricts advertising medicines to the public — so a
+# customer's request is only ever seen privately by verified pharmacies, who
+# quote/respond exactly like a service quote request.
+
+def create_medication_request(buyer_phone, buyer_name, description, requires_prescription,
+                               prescription_image="", pharmacy_phone=""):
+    ref  = f"RX-{uuid.uuid4().hex[:6].upper()}"
+    conn = get_connection()
+    conn.execute("""
+        INSERT INTO quotations
+            (reference, buyer_phone, buyer_name, item_type, category, description,
+             seller_phone, requires_prescription, prescription_image)
+        VALUES (?, ?, ?, 'medication', 'Pharmacy', ?, ?, ?, ?)
+    """, (ref, buyer_phone, buyer_name, description, pharmacy_phone,
+          int(bool(requires_prescription)), prescription_image))
+    conn.commit()
+    conn.close()
+    return ref
+
+
+def get_medication_requests_for_pharmacy(pharmacy_phone, limit=20):
+    """Medication requests directed at this pharmacy, or open ones with no pharmacy set."""
+    conn   = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT * FROM quotations
+        WHERE item_type = 'medication'
+          AND (seller_phone = ? OR seller_phone = '')
+          AND status = 'open'
+        ORDER BY created_at DESC LIMIT ?
+    """, (pharmacy_phone, limit))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_buyer_medication_requests(buyer_phone, limit=10):
+    conn   = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT * FROM quotations
+        WHERE item_type = 'medication' AND buyer_phone = ?
+        ORDER BY created_at DESC LIMIT ?
+    """, (buyer_phone, limit))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_all_medication_requests_admin(limit=100):
+    conn   = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT * FROM quotations
+        WHERE item_type = 'medication'
+        ORDER BY created_at DESC LIMIT ?
+    """, (limit,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
 
 # ── Property viewings ─────────────────────────────────────────────────────────

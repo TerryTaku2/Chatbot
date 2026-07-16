@@ -15,7 +15,7 @@ from werkzeug.utils import secure_filename
 from db import (
     init_db,
     register_seller, get_seller, set_seller_status, set_seller_official, get_pending_sellers,
-    search_products, add_product, get_product_by_id, get_pending_products,
+    search_products, add_product, update_product, get_product_by_id, get_pending_products,
     get_products_by_category, get_seller_products,
     set_product_status, update_stock, decrement_stock_if_available,
     create_vendor_token, validate_token, mark_token_used,
@@ -30,7 +30,7 @@ from db import (
     create_viewing_appointment, get_viewing_appointments,
     get_admin_stats, get_all_sellers_admin, get_all_products_admin,
     get_recent_orders_admin, get_all_user_phones, get_seller_phone_list,
-    add_service, get_service, get_services_by_category, search_services,
+    add_service, update_service, get_service, get_services_by_category, search_services,
     get_pending_services, get_provider_services, set_service_status,
     add_service_review, get_service_reviews, log_service_enquiry,
     get_service_enquiries,
@@ -48,6 +48,10 @@ from db import (
     get_featured_products, get_distinct_categories,
     create_quotation, get_quotation_by_ref, get_buyer_quotations,
     get_seller_quote_requests, respond_to_quotation,
+    # pharmacy
+    register_pharmacy, get_pending_pharmacies, get_verified_pharmacies, set_pharmacy_verified,
+    create_medication_request, get_medication_requests_for_pharmacy,
+    get_buyer_medication_requests, get_all_medication_requests_admin,
     # promo codes
     create_promo_code, get_promo_code, use_promo_code, apply_promo_discount,
     get_all_promo_codes, deactivate_promo_code,
@@ -321,12 +325,14 @@ WELCOME = (
     "   Flats, rooms & student housing across Zimbabwe\n\n"
     "5️⃣  📬 *Contact & Support*\n"
     "   Reach our team any time\n\n"
+    "6️⃣  💊 *Pharmacy*\n"
+    "   Request medication from a licensed pharmacy\n\n"
     "━━━━━━ 🌐 *OTHER WAYS TO ACCESS US* ━━━━━━\n"
     "🌍 Website      : https://t-techsolutions.co.zw\n"
     f"🛒 Online Shop  : {BASE_URL}/shop\n"
     f"💼 Seller Portal: {BASE_URL}/seller/login\n"
     "📱 WhatsApp     : wa.me/263774128219\n\n"
-    "_Reply *1–5* to get started_"
+    "_Reply *1–6* to get started_"
 )
 
 ACCOMMODATION_MENU = (
@@ -338,6 +344,17 @@ ACCOMMODATION_MENU = (
     "4️⃣  — 🏠 All available properties\n"
     "5️⃣  — ❤️ My shortlist\n\n"
     "_Reply *1–5* to select | *0* for main menu_"
+)
+
+PHARMACY_MENU = (
+    "💊 *Pharmacy*\n"
+    "━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+    "Request medication from an admin-verified pharmacy — quoted to you privately, "
+    "never listed publicly.\n\n"
+    "1️⃣  — 🟢 Request OTC medicine\n"
+    "2️⃣  — 🔴 Request prescription medicine\n"
+    "3️⃣  — 🔍 Find a verified pharmacy\n\n"
+    "_Reply *1–3* to select | *0* for main menu_"
 )
 
 CITIES_MENU = (
@@ -665,6 +682,10 @@ def go_categories(phone):
 def go_accommodation_menu(phone):
     set_session(phone, "ctx_accommodation")
     return ACCOMMODATION_MENU
+
+def go_pharmacy_menu(phone):
+    set_session(phone, "ctx_pharmacy")
+    return PHARMACY_MENU
 
 def go_find_service_menu(phone):
     set_session(phone, "ctx_find_service")
@@ -1853,7 +1874,7 @@ def handle_session(phone, msg_text, session):
         return go_welcome(phone)
 
     # Top-level numbers work from anywhere mid-session
-    if msg_text in ("1", "2", "3", "4", "5") and state not in (
+    if msg_text in ("1", "2", "3", "4", "5", "6") and state not in (
         "ctx_buyer", "ctx_seller", "ctx_accommodation",
         "ctx_find_service", "ctx_svc_cats", "ctx_svc_results", "ctx_svc_detail",
         "ctx_categories", "ctx_cat_group", "ctx_city_select",
@@ -1871,6 +1892,7 @@ def handle_session(phone, msg_text, session):
         "ctx_dispute_type",
         "ctx_quote_start", "ctx_quote_svc_cat", "ctx_quote_svc_list",
         "ctx_quote_desc", "ctx_quote_confirm",
+        "ctx_pharmacy", "ctx_pharmacy_desc", "ctx_pharmacy_confirm",
         "ctx_admin_new_seller", "ctx_admin_new_seller_reject", "ctx_admin_new_seller_more_info",
         "cancel_order_reason", "refund_request_desc",
     ) and not state.startswith("ctx_admin") \
@@ -1882,6 +1904,7 @@ def handle_session(phone, msg_text, session):
         if msg_text == "3": return go_seller_menu(phone)
         if msg_text == "4": return go_accommodation_menu(phone)
         if msg_text == "5": return get_contact_response()
+        if msg_text == "6": return go_pharmacy_menu(phone)
 
 
     # ── Menu context: main buyer menu ─────────────────────────────────────────
@@ -4407,6 +4430,98 @@ def handle_session(phone, msg_text, session):
             "_Reply *0* for the main menu._"
         )
 
+    # ── Pharmacy: medication request flow ──────────────────────────────────────
+    # Medicines are never listed/browsed publicly here (Zimbabwe's Medicines and
+    # Allied Substances Control Act restricts advertising medicines to the
+    # public) — a request only ever reaches admin-verified pharmacies privately,
+    # who quote via the same "quote <ref> <price>" command as service quotes.
+
+    if state == "ctx_pharmacy":
+        if msg_text == "1":
+            set_session(phone, "ctx_pharmacy_desc", {"requires_prescription": False})
+            return (
+                "🟢 *Request OTC Medicine*\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                "Describe what you need in one message. Include:\n"
+                "  • *What* medicine/item\n"
+                "  • *Quantity* or dosage\n"
+                "  • Your *location* (city/area)\n\n"
+                "_Example:_\n"
+                "_Panadol 500mg, 1 box, deliver to Harare Avondale_\n\n"
+                "_Reply *0* to go back._"
+            )
+        if msg_text == "2":
+            clear_session(phone)
+            return (
+                "🔴 *Prescription Medicine*\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                "Prescription medicines require a photo of a valid prescription, which "
+                "a pharmacist must review before it can be supplied — this needs to be "
+                "uploaded on our website.\n\n"
+                f"Please complete your request here:\n{BASE_URL}/pharmacy\n\n"
+                "_Reply *0* for the main menu._"
+            )
+        if msg_text == "3":
+            pharmacies = get_verified_pharmacies()
+            if not pharmacies:
+                return (
+                    "😕 No verified pharmacies yet — check back soon.\n\n"
+                    "_Reply *0* to go back._"
+                )
+            lines = ["💊 *Verified Pharmacies:*\n"]
+            for p in pharmacies[:10]:
+                lines.append(f"🏪 *{p['business_name']}* — 📍 {p.get('location') or 'Zimbabwe'}")
+            lines.append("\n_Reply *1* or *2* to request medication | *0* to go back_")
+            return "\n".join(lines)
+        return PHARMACY_MENU
+
+    if state == "ctx_pharmacy_desc":
+        if len(msg_text.strip()) < 10:
+            return "Please describe what you need in a bit more detail (at least 10 characters).\n\n_Reply *0* to go back._"
+        data["description"] = msg_text.strip()
+        set_session(phone, "ctx_pharmacy_confirm", data)
+        return (
+            f"📋 *Confirm Your Medication Request*\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"Type   : 🟢 OTC\n"
+            f"Details: _{msg_text.strip()}_\n\n"
+            f"1️⃣  — ✅ Send request\n"
+            f"2️⃣  — ✏️ Change description\n"
+            f"0️⃣  — Cancel"
+        )
+
+    if state == "ctx_pharmacy_confirm":
+        if msg_text == "2":
+            edit_data = {k: v for k, v in data.items() if k != "description"}
+            set_session(phone, "ctx_pharmacy_desc", edit_data)
+            return "✏️ *Edit Description*\n\nDescribe the medication you need:\n\n_Reply *0* to cancel._"
+        if msg_text != "1":
+            return (
+                f"Type   : 🟢 OTC\n"
+                f"Details: _{data.get('description', '')}_\n\n"
+                "1️⃣  — ✅ Send  |  2️⃣  — ✏️ Edit  |  0️⃣  — Cancel"
+            )
+        ref = create_medication_request(
+            phone, "", data.get("description", ""), False, ""
+        )
+        clear_session(phone)
+        notify_admin(
+            f"💊 *New Medication Request — {ref}*\n"
+            f"Type    : OTC\n"
+            f"From    : {phone}\n"
+            f"Details : {data.get('description', '')}"
+        )
+        return (
+            f"✅ *Medication Request Sent!*\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"📌 Reference: *{ref}*\n\n"
+            "A verified pharmacy will review your request and message you here with a "
+            "quote. This is not a diagnosis or medical advice — the pharmacist will "
+            "confirm suitability before dispensing.\n\n"
+            f"💾 Reply *my quotes* to check status.\n\n"
+            "_Reply *0* for the main menu._"
+        )
+
     # ── Legacy quote flow (kept for backward compatibility) ───────────────────
     if state == "awaiting_name":
         data["name"] = msg_text.title()
@@ -5697,19 +5812,21 @@ def handle_message(phone, msg_text):
                 "🛒 *Buy* — Browse products, add to cart, pay via EcoCash/InnBucks/bank\n"
                 "🔧 *Services* — Find plumbers, tutors, photographers & more\n"
                 "💼 *Sell* — Register as a vendor & start earning\n"
-                "🏠 *Accommodation* — Find rooms & flats across Zimbabwe\n\n"
+                "🏠 *Accommodation* — Find rooms & flats across Zimbabwe\n"
+                "💊 *Pharmacy* — Request medication from a licensed pharmacy\n\n"
                 "💡 *Useful commands:*\n"
                 "• Reply *help* — see all commands\n"
                 "• Reply *search <item>* — find any product\n"
                 "• Reply *my profile* — save your name & delivery address\n"
                 "• Reply *referral* — get your referral link\n\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                "Reply *1–5* below to get started:\n\n"
+                "Reply *1–6* below to get started:\n\n"
                 "1️⃣  🛒 Buy Products\n"
                 "2️⃣  🔧 Find a Service\n"
                 "3️⃣  💼 Become a Vendor\n"
                 "4️⃣  🏠 Find Accommodation\n"
-                "5️⃣  📬 Contact & Support"
+                "5️⃣  📬 Contact & Support\n"
+                "6️⃣  💊 Pharmacy"
             )
         return go_welcome(phone, with_image=True)
 
@@ -5727,6 +5844,8 @@ def handle_message(phone, msg_text):
         return go_accommodation_menu(phone)
     if msg_text == "5":
         return get_contact_response()
+    if msg_text == "6":
+        return go_pharmacy_menu(phone)
 
     # Admin
     if phone == ADMIN_PHONE:
@@ -5852,8 +5971,8 @@ def handle_message(phone, msg_text):
     # ── Quotation: seller responds ─────────────────────────────────────────────
     if msg_text.startswith("quote "):
         parts = msg_text.split(maxsplit=3)
-        # parts: ["quote", "QTTC-ABC123", "250", "optional message"]
-        if len(parts) < 3 or not parts[1].upper().startswith("QTTC-"):
+        # parts: ["quote", "QTTC-ABC123", "250", "optional message"] or ["quote", "RX-ABC123", ...]
+        if len(parts) < 3 or not parts[1].upper().startswith(("QTTC-", "RX-")):
             return (
                 "❌ *Invalid format.*\n\n"
                 "To respond to a quote request:\n"
@@ -5874,6 +5993,13 @@ def handle_message(phone, msg_text):
 
         # Get seller name
         seller     = get_seller(phone)
+        if qt["item_type"] == "medication":
+            if not seller or not seller["is_pharmacy"] or not seller["pharmacy_verified"]:
+                return (
+                    "❌ Only admin-verified pharmacies can respond to medication requests.\n\n"
+                    f"Register your pharmacy: {BASE_URL}/register-pharmacy\n\n"
+                    "_Reply *0* for the main menu._"
+                )
         seller_name = (seller["business_name"] if seller else None) or phone
         respond_to_quotation(ref, phone, seller_name, price, msg_body)
 
@@ -5887,11 +6013,21 @@ def handle_message(phone, msg_text):
         )
         if msg_body:
             buyer_msg += f"💬 Message : _{msg_body}_\n"
-        buyer_msg += (
-            f"\nTo accept, reply *1* to browse their products or contact them directly.\n"
-            f"Reply *my quotes* to see all your quotes.\n\n"
-            "_Reply *0* for the main menu._"
-        )
+        if qt["item_type"] == "medication":
+            buyer_msg += (
+                f"\nReply directly to *{seller_name}* on WhatsApp to confirm and arrange payment/collection.\n"
+                "This is not medical advice — the pharmacist will confirm suitability"
+                + (" and check your prescription" if qt["requires_prescription"] else "")
+                + " before dispensing.\n"
+                "Reply *my quotes* to see all your requests.\n\n"
+                "_Reply *0* for the main menu._"
+            )
+        else:
+            buyer_msg += (
+                f"\nTo accept, reply *1* to browse their products or contact them directly.\n"
+                f"Reply *my quotes* to see all your quotes.\n\n"
+                "_Reply *0* for the main menu._"
+            )
         send_whatsapp_message(qt["buyer_phone"], buyer_msg)
         notify_admin(
             f"💬 *Quote Responded — {ref}*\n"
@@ -5914,13 +6050,33 @@ def handle_message(phone, msg_text):
     if msg_text in ("services", "find service", "find a service", "service", "find services"):
         return go_find_service_menu(phone)
 
+    if msg_text in ("pharmacy", "medicine", "medication", "medicines"):
+        return go_pharmacy_menu(phone)
+
     if msg_text in ("my quotes", "quotes", "quotations", "my quotations"):
         seller = get_seller(phone)
         if seller and seller["status"] == "approved":
             # Approved seller: show pending quote requests they can respond to
             requests = get_seller_quote_requests(phone)
             buyer_qs = get_buyer_quotations(phone)
+            is_verified_pharmacy = bool(seller["is_pharmacy"]) and bool(seller["pharmacy_verified"])
+            med_requests = get_medication_requests_for_pharmacy(phone) if is_verified_pharmacy else []
             lines    = []
+            if med_requests:
+                lines.append(f"💊 *Medication Requests for You ({len(med_requests)}):*\n")
+                for q in med_requests:
+                    rx_flag = "🔴 Prescription" if q["requires_prescription"] else "🟢 OTC"
+                    lines.append(
+                        f"📌 *{q['reference']}*  — {rx_flag}\n"
+                        f"   {q['description'][:60]}{'…' if len(q['description']) > 60 else ''}\n"
+                        f"   From: {q['buyer_phone']}\n"
+                        "─────────────────"
+                    )
+                lines.append(
+                    "\n💡 To respond:\n"
+                    "*quote <ref> <price> <optional note>*\n"
+                    "_Example: quote RX-ABC123 15 In stock, ready today_\n"
+                )
             if requests:
                 lines.append(f"📥 *Quote Requests for You ({len(requests)}):*\n")
                 for q in requests:
@@ -6987,6 +7143,242 @@ def register_seller_web():
                    submitted_business=business_name)
 
 
+@app.route("/register-pharmacy", methods=["GET", "POST"])
+def register_pharmacy_web():
+    """Pharmacy licence application. Zimbabwe's Medicines and Allied Substances
+    Control Act requires medicines to be sold only through a premises licensed by
+    MCAZ under a pharmacist registered with the Pharmacists Council of Zimbabwe
+    (PCZ), so — unlike the generic seller form — this collects those licence
+    numbers plus a scan of the licence itself. Admin verifies them by hand
+    (see set_pharmacy_verified) before the pharmacy can appear in the directory
+    or receive medication requests; nothing here is auto-approved."""
+    _wa = WA_BUSINESS_NUMBER or ADMIN_PHONE
+    _ph = get_setting("contact_phone", "+263 77 412 8219")
+
+    def _render(success=False, error=None, form=None, field_errors=None, **kw):
+        return render_template("register_pharmacy.html",
+                               success=success, error=error,
+                               form=form or {}, field_errors=field_errors or {},
+                               wa_number=_wa, contact_phone=_ph, **kw)
+
+    if request.method == "GET":
+        return _render()
+
+    csrf.protect()  # genuine native <form> submission, not a JSON fetch API
+    name             = request.form.get("name", "").strip()
+    business_name    = request.form.get("business_name", "").strip()
+    phone_local      = request.form.get("phone_local", "").strip()
+    country_code     = request.form.get("country_code", "263").strip()
+    location         = request.form.get("location", "").strip()
+    pharmacist_name  = request.form.get("pharmacist_name", "").strip()
+    pcz_reg_no       = request.form.get("pcz_reg_no", "").strip()
+    mcaz_license_no  = request.form.get("mcaz_license_no", "").strip()
+
+    form = {
+        "name": name, "business_name": business_name,
+        "phone_local": phone_local, "country_code": country_code,
+        "location": location, "pharmacist_name": pharmacist_name,
+        "pcz_reg_no": pcz_reg_no, "mcaz_license_no": mcaz_license_no,
+    }
+    field_errors = {}
+
+    if not name:
+        field_errors["name"] = "Full name is required."
+    if not business_name:
+        field_errors["business_name"] = "Pharmacy trading name is required."
+    if not location:
+        field_errors["location"] = "Please select your city."
+    if not pharmacist_name:
+        field_errors["pharmacist_name"] = "Name of the responsible pharmacist is required."
+    if not pcz_reg_no:
+        field_errors["pcz_reg_no"] = "Pharmacists Council of Zimbabwe registration number is required."
+    if not mcaz_license_no:
+        field_errors["mcaz_license_no"] = "MCAZ premises licence number is required."
+
+    cleaned = phone_local.strip().replace(" ", "").replace("-", "").lstrip("+")
+    if cleaned.startswith(country_code):
+        cleaned = cleaned[len(country_code):]
+    cleaned = cleaned.lstrip("0")
+    phone   = country_code + cleaned
+    if not cleaned or not phone.isdigit() or len(phone) < 9:
+        field_errors["phone"] = "Please enter a valid WhatsApp number."
+
+    id_file      = request.files.get("id_photo")
+    selfie_file  = request.files.get("selfie_photo")
+    license_file = request.files.get("license_document")
+    if not id_file or not id_file.filename:
+        field_errors["id_photo"] = "Please upload the responsible pharmacist's ID / passport."
+    if not selfie_file or not selfie_file.filename:
+        field_errors["selfie_photo"] = "Please upload a selfie holding the ID."
+    if not license_file or not license_file.filename:
+        field_errors["license_document"] = "Please upload your MCAZ premises licence."
+
+    if field_errors:
+        return _render(form=form, field_errors=field_errors)
+
+    existing = get_seller(phone)
+    if existing and existing["status"] == "approved" and existing["is_pharmacy"]:
+        return _render(error="This number is already registered as a pharmacy. "
+                             "Message us on WhatsApp for your current status.",
+                       form=form)
+
+    id_photo_path     = save_image(id_file)
+    selfie_photo_path = save_image(selfie_file)
+    license_doc_path  = save_media_file(license_file)
+
+    if not id_photo_path:
+        field_errors["id_photo"] = "Invalid file — use JPG, PNG or WEBP under 5 MB."
+    if not selfie_photo_path:
+        field_errors["selfie_photo"] = "Invalid file — use JPG, PNG or WEBP under 5 MB."
+    if not license_doc_path:
+        field_errors["license_document"] = "Invalid file — use JPG, PNG, WEBP or PDF under 100 MB."
+    if field_errors:
+        return _render(form=form, field_errors=field_errors)
+
+    register_pharmacy(phone, name, business_name, location, pharmacist_name,
+                       pcz_reg_no, mcaz_license_no, license_doc_path,
+                       id_photo=id_photo_path, selfie_photo=selfie_photo_path)
+
+    def _send_registration_notifications():
+        notify_admin(
+            f"💊 *New Pharmacy Registration*\n\n"
+            f"Pharmacy   : {business_name}\n"
+            f"Pharmacist : {pharmacist_name}\n"
+            f"PCZ Reg No : {pcz_reg_no}\n"
+            f"MCAZ Lic No: {mcaz_license_no}\n"
+            f"Phone      : {phone}\n"
+            f"Location   : {location}\n\n"
+            f"📎 Licence & KYC documents follow below.\n\n"
+            f"Verify in the admin dashboard → Pharmacies tab before this pharmacy "
+            f"can receive medication requests."
+        )
+        if ADMIN_PHONE:
+            if license_doc_path:
+                send_whatsapp_image(
+                    ADMIN_PHONE,
+                    f"{BASE_URL}/uploads/{license_doc_path}",
+                    caption=f"💊 MCAZ Licence — {business_name} (PCZ {pcz_reg_no})",
+                )
+            if id_photo_path:
+                send_whatsapp_image(
+                    ADMIN_PHONE,
+                    f"{BASE_URL}/uploads/{id_photo_path}",
+                    caption=f"🪪 ID / Passport — {pharmacist_name} ({business_name})",
+                )
+            if selfie_photo_path:
+                send_whatsapp_image(
+                    ADMIN_PHONE,
+                    f"{BASE_URL}/uploads/{selfie_photo_path}",
+                    caption=f"🤳 Selfie with ID — {pharmacist_name} | Phone: {phone}",
+                )
+
+        send_whatsapp_message(
+            phone,
+            f"👋 Hi *{name}*, thank you for registering *{business_name}* as a pharmacy "
+            f"on *T-Tech Connect!*\n\n"
+            f"📋 *Application Received*\n"
+            f"Pharmacist : {pharmacist_name}\n"
+            f"PCZ Reg No : {pcz_reg_no}\n"
+            f"MCAZ Lic No: {mcaz_license_no}\n\n"
+            "Our team will verify your licence documents and notify you here, usually "
+            "within *24–48 hours*. 🕐\n\n"
+            "Once verified, you'll be able to receive medication requests from customers "
+            "on WhatsApp and respond privately with a quote — medicines are never listed "
+            "publicly on this platform.\n\n"
+            "_Reply *0* for the main menu._"
+        )
+
+    threading.Thread(target=_send_registration_notifications, daemon=True).start()
+
+    return _render(success=True,
+                   submitted_name=name,
+                   submitted_business=business_name)
+
+
+@app.route("/pharmacy", methods=["GET", "POST"])
+def pharmacy_web():
+    """Public pharmacy page. Deliberately NOT a browsable product catalogue —
+    Zimbabwe's Medicines and Allied Substances Control Act restricts advertising
+    medicines to the public, so instead of listing drugs with prices like the
+    regular shop, a customer submits a private medication request that only
+    admin-verified pharmacies can see and quote on (see get_verified_pharmacies /
+    get_medication_requests_for_pharmacy)."""
+    pharmacies = get_verified_pharmacies()
+
+    def _render(success=False, error=None, form=None, field_errors=None, **kw):
+        return render_template("pharmacy.html",
+                               success=success, error=error,
+                               form=form or {}, field_errors=field_errors or {},
+                               pharmacies=pharmacies, **kw)
+
+    if request.method == "GET":
+        return _render()
+
+    csrf.protect()  # genuine native <form> submission, not a JSON fetch API
+    name          = request.form.get("name", "").strip()
+    phone_local   = request.form.get("phone_local", "").strip()
+    country_code  = request.form.get("country_code", "263").strip()
+    description   = request.form.get("description", "").strip()
+    needs_rx      = request.form.get("requires_prescription") == "1"
+
+    form = {
+        "name": name, "phone_local": phone_local,
+        "country_code": country_code, "description": description,
+        "requires_prescription": needs_rx,
+    }
+    field_errors = {}
+
+    if not name:
+        field_errors["name"] = "Your name is required."
+    if len(description) < 10:
+        field_errors["description"] = "Please describe what you need in a bit more detail (at least 10 characters)."
+
+    cleaned = phone_local.strip().replace(" ", "").replace("-", "").lstrip("+")
+    if cleaned.startswith(country_code):
+        cleaned = cleaned[len(country_code):]
+    cleaned = cleaned.lstrip("0")
+    phone   = country_code + cleaned
+    if not cleaned or not phone.isdigit() or len(phone) < 9:
+        field_errors["phone"] = "Please enter a valid WhatsApp number — we'll message you here."
+
+    prescription_path = ""
+    rx_file = request.files.get("prescription_image")
+    if needs_rx:
+        if not rx_file or not rx_file.filename:
+            field_errors["prescription_image"] = "Please upload a photo of your prescription."
+        else:
+            prescription_path = save_image(rx_file)
+            if not prescription_path:
+                field_errors["prescription_image"] = "Invalid file — use JPG, PNG or WEBP under 5 MB."
+
+    if field_errors:
+        return _render(form=form, field_errors=field_errors)
+
+    ref = create_medication_request(phone, name, description, needs_rx, prescription_path)
+
+    def _notify():
+        notify_admin(
+            f"💊 *New Medication Request — {ref}*\n"
+            f"Type    : {'Prescription' if needs_rx else 'OTC'}\n"
+            f"From    : {name} ({phone})\n"
+            f"Details : {description}"
+        )
+        send_whatsapp_message(
+            phone,
+            f"✅ *Medication Request Sent!*\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"📌 Reference: *{ref}*\n\n"
+            "A verified pharmacy will review your request and message you here with "
+            "a quote. This is not a diagnosis or medical advice — your pharmacist will "
+            "confirm suitability before dispensing.\n\n"
+            "_Reply *0* for the main menu._"
+        )
+
+    threading.Thread(target=_notify, daemon=True).start()
+
+    return _render(success=True, reference=ref)
+
+
 # ── Web admin panel ───────────────────────────────────────────────────────────
 
 ADMIN_PASSWORD = os.getenv("SHOP_ADMIN_PASSWORD")
@@ -7026,6 +7418,7 @@ def admin_logout():
 @admin_required
 def admin_dashboard():
     stats = get_admin_stats()
+    stats["pending_pharmacies"] = len(get_pending_pharmacies())
     return render_template("admin_dashboard.html", stats=stats, base_url=BASE_URL)
 
 
@@ -7055,6 +7448,80 @@ def api_sellers():
         s["id_photo_url"]     = f"/uploads/{s['id_photo']}"     if s.get("id_photo")     else None
         s["selfie_photo_url"] = f"/uploads/{s['selfie_photo']}" if s.get("selfie_photo") else None
     return jsonify(sellers)
+
+
+@app.route("/admin/api/pharmacies")
+@admin_required
+def api_pharmacies():
+    """All sellers flagged is_pharmacy=1, verified or not — the admin dashboard's
+    Pharmacies tab needs to show pending licence applications alongside already-
+    verified pharmacies."""
+    from db import get_connection
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM sellers WHERE is_pharmacy = 1 ORDER BY registered_at DESC"
+    ).fetchall()
+    conn.close()
+    pharmacies = [dict(r) for r in rows]
+    for p in pharmacies:
+        p["id_photo_url"]        = f"/uploads/{p['id_photo']}"        if p.get("id_photo")        else None
+        p["selfie_photo_url"]    = f"/uploads/{p['selfie_photo']}"    if p.get("selfie_photo")    else None
+        p["license_document_url"] = f"/uploads/{p['license_document']}" if p.get("license_document") else None
+    return jsonify(pharmacies)
+
+
+@app.route("/admin/api/pharmacy/verify", methods=["POST"])
+@admin_required
+def api_verify_pharmacy():
+    """Admin confirms the MCAZ licence / PCZ registration are valid. Only after
+    this does the pharmacy appear in the public directory or receive medication
+    requests — see get_verified_pharmacies / get_medication_requests_for_pharmacy."""
+    body   = request.json or {}
+    phone  = body.get("phone", "")
+    seller = get_seller(phone)
+    if not seller or not seller["is_pharmacy"]:
+        return jsonify({"ok": False, "message": "❌ No pharmacy application found for that number."})
+    if seller["status"] != "approved":
+        set_seller_status(phone, "approved")
+    set_pharmacy_verified(phone, True)
+    log_admin_action("web_admin", "verify_pharmacy", "seller", phone, seller["business_name"])
+    send_whatsapp_message(
+        phone,
+        f"🎉 *{seller['business_name']}* is now a *verified pharmacy* on T-Tech Connect!\n\n"
+        "You can now receive medication requests from customers here on WhatsApp.\n"
+        "Reply *3* from the main menu → *Sell / Offer Services* → *My listings & services* "
+        "to check open requests.\n\n"
+        "_Reply *0* for the main menu._"
+    )
+    return jsonify({"ok": True, "message": f"✅ *{seller['business_name']}* verified as a pharmacy."})
+
+
+@app.route("/admin/api/pharmacy/reject", methods=["POST"])
+@admin_required
+def api_reject_pharmacy():
+    body   = request.json or {}
+    phone  = body.get("phone", "")
+    reason = body.get("reason", "")
+    seller = get_seller(phone)
+    if not seller or not seller["is_pharmacy"]:
+        return jsonify({"ok": False, "message": "❌ No pharmacy application found for that number."})
+    set_seller_status(phone, "rejected")
+    set_pharmacy_verified(phone, False)
+    log_admin_action("web_admin", "reject_pharmacy", "seller", phone, f"{seller['business_name']} — {reason}")
+    reason_line = f"\n\nReason: {reason}" if reason else ""
+    send_whatsapp_message(
+        phone,
+        f"❌ Your pharmacy application for *{seller['business_name']}* was not approved.{reason_line}\n\n"
+        f"You may re-apply after correcting the issue: {BASE_URL}/register-pharmacy\n\n"
+        "_Reply *0* for the main menu._"
+    )
+    return jsonify({"ok": True, "message": f"Pharmacy application for *{seller['business_name']}* rejected."})
+
+
+@app.route("/admin/api/medication-requests")
+@admin_required
+def api_medication_requests():
+    return jsonify(get_all_medication_requests_admin())
 
 
 @app.route("/admin/api/products")
@@ -7451,6 +7918,66 @@ def api_reject_delivery_route():
         "_Reply *0* for the main menu._"
     )
     return jsonify({"ok": True, "message": f"{dp['name']} rejected."})
+
+
+@app.route("/admin/api/product/edit", methods=["POST"])
+@admin_required
+def api_edit_product_route():
+    """Admin edits an existing product's listing content. Stock quantity is
+    not editable here — use the seller's Inventory adjust flow so the
+    stock_movements audit log stays accurate."""
+    body        = request.json or {}
+    pid         = body.get("id")
+    name        = body.get("name", "").strip()
+    category    = body.get("category", "").strip()
+    price       = float(body.get("price", 0) or 0)
+    stock_unit  = body.get("unit", "pcs") or "pcs"
+    description = body.get("description", "").strip()
+    location    = body.get("location", "").strip()
+    offers_del  = int(body.get("offers_delivery", 0))
+    del_info    = body.get("delivery_info", "").strip()
+    extras      = body.get("extra_services", "").strip()
+
+    product = get_product_by_id(pid) if pid else None
+    if not product:
+        return jsonify({"ok": False, "message": "Product not found."})
+    if not name or not category or price <= 0:
+        return jsonify({"ok": False, "message": "Name, category and price are required."})
+
+    update_product(pid, name, category, price, description,
+                    stock_unit=stock_unit, seller_location=location,
+                    offers_delivery=offers_del, delivery_info=del_info, extra_services=extras)
+    log_admin_action("web_admin", "edit_product", "product", pid, name)
+    return jsonify({"ok": True, "message": f"'{name}' updated."})
+
+
+@app.route("/admin/api/service/edit", methods=["POST"])
+@admin_required
+def api_edit_service_route():
+    """Admin edits an existing service's listing content on behalf of the provider."""
+    body        = request.json or {}
+    sid         = body.get("id")
+    name        = body.get("name", "").strip()
+    category    = body.get("category", "").strip()
+    price       = float(body.get("price", 0) or 0)
+    svc_unit    = body.get("svc_unit", "fixed")
+    description = body.get("description", "").strip()
+    location    = body.get("location", "").strip()
+    offers_del  = int(body.get("offers_delivery", 0))
+    del_info    = body.get("delivery_info", "").strip()
+    extras      = body.get("extra_services", "").strip()
+
+    svc = get_service(int(sid)) if sid else None
+    if not svc:
+        return jsonify({"ok": False, "message": "Service not found."})
+    if not name or not category or price <= 0:
+        return jsonify({"ok": False, "message": "Title, category and price are required."})
+
+    update_service(int(sid), name, category, description, svc_unit, price,
+                   location or "Zimbabwe", offers_delivery=offers_del,
+                   delivery_info=del_info, extra_services=extras)
+    log_admin_action("web_admin", "edit_service", "service", sid, name)
+    return jsonify({"ok": True, "message": f"'{name}' updated."})
 
 
 @app.route("/admin/api/create-listing", methods=["POST"])
