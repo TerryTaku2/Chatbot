@@ -94,7 +94,11 @@ from db import (
     activate_marketing_campaign, mark_marketing_campaign_posted,
     get_seller_marketing_campaigns, get_all_marketing_campaigns,
     get_due_subscription_campaigns, get_expired_marketing_campaigns, expire_marketing_campaign,
+    # school fees (School Financial Management System integration)
+    save_school_fee_payment, get_school_fee_payment, claim_school_fee_payment,
+    finish_school_fee_payment,
 )
+import school_client
 
 load_dotenv()
 
@@ -328,12 +332,14 @@ WELCOME = (
     "   Reach our team any time\n\n"
     "6️⃣  💊 *Pharmacy*\n"
     "   Request medication from a licensed pharmacy\n\n"
+    "7️⃣  🎓 *School Fees*\n"
+    "   Check balances, statements & pay school fees\n\n"
     "━━━━━━ 🌐 *OTHER WAYS TO ACCESS US* ━━━━━━\n"
     "🌍 Website      : https://t-techsolutions.co.zw\n"
     f"🛒 Online Shop  : {BASE_URL}/shop\n"
     f"💼 Seller Portal: {BASE_URL}/seller/login\n"
     "📱 WhatsApp     : wa.me/263774128219\n\n"
-    "_Reply *1–6* to get started_"
+    "_Reply *1–7* to get started_"
 )
 
 ACCOMMODATION_MENU = (
@@ -691,6 +697,196 @@ def go_pharmacy_menu(phone):
 def go_find_service_menu(phone):
     set_session(phone, "ctx_find_service")
     return FIND_SERVICE_MENU
+
+
+# ── School fees (School Financial Management System integration) ─────────────
+# Parents are matched to students by their WhatsApp number, which must be the
+# guardian phone recorded in the school system. See school_client.py.
+
+_SCHOOL_PROVIDERS = {"1": "ecocash", "2": "onemoney"}
+_SCHOOL_SESSION_KEYS = ("guardian", "students", "school", "currency", "student")
+
+
+def _school_unavailable():
+    return (
+        "⚠️ The school fees service is temporarily unavailable. "
+        "Please try again in a few minutes.\n\n"
+        "_Reply *0* for the main menu._"
+    )
+
+
+def _school_money(amount, currency="USD"):
+    return f"{currency} {float(amount or 0):,.2f}"
+
+
+def format_school_children(guardian, students):
+    lines = [
+        "🎓 *School Fees*",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━",
+        f"Welcome, *{guardian}*. Which child?\n",
+    ]
+    for i, st in enumerate(students, 1):
+        cls = f" — {st['class']}" if st.get("class") else ""
+        lines.append(f"*{i}.* {st['name']}{cls} ({st['admission_no']})")
+    lines.append("\n_Reply with a number | *0* for main menu_")
+    return "\n".join(lines)
+
+
+def _school_student_menu(phone, data):
+    keep = {k: data[k] for k in _SCHOOL_SESSION_KEYS if k in data}
+    set_session(phone, "ctx_school_student", keep)
+    st  = keep.get("student", {})
+    cls = f" — {st['class']}" if st.get("class") else ""
+    return (
+        f"🎓 *{st.get('name', 'Student')}*{cls}\n"
+        f"{keep.get('school', '')}\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "1️⃣  — 💰 Fee balance\n"
+        "2️⃣  — 🧾 Recent payments\n"
+        "3️⃣  — 💳 Pay fees (EcoCash / OneMoney)\n"
+        "4️⃣  — 📢 School announcements\n\n"
+        "_Reply *1–4* | *0* to go back_"
+    )
+
+
+def go_school_menu(phone):
+    clear_session(phone)
+    if not school_client.is_configured():
+        return (
+            "🎓 *School Fees*\n\n"
+            "School fee services aren't available on WhatsApp yet.\n\n"
+            "_Reply *0* for the main menu._"
+        )
+    try:
+        found = school_client.find_guardian(phone)
+    except school_client.SchoolApiError as e:
+        print(f"[SCHOOL] guardian lookup failed: {e}")
+        return _school_unavailable()
+    if not found or not found.get("students"):
+        return (
+            "🎓 *School Fees*\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"We couldn't find a student linked to this WhatsApp number (*+{phone}*).\n\n"
+            f"Please ask the school's bursar to record *+{phone}* as your "
+            "guardian phone number, then try again.\n\n"
+            "_Reply *0* for the main menu._"
+        )
+    base = {
+        "guardian": found.get("guardian", ""),
+        "students": found["students"],
+        "school":   found.get("school_name", ""),
+        "currency": found.get("currency", "USD"),
+    }
+    if len(base["students"]) == 1:
+        return _school_student_menu(phone, {**base, "student": base["students"][0]})
+    set_session(phone, "ctx_school", base)
+    return format_school_children(base["guardian"], base["students"])
+
+
+def format_school_balance(acct):
+    cur = acct.get("currency", "USD")
+    sm  = acct.get("summary", {})
+    lines = [
+        f"💰 *Fee Balance — {acct['student']['name']}*",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━",
+        f"Outstanding : *{_school_money(sm.get('outstanding'), cur)}*",
+    ]
+    if sm.get("overdue"):
+        lines.append(f"⚠️ Overdue   : *{_school_money(sm['overdue'], cur)}*")
+    if sm.get("credit"):
+        lines.append(f"Credit      : {_school_money(sm['credit'], cur)}")
+    invoices = acct.get("outstanding_invoices", [])
+    if invoices:
+        lines.append("\n🧾 *Unpaid invoices:*")
+        for inv in invoices:
+            lines.append(
+                f"• {inv['term']} ({inv['invoice_no']}) — {_school_money(inv['balance'], cur)} "
+                f"of {_school_money(inv['total'], cur)}, due {inv['due_date']}"
+                + (" ⚠️ overdue" if inv["status"] == "overdue" else "")
+            )
+    else:
+        lines.append("\n✅ All invoices are fully paid.")
+    lines.append("\n_Reply *3* to pay | *0* to go back_")
+    return "\n".join(lines)
+
+
+def format_school_payments(acct):
+    cur  = acct.get("currency", "USD")
+    pays = acct.get("recent_payments", [])
+    if not pays:
+        return "🧾 No payments recorded yet.\n\n_Reply *0* to go back._"
+    lines = [f"🧾 *Recent Payments — {acct['student']['name']}*", "━━━━━━━━━━━━━━━━━━━━━━━━━"]
+    for p in pays:
+        lines.append(f"• {p['paid_on']} — *{_school_money(p['amount'], cur)}* "
+                     f"({p['method']}) receipt {p['receipt_no']}")
+    lines.append("\n_Reply *0* to go back_")
+    return "\n".join(lines)
+
+
+def format_school_announcements(data):
+    items = data.get("announcements", [])
+    if not items:
+        return "📢 No announcements right now.\n\n_Reply *0* to go back._"
+    lines = [f"📢 *{data.get('school_name', 'School')} Announcements*", "━━━━━━━━━━━━━━━━━━━━━━━━━"]
+    for a in items:
+        pin  = "📌 " if a.get("pinned") else ""
+        body = a["body"] if len(a["body"]) <= 300 else a["body"][:297] + "..."
+        lines.append(f"\n{pin}*{a['title']}* ({a['date']})\n{body}")
+    lines.append("\n_Reply *0* to go back_")
+    return "\n".join(lines)
+
+
+def _school_receipt_text(student_name, amount, receipt_no, outstanding, credit, currency="USD",
+                         reference=None):
+    text = (
+        "✅ *School Fees Payment Received*\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🎓 Student : {student_name}\n"
+        f"💵 Amount  : *{_school_money(amount, currency)}*\n"
+        f"🧾 Receipt : *{receipt_no}*\n"
+    )
+    if reference:
+        text += f"📌 Ref     : {reference}\n"
+    text += f"\nOutstanding balance: *{_school_money(outstanding, currency)}*"
+    if credit:
+        text += f"\nCredit on account  : {_school_money(credit, currency)}"
+    return text
+
+
+def _record_school_fee(row):
+    """Post a Paynow-confirmed fee payment (already claimed) to the school system.
+
+    Returns the WhatsApp message for the parent. If the school system can't be
+    reached the money is still safe at Paynow, so the admin is told to retry.
+    """
+    ref = row["reference"]
+    try:
+        res = school_client.record_payment(row["student_id"], row["phone"], row["amount"], ref)
+    except school_client.SchoolApiError as e:
+        finish_school_fee_payment(ref, "record_failed")
+        notify_admin(
+            f"⚠️ *School fee paid but NOT recorded*\n"
+            f"Ref     : {ref}\n"
+            f"Parent  : {row['phone']}\n"
+            f"Student : {row['student_name']} (id {row['student_id']})\n"
+            f"Amount  : ${row['amount']} via {row['provider']}\n"
+            f"Error   : {e}\n\n"
+            f"Once the school system is reachable, reply: *school retry {ref}*"
+        )
+        return (
+            "✅ *Payment Received*\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"Your payment of *${row['amount']}* for {row['student_name']} was confirmed.\n"
+            f"📌 Ref: *{ref}*\n\n"
+            "Your official school receipt will be sent to you shortly. "
+            "Please keep this reference."
+        )
+    finish_school_fee_payment(ref, "recorded", res.get("receipt_no"))
+    acct = res.get("account") or {}
+    return _school_receipt_text(
+        row["student_name"], res.get("amount", row["amount"]), res.get("receipt_no", "—"),
+        acct.get("outstanding", 0), acct.get("credit", 0), reference=ref,
+    )
 
 
 # ── Formatters ────────────────────────────────────────────────────────────────
@@ -1051,7 +1247,8 @@ def run_marketing_campaign(campaign_id):
 
 # ── Paynow / EcoCash payment ──────────────────────────────────────────────────
 
-def initiate_ecocash_payment(phone_number, amount, reference, buyer_email="buyer@ttech.co.zw", mobile_method="ecocash"):
+def initiate_ecocash_payment(phone_number, amount, reference, buyer_email="buyer@ttech.co.zw", mobile_method="ecocash",
+                             description=None):
     """Initiate mobile money payment via Paynow. mobile_method: ecocash | onemoney | innbucks"""
     if not PAYNOW_INTEGRATION_ID or not PAYNOW_INTEGRATION_KEY:
         return {"success": False, "error": "Payment gateway not configured."}
@@ -1067,7 +1264,7 @@ def initiate_ecocash_payment(phone_number, amount, reference, buyer_email="buyer
             f"{BASE_URL}/paynow/result",
         )
         payment = pn.create_payment(reference, buyer_email)
-        payment.add(f"T-Tech Connect Order {reference}", amount)
+        payment.add(description or f"T-Tech Connect Order {reference}", amount)
         # Normalize phone: 263XXXXXXXXX → 07XXXXXXXXX (Paynow wants local format)
         local_phone = phone_number.lstrip("+")
         if local_phone.startswith("263"):
@@ -1861,6 +2058,15 @@ def handle_session(phone, msg_text, session):
             return go_find_service_menu(phone)
         if state.startswith("svc_enq") or state.startswith("svc_review") or state.startswith("svc_offer"):
             return go_find_service_menu(phone)
+        if state == "ctx_school_student":
+            students = data.get("students", [])
+            if len(students) > 1:
+                set_session(phone, "ctx_school",
+                            {k: data[k] for k in _SCHOOL_SESSION_KEYS if k in data and k != "student"})
+                return format_school_children(data.get("guardian", ""), students)
+            return go_welcome(phone)
+        if state.startswith("ctx_school_"):
+            return _school_student_menu(phone, data)
         # All admin sub-states → go back to admin dashboard
         if state == "ctx_admin_seller_reject_reason":
             clear_session(phone)
@@ -1875,7 +2081,7 @@ def handle_session(phone, msg_text, session):
         return go_welcome(phone)
 
     # Top-level numbers work from anywhere mid-session
-    if msg_text in ("1", "2", "3", "4", "5", "6") and state not in (
+    if msg_text in ("1", "2", "3", "4", "5", "6", "7") and state not in (
         "ctx_buyer", "ctx_seller", "ctx_accommodation",
         "ctx_find_service", "ctx_svc_cats", "ctx_svc_results", "ctx_svc_detail",
         "ctx_categories", "ctx_cat_group", "ctx_city_select",
@@ -1897,6 +2103,7 @@ def handle_session(phone, msg_text, session):
         "ctx_admin_new_seller", "ctx_admin_new_seller_reject", "ctx_admin_new_seller_more_info",
         "cancel_order_reason", "refund_request_desc",
     ) and not state.startswith("ctx_admin") \
+      and not state.startswith("ctx_school") \
       and not state.startswith("svc_") \
       and not state.startswith("prod_review"):
         clear_session(phone)
@@ -1906,6 +2113,7 @@ def handle_session(phone, msg_text, session):
         if msg_text == "4": return go_accommodation_menu(phone)
         if msg_text == "5": return get_contact_response()
         if msg_text == "6": return go_pharmacy_menu(phone)
+        if msg_text == "7": return go_school_menu(phone)
 
 
     # ── Menu context: main buyer menu ─────────────────────────────────────────
@@ -4437,6 +4645,163 @@ def handle_session(phone, msg_text, session):
     # public) — a request only ever reaches admin-verified pharmacies privately,
     # who quote via the same "quote <ref> <price>" command as service quotes.
 
+    # ── School fees ───────────────────────────────────────────────────────────
+    if state == "ctx_school":
+        students = data.get("students", [])
+        if msg_text.isdigit() and 1 <= int(msg_text) <= len(students):
+            return _school_student_menu(phone, {**data, "student": students[int(msg_text) - 1]})
+        return format_school_children(data.get("guardian", ""), students)
+
+    # ctx_school_view = a balance/payments/announcements screen; it accepts the
+    # same choices as the child's menu, but "0" returns to that menu.
+    if state in ("ctx_school_student", "ctx_school_view"):
+        student = data.get("student", {})
+        if msg_text in ("1", "2", "3"):
+            try:
+                acct = school_client.get_account(student.get("id"), phone)
+            except school_client.SchoolApiError as e:
+                print(f"[SCHOOL] account lookup failed: {e}")
+                return _school_unavailable()
+            if msg_text in ("1", "2"):
+                set_session(phone, "ctx_school_view", data)
+                return format_school_balance(acct) if msg_text == "1" else format_school_payments(acct)
+            outstanding = acct.get("summary", {}).get("outstanding", 0)
+            if acct.get("currency", "USD") != "USD":
+                return (
+                    f"💳 Online payment is only available for USD fees. Please pay "
+                    f"{acct.get('school_name', 'the school')} directly.\n\n_Reply *0* to go back._"
+                )
+            if outstanding <= 0:
+                return "🎉 Nothing to pay — all fees are settled.\n\n_Reply *0* to go back._"
+            set_session(phone, "ctx_school_pay_amount", {**data, "outstanding": outstanding})
+            return (
+                f"💳 *Pay Fees — {student.get('name')}*\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"Outstanding: *${outstanding:,.2f}*\n\n"
+                f"Reply *1* to pay the full ${outstanding:,.2f}\n"
+                "or type the amount you want to pay, e.g. *50.00*\n\n"
+                "_Reply *0* to go back._"
+            )
+        if msg_text == "4":
+            try:
+                reply = format_school_announcements(school_client.get_announcements())
+                set_session(phone, "ctx_school_view", data)
+                return reply
+            except school_client.SchoolApiError as e:
+                print(f"[SCHOOL] announcements failed: {e}")
+                return _school_unavailable()
+        return _school_student_menu(phone, data)
+
+    if state == "ctx_school_pay_amount":
+        from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+        outstanding = Decimal(str(data.get("outstanding", 0))).quantize(Decimal("0.01"))
+        if msg_text == "1":
+            amount = outstanding
+        else:
+            raw = msg_text.replace("$", "").replace("usd", "").replace(",", "").strip()
+            try:
+                amount = Decimal(raw).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            except InvalidOperation:
+                return "❌ Please type an amount like *50.00*, or *1* for the full balance."
+        if amount <= 0 or amount > outstanding:
+            return (
+                f"❌ Amount must be between $0.01 and the outstanding ${outstanding:,.2f}.\n\n"
+                "_Type an amount, or *0* to go back._"
+            )
+        set_session(phone, "ctx_school_pay_method", {**data, "amount": str(amount)})
+        return (
+            f"💳 Paying *${amount:,.2f}* for {data.get('student', {}).get('name')}\n\n"
+            "Choose how to pay:\n"
+            "1️⃣  — 📱 EcoCash\n"
+            "2️⃣  — 🟠 OneMoney\n\n"
+            "_Reply *1* or *2* | *0* to go back_"
+        )
+
+    if state == "ctx_school_pay_method":
+        provider = _SCHOOL_PROVIDERS.get(msg_text)
+        if not provider:
+            return "Reply *1* for EcoCash or *2* for OneMoney | *0* to go back"
+        label = _PAYNOW_LABEL[provider]
+        local = "0" + phone[3:] if phone.startswith("263") else phone
+        set_session(phone, "ctx_school_pay_phone", {**data, "provider": provider})
+        return (
+            f"📱 *{label} number*\n\n"
+            f"Reply *1* to pay from this number ({local})\n"
+            f"or type the {label} number to charge, e.g. *0771234567*\n\n"
+            "_Reply *0* to go back._"
+        )
+
+    if state == "ctx_school_pay_phone":
+        provider = data.get("provider", "ecocash")
+        label    = _PAYNOW_LABEL.get(provider, provider.title())
+        student  = data.get("student", {})
+        if msg_text == "1":
+            pay_phone = "0" + phone[3:] if phone.startswith("263") else phone
+        else:
+            pay_phone = msg_text.strip().replace(" ", "").lstrip("+")
+        if not (pay_phone.isdigit() and len(pay_phone) >= 9):
+            return f"❌ Please enter a valid {label} number, e.g. *0771234567*"
+        amount = data.get("amount", "0")
+        ref    = f"SCH-{uuid.uuid4().hex[:8].upper()}"
+        result = initiate_ecocash_payment(
+            pay_phone, float(amount), ref, mobile_method=provider,
+            description=f"School fees {student.get('admission_no', '')} {ref}",
+        )
+        if not result["success"]:
+            set_session(phone, "ctx_school_pay_method", data)
+            return (
+                f"❌ {label} payment could not be started.\n"
+                f"Reason: {result.get('error', 'Unknown error')}\n\n"
+                "Reply *1* EcoCash | *2* OneMoney to try again | *0* to go back"
+            )
+        save_school_fee_payment(ref, phone, student.get("id"), student.get("name", ""),
+                                amount, provider, pay_phone, result.get("poll_url"))
+        set_session(phone, "ctx_school_pay_pending", {
+            **{k: data[k] for k in _SCHOOL_SESSION_KEYS if k in data},
+            "reference": ref, "poll_url": result.get("poll_url"),
+        })
+        return (
+            f"📱 *{label} Payment Request Sent*\n\n"
+            f"Amount : *${float(amount):,.2f}*\n"
+            f"Phone  : {pay_phone}\n"
+            f"Ref    : *{ref}*\n\n"
+            f"✅ Approve the prompt on your phone with your {label} PIN.\n"
+            "Your school receipt will arrive here automatically — "
+            "or reply *paid* once you've approved it.\n\n"
+            "_Reply *0* to go back._"
+        )
+
+    if state == "ctx_school_pay_pending":
+        ref = data.get("reference", "")
+        if msg_text != "paid":
+            return (
+                f"⏳ Waiting for payment *{ref}*.\n\n"
+                "Reply *paid* once you've approved the prompt, or *0* to go back "
+                "(an approved payment is still recorded automatically)."
+            )
+        row = get_school_fee_payment(ref)
+        if row and row["status"] == "pending":
+            if not check_paynow_status(data.get("poll_url")):
+                return (
+                    "⏳ *We haven't received confirmation of that payment yet.*\n\n"
+                    "If you already approved the prompt, wait a minute and reply *paid* again.\n\n"
+                    "_Reply *0* to go back._"
+                )
+            claimed = claim_school_fee_payment(ref)
+            if claimed:
+                reply = _record_school_fee(claimed)
+                set_session(phone, "ctx_school_view", {k: data[k] for k in _SCHOOL_SESSION_KEYS if k in data})
+                return reply + "\n\n_Reply *0* to go back._"
+            row = get_school_fee_payment(ref)
+        set_session(phone, "ctx_school_view", {k: data[k] for k in _SCHOOL_SESSION_KEYS if k in data})
+        if row and row["status"] == "recorded":
+            return (f"✅ Payment *{ref}* is complete — receipt *{row['receipt_no']}* "
+                    "was sent to you.\n\n_Reply *0* to go back._")
+        if row and row["status"] in ("recording", "record_failed"):
+            return (f"✅ Payment *{ref}* was confirmed. Your school receipt will be sent "
+                    "shortly.\n\n_Reply *0* to go back._")
+        return "⚠️ We couldn't find that payment. Reply *3* to start a new one."
+
     if state == "ctx_pharmacy":
         if msg_text == "1":
             set_session(phone, "ctx_pharmacy_desc", {"requires_prescription": False})
@@ -5304,6 +5669,21 @@ def handle_admin(msg_text, phone):
     if msg_text in ("admin", "panel", "dashboard"):
         return build_admin_dashboard(phone)
 
+    # Re-send a Paynow-confirmed school fee payment that the school system
+    # couldn't record at the time (its API is idempotent per reference).
+    if msg_text.startswith("school retry "):
+        ref = msg_text.split()[-1].upper()
+        row = get_school_fee_payment(ref)
+        if not row:
+            return f"❌ No school fee payment with reference *{ref}*."
+        if row["status"] != "record_failed":
+            return f"ℹ️ *{ref}* is '{row['status']}' — nothing to retry."
+        reply = _record_school_fee(row)
+        if get_school_fee_payment(ref)["status"] == "recorded":
+            send_whatsapp_message(row["phone"], reply)
+            return f"✅ *{ref}* recorded in the school system and the parent was sent the receipt."
+        return f"❌ *{ref}* still couldn't be recorded — check the school system and retry."
+
     # Quick shortcut commands
     if msg_text == "sellers":
         return _show_sellers_list(phone, status="pending")
@@ -5837,20 +6217,22 @@ def handle_message(phone, msg_text):
                 "🔧 *Services* — Find plumbers, tutors, photographers & more\n"
                 "💼 *Sell* — Register as a vendor & start earning\n"
                 "🏠 *Accommodation* — Find rooms & flats across Zimbabwe\n"
-                "💊 *Pharmacy* — Request medication from a licensed pharmacy\n\n"
+                "💊 *Pharmacy* — Request medication from a licensed pharmacy\n"
+                "🎓 *School Fees* — Check balances & pay your child's school fees\n\n"
                 "💡 *Useful commands:*\n"
                 "• Reply *help* — see all commands\n"
                 "• Reply *search <item>* — find any product\n"
                 "• Reply *my profile* — save your name & delivery address\n"
                 "• Reply *referral* — get your referral link\n\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                "Reply *1–6* below to get started:\n\n"
+                "Reply *1–7* below to get started:\n\n"
                 "1️⃣  🛒 Buy Products\n"
                 "2️⃣  🔧 Find a Service\n"
                 "3️⃣  💼 Become a Vendor\n"
                 "4️⃣  🏠 Find Accommodation\n"
                 "5️⃣  📬 Contact & Support\n"
-                "6️⃣  💊 Pharmacy"
+                "6️⃣  💊 Pharmacy\n"
+                "7️⃣  🎓 School Fees"
             )
         return go_welcome(phone, with_image=True)
 
@@ -5870,6 +6252,8 @@ def handle_message(phone, msg_text):
         return get_contact_response()
     if msg_text == "6":
         return go_pharmacy_menu(phone)
+    if msg_text == "7":
+        return go_school_menu(phone)
 
     # Admin
     if phone == ADMIN_PHONE:
@@ -8242,6 +8626,26 @@ def analytics_web():
     return html
 
 
+@app.route("/school/notify", methods=["POST"])
+def school_notify():
+    """Events from the School Financial Management System, signed with SCHOOL_API_KEY.
+
+    payment_recorded: a payment taken at the school (cash, bank...) → WhatsApp
+    receipt to the guardian.
+    """
+    raw = request.get_data()
+    if not school_client.verify_notification(raw, request.headers.get("X-School-Signature", "")):
+        print("[SECURITY] /school/notify signature mismatch — rejected")
+        return "Forbidden", 403
+    data = request.get_json(silent=True) or {}
+    if data.get("event") == "payment_recorded" and data.get("phone"):
+        send_whatsapp_message(data["phone"], _school_receipt_text(
+            data.get("student", ""), data.get("amount", 0), data.get("receipt_no", "—"),
+            data.get("outstanding", 0), data.get("credit", 0), data.get("currency", "USD"),
+        ) + f"\n\n_{data.get('school_name', '')} — reply *7* for school fees._")
+    return jsonify({"status": "ok"}), 200
+
+
 @app.route("/paynow/result", methods=["POST"])
 def paynow_result():
     """Paynow sends payment confirmation here."""
@@ -8255,6 +8659,13 @@ def paynow_result():
     ref    = form.get("reference", "")
 
     if status != "paid" or not ref:
+        return "OK", 200
+
+    # School fees: the parent may never reply "paid", so the webhook records it too.
+    if ref.startswith("SCH-"):
+        claimed = claim_school_fee_payment(ref)
+        if claimed:
+            send_whatsapp_message(claimed["phone"], _record_school_fee(claimed))
         return "OK", 200
 
     # Look for a pending viewing fee whose payment_method ends with this reference

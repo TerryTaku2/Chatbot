@@ -582,6 +582,27 @@ def init_db():
     cursor.execute("UPDATE pending_cart_payments SET cart_id = buyer_phone WHERE cart_id IS NULL")
     cursor.execute("ALTER TABLE pending_cart_payments ADD COLUMN IF NOT EXISTS poll_url TEXT")
 
+    # School-fee payments made through the WhatsApp "School Fees" menu. Same
+    # two-path claim as pending_cart_payments: the parent's "paid" reply and
+    # the /paynow/result webhook race to flip pending → recording, and only
+    # the winner records the payment in the School Financial Management System.
+    # status: pending | recording | recorded | record_failed
+    cursor.execute(f"""
+        CREATE TABLE IF NOT EXISTS school_fee_payments (
+            reference    TEXT PRIMARY KEY,
+            phone        TEXT NOT NULL,
+            student_id   INTEGER NOT NULL,
+            student_name TEXT NOT NULL,
+            amount       TEXT NOT NULL,
+            provider     TEXT NOT NULL,
+            pay_phone    TEXT NOT NULL,
+            poll_url     TEXT,
+            status       TEXT NOT NULL DEFAULT 'pending',
+            receipt_no   TEXT,
+            created_at   TEXT DEFAULT {NOW_SQL}
+        )
+    """)
+
     cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS seller_expenses (
             id          SERIAL PRIMARY KEY,
@@ -1040,6 +1061,56 @@ def claim_pending_cart_payment(reference):
     conn.commit()
     conn.close()
     return row
+
+
+def save_school_fee_payment(reference, phone, student_id, student_name, amount,
+                            provider, pay_phone, poll_url):
+    """amount is a decimal string ("25.50") so it reaches the school system exactly."""
+    conn = get_connection()
+    conn.execute(
+        """INSERT INTO school_fee_payments
+               (reference, phone, student_id, student_name, amount, provider, pay_phone, poll_url)
+           VALUES (?,?,?,?,?,?,?,?)
+           ON CONFLICT (reference) DO NOTHING""",
+        (reference, phone, student_id, student_name, amount, provider, pay_phone, poll_url)
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_school_fee_payment(reference):
+    conn = get_connection()
+    row  = conn.execute(
+        "SELECT * FROM school_fee_payments WHERE reference=?", (reference,)
+    ).fetchone()
+    conn.close()
+    return row
+
+
+def claim_school_fee_payment(reference):
+    """Atomically flips pending → recording and returns the row; only the first
+    caller (parent's "paid" reply or the Paynow webhook) gets it."""
+    conn   = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """UPDATE school_fee_payments SET status='recording'
+           WHERE reference=? AND status='pending' RETURNING *""",
+        (reference,)
+    )
+    row = cursor.fetchone()
+    conn.commit()
+    conn.close()
+    return row
+
+
+def finish_school_fee_payment(reference, status, receipt_no=None):
+    conn = get_connection()
+    conn.execute(
+        "UPDATE school_fee_payments SET status=?, receipt_no=? WHERE reference=?",
+        (status, receipt_no, reference)
+    )
+    conn.commit()
+    conn.close()
 
 
 def get_all_products():
