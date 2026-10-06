@@ -1,8 +1,10 @@
 """Client for the School Financial Management System's chatbot integration API.
 
-The school system runs as its own service (see "School Financial Management
-System/README.md"). Every call passes the parent's WhatsApp number, and the
-school system only returns students whose guardian has that number.
+The school system is served by this same process at BASE_URL/school (see
+school_mount.py), so by default this talks to it there with a key derived
+from FLASK_SECRET_KEY. Set SCHOOL_API_URL / SCHOOL_API_KEY only to point at a
+separately hosted school system. Every call passes the parent's WhatsApp
+number, and the school system only returns students whose guardian has it.
 """
 import hashlib
 import hmac
@@ -11,10 +13,14 @@ import os
 import requests
 from dotenv import load_dotenv
 
+from school_mount import MOUNT_PATH, derive_key
+
 load_dotenv()
 
-SCHOOL_API_URL = os.getenv("SCHOOL_API_URL", "").rstrip("/")
-SCHOOL_API_KEY = os.getenv("SCHOOL_API_KEY", "")
+SCHOOL_API_URL = (os.getenv("SCHOOL_API_URL")
+                  or os.getenv("BASE_URL", "http://localhost:5000").rstrip("/") + MOUNT_PATH).rstrip("/")
+SCHOOL_API_KEY = (os.getenv("SCHOOL_API_KEY")
+                  or (derive_key(os.getenv("FLASK_SECRET_KEY"), "api") if os.getenv("FLASK_SECRET_KEY") else ""))
 TIMEOUT = 15
 
 

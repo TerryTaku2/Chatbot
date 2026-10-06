@@ -190,6 +190,29 @@ PAYNOW_INTEGRATION_ID   = os.getenv("PAYNOW_INTEGRATION_ID", "")
 PAYNOW_INTEGRATION_KEY  = os.getenv("PAYNOW_INTEGRATION_KEY", "")
 WA_BUSINESS_NUMBER      = os.getenv("WHATSAPP_BUSINESS_NUMBER", ADMIN_PHONE)
 
+# ── School Financial Management System, served at /school ────────────────────
+# Mounted as a separate WSGI app (own package, DB schema and cookies — see
+# school_mount.py). A failure here must not take the WhatsApp shop down with
+# it, so /school answers 503 instead and the error is logged.
+from werkzeug.middleware.dispatcher import DispatcherMiddleware
+from school_mount import MOUNT_PATH as SCHOOL_MOUNT_PATH, create_school_app
+
+try:
+    _school_wsgi = create_school_app(
+        os.getenv("SCHOOL_DATABASE_URL") or os.getenv("DATABASE_URL"),
+        app.secret_key, BASE_URL,
+    )
+except Exception:
+    import traceback
+    traceback.print_exc()
+    print("[SCHOOL] School Financial Management System failed to start — /school is offline")
+
+    def _school_wsgi(environ, start_response):
+        start_response("503 Service Unavailable", [("Content-Type", "text/plain; charset=utf-8")])
+        return [b"The school system is temporarily unavailable."]
+
+app.wsgi_app = DispatcherMiddleware(app.wsgi_app, {SCHOOL_MOUNT_PATH: _school_wsgi})
+
 ZIM_CITIES = [
     "Harare", "Bulawayo", "Mutare", "Gweru",
     "Masvingo", "Chinhoyi", "Victoria Falls",
@@ -8626,7 +8649,7 @@ def analytics_web():
     return html
 
 
-@app.route("/school/notify", methods=["POST"])
+@app.route("/webhooks/school", methods=["POST"])
 def school_notify():
     """Events from the School Financial Management System, signed with SCHOOL_API_KEY.
 
@@ -8635,7 +8658,7 @@ def school_notify():
     """
     raw = request.get_data()
     if not school_client.verify_notification(raw, request.headers.get("X-School-Signature", "")):
-        print("[SECURITY] /school/notify signature mismatch — rejected")
+        print("[SECURITY] /webhooks/school signature mismatch — rejected")
         return "Forbidden", 403
     data = request.get_json(silent=True) or {}
     if data.get("event") == "payment_recorded" and data.get("phone"):

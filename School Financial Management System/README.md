@@ -31,12 +31,23 @@ The T-Tech Connect WhatsApp chatbot (the parent repository) gives parents a **�
 
 Parents are identified only by their WhatsApp number. It must match the **guardian phone** recorded on the student. Any format works (`+263 77 123 4567`, `0771234567`), because numbers are compared after normalising.
 
-Run both apps as separate services. They share a single secret:
+### Where it runs
 
-| School system (this app) | Chatbot | Purpose |
+The chatbot website serves this app at **`/school`** (for example `https://<chatbot-domain>/school/`). It ships with every chatbot deploy and needs no separate service. See `school_mount.py` in the chatbot repository.
+
+- **Database:** its tables are kept in the `school` schema of the chatbot's `DATABASE_URL`. Set `SCHOOL_DATABASE_URL` to use a different database.
+- **First login:** on start-up, if there is no administrator, one is created from `SCHOOL_ADMIN_USERNAME` (default `admin`) and `SCHOOL_ADMIN_PASSWORD`. Without that password nobody can log in.
+- **Settings:** `SCHOOL_NAME`, `CURRENCY` and `MAX_CLASS_LEVEL` are read from the same environment as the chatbot.
+- **Keys:** the integration key and the session secret are derived from the chatbot's `FLASK_SECRET_KEY`, so there is nothing else to configure. Receipts go to the chatbot's `/webhooks/school`.
+
+### Running it on its own
+
+`python run.py` still works and serves the app at `/`. To connect a separately hosted copy to the chatbot, set these:
+
+| School system | Chatbot | Purpose |
 |---|---|---|
-| `CHATBOT_API_KEY` | `SCHOOL_API_KEY` | Same random value on both sides. The chatbot sends it as a Bearer token to `/api/integration/*`. This app uses it to sign the notifications it sends. Leaving it unset switches the integration off. |
-| `CHATBOT_WEBHOOK_URL` | — | `https://<chatbot>/school/notify`. Payments the bursar records here are sent to the guardian on WhatsApp as a receipt. |
+| `CHATBOT_API_KEY` | `SCHOOL_API_KEY` | The same random value on both sides. |
+| `CHATBOT_WEBHOOK_URL` | — | `https://<chatbot>/webhooks/school`, for WhatsApp receipts of payments taken at the school. |
 | — | `SCHOOL_API_URL` | Base URL of this app. |
 | `PHONE_COUNTRY_CODE` | — | Country code for guardian phones stored in local format (default `263`). |
 

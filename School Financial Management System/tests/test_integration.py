@@ -137,7 +137,7 @@ def test_payment_notification_is_signed(app, monkeypatch):
 
     monkeypatch.setattr(notify.threading, "Thread", FakeThread)
     monkeypatch.setattr(notify.urllib.request, "urlopen", fake_urlopen)
-    app.config["CHATBOT_WEBHOOK_URL"] = "http://chatbot.test/school/notify"
+    app.config["CHATBOT_WEBHOOK_URL"] = "http://chatbot.test/webhooks/school"
     try:
         payment = Payment.query.filter_by(void=False).first()
         notify.payment_recorded(payment)

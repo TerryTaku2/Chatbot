@@ -7,6 +7,9 @@ export class ApiError extends Error {
   }
 }
 
+// Path the app is served under ("" standalone, "/school" inside the chatbot).
+const ROOT = document.querySelector('meta[name="app-root"]')?.content || "";
+
 let onUnauthorized = () => {};
 export function setUnauthorizedHandler(fn) { onUnauthorized = fn; }
 
@@ -18,7 +21,7 @@ async function request(method, url, data) {
   }
   let res;
   try {
-    res = await fetch("/api" + url, opts);
+    res = await fetch(ROOT + "/api" + url, opts);
   } catch {
     throw new ApiError("Cannot reach the server. Check your connection.", 0);
   }
