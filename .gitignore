@@ -43,4 +43,4 @@ Thumbs.db
 *.log
 
 # Dev tooling
-ngrok.exe
+ngrok*.exe

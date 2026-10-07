@@ -38,7 +38,7 @@ The chatbot website serves this app at **`/school`** (for example `https://<chat
 - **Database:** its tables are kept in the `school` schema of the chatbot's `DATABASE_URL`. Set `SCHOOL_DATABASE_URL` to use a different database.
 - **First login:** on start-up, if there is no administrator, one is created from `SCHOOL_ADMIN_USERNAME` (default `admin`) and `SCHOOL_ADMIN_PASSWORD`. Without that password nobody can log in.
 - **Settings:** `SCHOOL_NAME`, `CURRENCY` and `MAX_CLASS_LEVEL` are read from the same environment as the chatbot.
-- **Keys:** the integration key and the session secret are derived from the chatbot's `FLASK_SECRET_KEY`, so there is nothing else to configure. Receipts go to the chatbot's `/webhooks/school`.
+- **No domain needed:** the chatbot and this app call each other directly inside the process, not over the internet. WhatsApp option 7 and the receipts work the same on `localhost`, ngrok or a hosting provider's default address, whatever `BASE_URL` is set to. The integration key and session secret are derived from the chatbot's `FLASK_SECRET_KEY`, so there is nothing else to configure.
 
 ### Running it on its own
 

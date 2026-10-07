@@ -25,6 +25,11 @@ SCHOOL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
 MOUNT_PATH = "/school"
 SCHEMA = "school"
 
+# The running school Flask app once create_school_app() has built it; the
+# chatbot's school_client calls it in-process through this, so the link
+# never depends on BASE_URL, a domain name or ngrok.
+mounted_app = None
+
 
 def derive_key(secret, purpose):
     """Stable per-purpose key from FLASK_SECRET_KEY, so no extra secrets are needed."""
@@ -82,8 +87,13 @@ def _ensure_admin(app, school_app, username, password):
         print(f"[SCHOOL] Administrator '{username}' created.")
 
 
-def create_school_app(database_url, secret_key, base_url):
-    """Build the school Flask app configured to live under MOUNT_PATH."""
+def create_school_app(database_url, secret_key, base_url, notify_callback=None):
+    """Build the school Flask app configured to live under MOUNT_PATH.
+
+    notify_callback(event_dict) receives school events (e.g. payment_recorded)
+    directly, instead of over HTTP.
+    """
+    global mounted_app
     is_postgres = database_url.startswith(("postgres://", "postgresql://"))
     if is_postgres:
         _ensure_schema(database_url)
@@ -107,10 +117,12 @@ def create_school_app(database_url, secret_key, base_url):
         REMEMBER_COOKIE_PATH = MOUNT_PATH
         REMEMBER_COOKIE_SECURE = base_url.startswith("https://")
         CHATBOT_API_KEY = os.getenv("SCHOOL_API_KEY") or derive_key(secret_key, "api")
-        CHATBOT_WEBHOOK_URL = base_url.rstrip("/") + "/webhooks/school"
+        CHATBOT_WEBHOOK_URL = ""
+        CHATBOT_NOTIFY_CALLBACK = staticmethod(notify_callback) if notify_callback else None
 
     app = school_app.create_app(MountedConfig)
     _ensure_admin(app, school_app,
                   (os.getenv("SCHOOL_ADMIN_USERNAME") or "admin").strip().lower(),
                   os.getenv("SCHOOL_ADMIN_PASSWORD", ""))
+    mounted_app = app
     return app

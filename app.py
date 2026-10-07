@@ -201,6 +201,8 @@ try:
     _school_wsgi = create_school_app(
         os.getenv("SCHOOL_DATABASE_URL") or os.getenv("DATABASE_URL"),
         app.secret_key, BASE_URL,
+        # Looked up at call time: _handle_school_event is defined further down.
+        notify_callback=lambda event: _handle_school_event(event),
     )
 except Exception:
     import traceback
@@ -8660,13 +8662,17 @@ def school_notify():
     if not school_client.verify_notification(raw, request.headers.get("X-School-Signature", "")):
         print("[SECURITY] /webhooks/school signature mismatch — rejected")
         return "Forbidden", 403
-    data = request.get_json(silent=True) or {}
+    _handle_school_event(request.get_json(silent=True) or {})
+    return jsonify({"status": "ok"}), 200
+
+
+def _handle_school_event(data):
+    """payment_recorded: WhatsApp receipt to the guardian."""
     if data.get("event") == "payment_recorded" and data.get("phone"):
         send_whatsapp_message(data["phone"], _school_receipt_text(
             data.get("student", ""), data.get("amount", 0), data.get("receipt_no", "—"),
             data.get("outstanding", 0), data.get("credit", 0), data.get("currency", "USD"),
         ) + f"\n\n_{data.get('school_name', '')} — reply *7* for school fees._")
-    return jsonify({"status": "ok"}), 200
 
 
 @app.route("/paynow/result", methods=["POST"])

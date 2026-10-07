@@ -1,6 +1,8 @@
 """Outbound notifications to the WhatsApp chatbot.
 
-Events are POSTed as JSON to CHATBOT_WEBHOOK_URL, signed with an HMAC-SHA256
+When this app is mounted inside the chatbot, the chatbot supplies
+CHATBOT_NOTIFY_CALLBACK and events are handed to it directly. Standalone,
+events are POSTed as JSON to CHATBOT_WEBHOOK_URL, signed with an HMAC-SHA256
 of the body using CHATBOT_API_KEY (header `X-School-Signature: sha256=<hex>`).
 Delivery is best-effort on a background thread: a chatbot outage must never
 fail or slow down the school's own work.
@@ -20,11 +22,23 @@ log = logging.getLogger(__name__)
 
 
 def notify_chatbot(event, payload):
+    message = {"event": event, **payload}
+    callback = current_app.config.get("CHATBOT_NOTIFY_CALLBACK")
+    if callback:
+        def deliver():
+            try:
+                callback(message)
+            except Exception as exc:  # noqa: BLE001 - best effort, just log it
+                log.warning("Chatbot notification %s failed: %s", event, exc)
+
+        threading.Thread(target=deliver, daemon=True).start()
+        return
+
     url = current_app.config.get("CHATBOT_WEBHOOK_URL")
     key = current_app.config.get("CHATBOT_API_KEY")
     if not url or not key:
         return
-    data = json.dumps({"event": event, **payload}).encode()
+    data = json.dumps(message).encode()
     signature = hmac.new(key.encode(), data, hashlib.sha256).hexdigest()
     req = urllib.request.Request(url, data=data, method="POST", headers={
         "Content-Type": "application/json",

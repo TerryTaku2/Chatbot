@@ -1,10 +1,11 @@
 """Client for the School Financial Management System's chatbot integration API.
 
-The school system is served by this same process at BASE_URL/school (see
-school_mount.py), so by default this talks to it there with a key derived
-from FLASK_SECRET_KEY. Set SCHOOL_API_URL / SCHOOL_API_KEY only to point at a
-separately hosted school system. Every call passes the parent's WhatsApp
-number, and the school system only returns students whose guardian has it.
+The school system is served by this same process at /school (see
+school_mount.py), so by default calls go straight to it in-process with a key
+derived from FLASK_SECRET_KEY: no URL, domain or ngrok involved. Set
+SCHOOL_API_URL (and SCHOOL_API_KEY) only to use a separately hosted school
+system over HTTP. Every call passes the parent's WhatsApp number, and the
+school system only returns students whose guardian has it.
 """
 import hashlib
 import hmac
@@ -13,12 +14,12 @@ import os
 import requests
 from dotenv import load_dotenv
 
-from school_mount import MOUNT_PATH, derive_key
+import school_mount
+from school_mount import derive_key
 
 load_dotenv()
 
-SCHOOL_API_URL = (os.getenv("SCHOOL_API_URL")
-                  or os.getenv("BASE_URL", "http://localhost:5000").rstrip("/") + MOUNT_PATH).rstrip("/")
+SCHOOL_API_URL = os.getenv("SCHOOL_API_URL", "").rstrip("/")
 SCHOOL_API_KEY = (os.getenv("SCHOOL_API_KEY")
                   or (derive_key(os.getenv("FLASK_SECRET_KEY"), "api") if os.getenv("FLASK_SECRET_KEY") else ""))
 TIMEOUT = 15
@@ -33,26 +34,37 @@ class SchoolApiError(Exception):
 
 
 def is_configured():
-    return bool(SCHOOL_API_URL and SCHOOL_API_KEY)
+    if not SCHOOL_API_KEY:
+        return False
+    return bool(SCHOOL_API_URL) or school_mount.mounted_app is not None
 
 
-def _request(method, path, **kwargs):
+def _request(method, path, params=None, json=None):
     if not is_configured():
         raise SchoolApiError("School integration is not configured")
-    try:
-        resp = requests.request(
-            method, f"{SCHOOL_API_URL}/api/integration{path}",
-            headers={"Authorization": f"Bearer {SCHOOL_API_KEY}"},
-            timeout=TIMEOUT, **kwargs,
-        )
-    except requests.RequestException as e:
-        raise SchoolApiError(f"School system unreachable: {e}")
-    try:
-        data = resp.json()
-    except ValueError:
-        data = {}
-    if resp.status_code >= 400:
-        raise SchoolApiError(data.get("error") or f"HTTP {resp.status_code}", resp.status_code)
+    headers = {"Authorization": f"Bearer {SCHOOL_API_KEY}"}
+    if SCHOOL_API_URL:
+        try:
+            resp = requests.request(method, f"{SCHOOL_API_URL}/api/integration{path}",
+                                    headers=headers, params=params, json=json, timeout=TIMEOUT)
+        except requests.RequestException as e:
+            raise SchoolApiError(f"School system unreachable: {e}")
+        status = resp.status_code
+        try:
+            data = resp.json()
+        except ValueError:
+            data = {}
+    else:
+        try:
+            resp = school_mount.mounted_app.test_client().open(
+                f"/api/integration{path}", method=method, headers=headers,
+                query_string=params, json=json)
+        except Exception as e:  # noqa: BLE001 - surface as a normal school error
+            raise SchoolApiError(f"School system error: {e}")
+        status = resp.status_code
+        data = resp.get_json(silent=True) or {}
+    if status >= 400:
+        raise SchoolApiError(data.get("error") or f"HTTP {status}", status)
     return data
 
 

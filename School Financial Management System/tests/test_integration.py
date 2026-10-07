@@ -152,3 +152,29 @@ def test_payment_notification_is_signed(app, monkeypatch):
     assert data["event"] == "payment_recorded"
     assert data["receipt_no"] == payment.receipt_no
     assert data["phone"] == normalize_phone(payment.student.guardian.phone)
+
+
+def test_payment_notification_uses_callback_when_mounted(app, monkeypatch):
+    """Inside the chatbot, events go straight to its callback: no URL needed."""
+    received = []
+
+    class FakeThread:
+        def __init__(self, target, daemon):
+            self.target = target
+
+        def start(self):
+            self.target()
+
+    monkeypatch.setattr(notify.threading, "Thread", FakeThread)
+    monkeypatch.setattr(notify.urllib.request, "urlopen",
+                        lambda *a, **k: pytest.fail("must not use HTTP when a callback is set"))
+    app.config["CHATBOT_NOTIFY_CALLBACK"] = received.append
+    try:
+        payment = Payment.query.filter_by(void=False).first()
+        notify.payment_recorded(payment)
+    finally:
+        app.config.pop("CHATBOT_NOTIFY_CALLBACK")
+
+    assert len(received) == 1
+    assert received[0]["event"] == "payment_recorded"
+    assert received[0]["receipt_no"] == payment.receipt_no
