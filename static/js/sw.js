@@ -49,7 +49,9 @@ self.addEventListener('fetch', e => {
     url.pathname.startsWith('/socket.io/') ||
     url.pathname.startsWith('/admin') ||
     url.pathname.startsWith('/accommodation/admin') ||
-    url.pathname.startsWith('/seller/')
+    url.pathname.startsWith('/seller/') ||
+    /* School system: signed-in financial data must never sit in the offline cache */
+    url.pathname.startsWith('/school/')
   ) return;
 
   /* Static assets — cache first, then network */
